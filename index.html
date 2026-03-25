@@ -331,7 +331,7 @@
   </div>
   <div id="resultado-busca"></div>
   <div class="alocar-rapido">
-    <div class="alocar-rapido-title">📋 Marcação em Bloco</div>
+    <div class="alocar-rapido-title">📋 Registrar Filas</div>
     <datalist id="lista-filas-rapido"></datalist>
     <datalist id="lista-linhas-rapido"></datalist>
     <div id="painel-bloco">
@@ -738,13 +738,20 @@ function renderPatio(){
   // Sempre exibe filas normalmente
   container.innerHTML=FILAS_NUM.map(f=>{
     const onibus=state.filas[f];
-    const chips=onibus.map(o=>`<div class="chip" onclick="abrirEdicaoChip('${o.frota}','${f}',false)">
+    const chips=onibus.map(o=>{
+      const cadastro = state.frota.find(x=>String(x.frota)===String(o.frota));
+      const hora = cadastro&&cadastro.hora ? cadastro.hora : '';
+      return `<div class="chip" onclick="abrirEdicaoChip('${o.frota}','${f}',false)">
         <div style="display:flex;flex-direction:column;gap:1px">
-          <span>${o.frota}</span>
-          <span style="font-size:10px;color:var(--accent);font-weight:400">${o.pos?'P.'+o.pos+' ':''} ${o.linha?'L.'+o.linha:''}</span>
+          <div style="display:flex;align-items:center;gap:6px">
+            <span>${o.frota}</span>
+            ${hora?`<span style="font-size:10px;color:#aaa;font-weight:400">${hora}</span>`:''}
+          </div>
+          <span style="font-size:10px;color:var(--accent);font-weight:400">${o.pos?'P.'+o.pos:''}${o.linha?' L.'+o.linha:''}</span>
         </div>
         <span style="font-size:14px;color:var(--muted)">✎</span>
-      </div>`).join('');
+      </div>`;
+    }).join('');
     return `<div class="card">
       <div class="card-header">
         <div style="display:flex;align-items:center;gap:10px"><div class="fila-num">${f}</div><div class="fila-label">Fila ${f}</div></div>
@@ -758,13 +765,20 @@ function renderPatio(){
 function renderEspeciais(){
   document.getElementById('especiais-container').innerHTML=ESPECIAIS.map(e=>{
     const onibus=state.especiais[e.key];
-    const chips=onibus.map(o=>`<div class="chip" onclick="abrirEdicaoChip('${o.frota}','${e.key}',true)">
+    const chips=onibus.map(o=>{
+      const cadastro = state.frota.find(x=>String(x.frota)===String(o.frota));
+      const hora = cadastro&&cadastro.hora ? cadastro.hora : '';
+      return `<div class="chip" onclick="abrirEdicaoChip('${o.frota}','${e.key}',true)">
         <div style="display:flex;flex-direction:column;gap:1px">
-          <span>${o.frota}</span>
-          ${o.linha?`<span style="font-size:10px;color:var(--accent);font-weight:400">${o.linha}</span>`:''}
+          <div style="display:flex;align-items:center;gap:6px">
+            <span>${o.frota}</span>
+            ${hora?`<span style="font-size:10px;color:#aaa;font-weight:400">${hora}</span>`:''}
+          </div>
+          ${o.linha?`<span style="font-size:10px;color:var(--accent);font-weight:400">${o.pos?'P.'+o.pos+' ':''}L.${o.linha}</span>`:''}
         </div>
         <span style="font-size:13px;color:var(--muted)">✎</span>
-      </div>`).join('');
+      </div>`;
+    }).join('');
     return `<div class="card">
       <div class="card-header">
         <div style="display:flex;align-items:center;gap:10px">
