@@ -7,9 +7,9 @@
 ---
 
 ## 🎯 Visão Estratégica: O Fim do Gargalo na Soltura
-Na operação de transportes urbanos, **tempo de pátio é frota fora da rua**. A soltura da frota é o momento mais crítico da operação diária. Processos manuais, pranchetas e desvios de comunicação geram lentidão, veículos retidos de forma invisível e atrasos no início da linha.
+"Em transportes urbanos, cada minuto no pátio é um minuto a menos na rua. Este sistema nasceu para eliminar gargalos, acelerar a saída da frota e garantir que cada ônibus chegue ao ponto certo, na hora certa."**. A soltura da frota é o momento mais crítico da operação diária. Processos manuais, pranchetas e desvios de comunicação geram lentidão, veículos retidos de forma invisível e atrasos no início da linha.
 
-Este protótipo foi projetado com uma mentalidade pragmática para resolver essa dor exata: digitalizar o chão de fábrica da Garagem 3, garantindo **agilidade, precisão e celeridade** na alocação e liberação dos ônibus.
+Este protótipo foi projetado com uma mentalidade pragmática para resolver essa dor exata: digitalizar o pátio da Garagem 3 Sambaíba, garantindo **agilidade, precisão e celeridade** na alocação e liberação dos ônibus.
 
 ## 🚀 Funcionalidades de Impacto Imediato
 A ferramenta foi codificada para se adaptar ao fluxo da garagem, e não o contrário:
