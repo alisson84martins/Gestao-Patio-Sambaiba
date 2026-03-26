@@ -79,6 +79,7 @@
   .esp-coqueiro{border-top:3px solid #10b981}.esp-laje{border-top:3px solid #3b82f6}
   .esp-lavador{border-top:3px solid #8b5cf6}.esp-bomba{border-top:3px solid #f59e0b}
   .esp-eletricos{border-top:3px solid #06b6d4}.esp-fundao{border-top:3px solid #ef4444}
+  .esp-manutencao{border-top:3px solid #f97316}
 
   .modal-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.85);z-index:200;align-items:flex-end;justify-content:center}
   .modal-overlay.open{display:flex}
@@ -208,6 +209,32 @@
   }
   #print-area { display: none; }
 
+  /* Status badges nos chips */
+  .chip-status { font-size: 9px; font-weight: 800; padding: 1px 5px; border-radius: 3px; letter-spacing: 0.5px; text-transform: uppercase; }
+  .chip-status-preso    { background: #7f1d1d; color: #fca5a5; }
+  .chip-status-amostral { background: #78350f; color: #fcd34d; }
+  .chip-status-manutencao { background: #1e3a5f; color: #93c5fd; }
+  .chip-status-evento   { background: #3b1f6e; color: #d8b4fe; }
+
+  /* Submenu */
+  .menu-dots-submenu { display: none; background: var(--bg); border-top: 1px solid var(--border); }
+  .menu-dots-submenu.open { display: block; }
+  .menu-dots-subitem { display: flex; align-items: center; gap: 10px; padding: 10px 16px 10px 28px; font-family: var(--display); font-size: 13px; font-weight: 700; color: var(--muted); cursor: pointer; border-bottom: 1px solid var(--border); transition: background .15s; text-transform: uppercase; letter-spacing: 0.5px; }
+  .menu-dots-subitem:last-child { border-bottom: none; }
+  .menu-dots-subitem:hover { background: var(--surface2); color: var(--text); }
+  .menu-dots-subitem.danger { color: var(--accent2); }
+  .menu-dots-parent { display: flex; align-items: center; justify-content: space-between; }
+  .menu-dots-arrow { font-size: 12px; transition: transform .2s; }
+  .menu-dots-arrow.open { transform: rotate(90deg); }
+
+  /* Modal escala completa */
+  .escala-table { width: 100%; border-collapse: collapse; }
+  .escala-table th { background: var(--surface2); padding: 8px 10px; font-family: var(--mono); font-size: 11px; font-weight: 700; color: var(--muted); text-align: left; border-bottom: 1px solid var(--border); letter-spacing: 1px; text-transform: uppercase; }
+  .escala-table td { padding: 7px 10px; font-family: var(--mono); font-size: 13px; border-bottom: 1px solid var(--border); }
+  .escala-table tr:last-child td { border-bottom: none; }
+  .escala-table tr:nth-child(even) td { background: var(--surface2); }
+  .escala-frota { font-weight: 800; color: var(--accent); }
+
   /* Modal Escala */
   .escala-tabs { display: flex; gap: 0; margin-bottom: 16px; border-radius: 8px; overflow: hidden; border: 1px solid var(--border); }
   .escala-tab { flex: 1; padding: 10px; text-align: center; font-family: var(--display); font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; cursor: pointer; background: var(--surface2); color: var(--muted); transition: all .2s; border: none; }
@@ -301,11 +328,51 @@
 <div class="menu-dots" id="menu-dots">
   <button class="menu-dots-btn" onclick="toggleMenuDots()">⋮</button>
   <div class="menu-dots-dropdown" id="menu-dots-dropdown">
-    <div class="menu-dots-item" onclick="imprimirLista();toggleMenuDots()">🖨️ Imprimir Lista</div>
-    <div class="menu-dots-item" onclick="exportarDados();toggleMenuDots()">📤 Exportar Dados</div>
-    <div class="menu-dots-item" onclick="document.getElementById('input-importar').click();toggleMenuDots()">📥 Importar Dados</div>
-    <div class="menu-dots-item" onclick="openModal('modal-escala');toggleMenuDots()">📋 Importar Escala</div>
-    <div class="menu-dots-item danger" onclick="resetarSistema();toggleMenuDots()">🗑️ Limpar Todos os Dados</div>
+    <!-- Ver Escala -->
+    <div class="menu-dots-item" onclick="abrirEscalaCompleta();toggleMenuDots()">📅 Ver Escala</div>
+
+    <!-- Imprimir submenu -->
+    <div class="menu-dots-item menu-dots-parent" onclick="toggleSubmenu('sub-imprimir')">
+      <span>🖨️ Imprimir</span><span class="menu-dots-arrow" id="arrow-sub-imprimir">›</span>
+    </div>
+    <div class="menu-dots-submenu" id="sub-imprimir">
+      <div class="menu-dots-subitem" onclick="imprimirRelatorio('patio');toggleMenuDots()">🅿️ Pátio</div>
+      <div class="menu-dots-subitem" onclick="imprimirRelatorio('escala');toggleMenuDots()">📅 Escala do dia</div>
+      <div class="menu-dots-subitem" onclick="imprimirRelatorio('alertas');toggleMenuDots()">⚠️ Alertas</div>
+      <div class="menu-dots-subitem" onclick="imprimirRelatorio('frota');toggleMenuDots()">🚌 Frota completa</div>
+    </div>
+
+    <!-- Relatórios Excel submenu -->
+    <div class="menu-dots-item menu-dots-parent" onclick="toggleSubmenu('sub-relatorios')">
+      <span>📊 Relatórios Excel</span><span class="menu-dots-arrow" id="arrow-sub-relatorios">›</span>
+    </div>
+    <div class="menu-dots-submenu" id="sub-relatorios">
+      <div class="menu-dots-subitem" onclick="exportarExcel('patio');toggleMenuDots()">🅿️ Pátio</div>
+      <div class="menu-dots-subitem" onclick="exportarExcel('escala');toggleMenuDots()">📅 Escala do dia</div>
+      <div class="menu-dots-subitem" onclick="exportarExcel('alertas');toggleMenuDots()">⚠️ Alertas</div>
+      <div class="menu-dots-subitem" onclick="exportarExcel('frota');toggleMenuDots()">🚌 Frota completa</div>
+    </div>
+
+    <!-- Dados submenu -->
+    <div class="menu-dots-item menu-dots-parent" onclick="toggleSubmenu('sub-dados')">
+      <span>💾 Dados</span><span class="menu-dots-arrow" id="arrow-sub-dados">›</span>
+    </div>
+    <div class="menu-dots-submenu" id="sub-dados">
+      <div class="menu-dots-subitem" onclick="exportarDados();toggleMenuDots()">📤 Exportar</div>
+      <div class="menu-dots-subitem" onclick="document.getElementById('input-importar').click();toggleMenuDots()">📥 Importar</div>
+      <div class="menu-dots-subitem" onclick="openModal('modal-escala');toggleMenuDots()">📋 Importar Escala</div>
+    </div>
+
+    <!-- Limpeza submenu -->
+    <div class="menu-dots-item menu-dots-parent" onclick="toggleSubmenu('sub-limpar')">
+      <span>🗑️ Limpar</span><span class="menu-dots-arrow" id="arrow-sub-limpar">›</span>
+    </div>
+    <div class="menu-dots-submenu" id="sub-limpar">
+      <div class="menu-dots-subitem" onclick="zerarPatio();toggleMenuDots()">🅿️ Zerar Pátio</div>
+      <div class="menu-dots-subitem" onclick="zerarEscala();toggleMenuDots()">📅 Zerar Escala</div>
+      <div class="menu-dots-subitem danger" onclick="resetarSistema();toggleMenuDots()">⚠️ Resetar Sistema</div>
+    </div>
+
     <input type="file" id="input-importar" accept=".json" style="display:none" onchange="importarDados(this)">
     <input type="file" id="input-escala-excel" accept=".xlsx,.xls,.csv" style="display:none" onchange="importarExcel(this)">
   </div>
@@ -363,6 +430,7 @@
   <div id="filas-container"></div>
   <div class="section-title" style="margin-top:8px">Outras posições</div>
   <div id="especiais-container"></div>
+  <div id="manutencao-container"></div>
 </div>
 
 
@@ -396,16 +464,46 @@
   <div class="modal">
     <button class="modal-close" onclick="closeModal('modal-alocar')">✕</button>
     <div class="modal-title" id="modal-alocar-title">Alocar Ônibus</div>
-    <div class="form-group">
+    <div class="form-group" style="position:relative">
       <label class="form-label">Número da Frota</label>
-      <select class="form-select" id="select-onibus-alocar"></select>
+      <input type="number" class="form-input" id="input-frota-alocar" placeholder="Digite o número..."
+        oninput="acFrotaFiltrar(this.value)"
+        onkeydown="acFrotaKeydown(event)"
+        autocomplete="off">
+      <div id="ac-frota-list" class="autocomplete-list"></div>
     </div>
     <div class="form-group">
       <label class="form-label">Linha que irá operar</label>
-      <input list="lista-linhas" class="form-input" id="input-linha-alocar" placeholder="Ex: 4100 ou digite outra...">
+      <input list="datalist-linhas" class="form-input" id="input-linha-alocar" placeholder="Ex: 4100 ou digite outra..."
+        onkeydown="if(event.key==='Enter')alocarOnibus()">
       <datalist id="datalist-linhas"></datalist>
     </div>
     <button class="btn btn-primary btn-full" onclick="alocarOnibus()">Alocar</button>
+  </div>
+</div>
+
+<div class="modal-overlay" id="modal-manutencao">
+  <div class="modal">
+    <button class="modal-close" onclick="closeModal('modal-manutencao')">✕</button>
+    <div class="modal-title">🔧 Adicionar à Manutenção</div>
+    <div class="form-group" style="position:relative">
+      <label class="form-label">Número da Frota</label>
+      <input type="number" class="form-input" id="input-frota-manut" placeholder="Digite o número..."
+        oninput="acFrotaManutFiltrar(this.value)"
+        onkeydown="acFrotaManutKeydown(event)"
+        autocomplete="off">
+      <div id="ac-frota-manut-list" class="autocomplete-list"></div>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Tipo</label>
+      <select class="form-select" id="select-tipo-manut">
+        <option value="eletrica">⚡ Elétrica</option>
+        <option value="funilaria">🔨 Funilaria</option>
+        <option value="mecanica">🔧 Mecânica</option>
+        <option value="ar-condicionado">❄️ Ar-condicionado</option>
+      </select>
+    </div>
+    <button class="btn btn-primary btn-full" onclick="adicionarManutencao()">Adicionar</button>
   </div>
 </div>
 
@@ -473,6 +571,18 @@
   </div>
 </div>
 
+<!-- MODAL ESCALA COMPLETA -->
+<div class="modal-overlay" id="modal-escala-completa">
+  <div class="modal" style="max-height:90vh;overflow-y:auto;max-width:600px">
+    <button class="modal-close" onclick="closeModal('modal-escala-completa')">✕</button>
+    <div class="modal-title">📅 Escala Completa</div>
+    <div class="search-box" style="margin-bottom:12px">
+      <input type="text" id="search-escala-completa" placeholder="Buscar frota ou linha..." oninput="filtrarEscalaCompleta()" style="flex:1;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:10px 14px;color:var(--text);font-family:var(--mono);font-size:14px;outline:none">
+    </div>
+    <div id="escala-completa-content"></div>
+  </div>
+</div>
+
 <!-- MODAL ESCALA -->
 <div class="modal-overlay" id="modal-escala">
   <div class="modal" style="max-height:90vh;overflow-y:auto">
@@ -525,6 +635,7 @@ const ESPECIAIS = [
 const EXEMPLO = {
   linhas:[],
   frota:[],
+  manutencao:[],
   filas:{},
   especiais:{coqueiro:[],lavador:[],eletricos:[],bomba:[],laje:[],fundao:[]},
   presos:[],
@@ -549,6 +660,7 @@ function initState(){
   if(!state.linhas) state.linhas=[];
   if(!state.frota) state.frota=[];
   if(!state.presos) state.presos=[];
+  if(!state.manutencao) state.manutencao=[];
   if(!state.revisoes) state.revisoes=[];
   if(!state.filas) state.filas={};
   if(!state.especiais) state.especiais={};
@@ -589,6 +701,11 @@ function openModal(id,filaKey){
   if(id==='modal-alocar'){
     const esp=ESPECIAIS.find(e=>e.key===filaKey);
     document.getElementById('modal-alocar-title').textContent=esp?`Alocar em ${esp.label}`:`Alocar na Fila ${filaKey}`;
+    setTimeout(()=>{
+      const el=document.getElementById('input-frota-alocar');
+      if(el){el.value='';el.focus();}
+      document.getElementById('input-linha-alocar').value='';
+    },100);
   }
 }
 function closeModal(id){document.getElementById(id).classList.remove('open');modalFilaAtual=null;}
@@ -598,7 +715,10 @@ function populateSelects(){
   const opts=state.frota.length
     ?state.frota.map(o=>`<option value="${o.frota}">${o.frota}</option>`).join('')
     :'<option value="">Nenhum ônibus cadastrado</option>';
-  ['select-onibus-alocar','select-preso','select-revisao'].forEach(id=>{const el=document.getElementById(id);if(el)el.innerHTML=opts;});
+  ['select-preso','select-revisao'].forEach(id=>{const el=document.getElementById(id);if(el)el.innerHTML=opts;});
+  // Atualiza datalist de linhas
+  const dlL = document.getElementById('datalist-linhas');
+  if(dlL) dlL.innerHTML = state.linhas.sort((a,b)=>Number(a)-Number(b)).map(l=>`<option value="${l}">`).join('');
   const dl=document.getElementById('datalist-linhas');
   if(dl) dl.innerHTML=state.linhas.sort((a,b)=>Number(a)-Number(b)).map(l=>`<option value="${l}">`).join('');
 }
@@ -614,7 +734,8 @@ function cadastrarOnibus(){
 }
 
 function alocarOnibus(){
-  const frota=document.getElementById('select-onibus-alocar').value;
+  const inputFrota = document.getElementById('input-frota-alocar');
+  const frota = inputFrota ? String(inputFrota.value).trim() : '';
   const linha=document.getElementById('input-linha-alocar').value.trim();
   if(!frota||!modalFilaAtual)return;
   // Remove de qualquer posição anterior
@@ -622,10 +743,15 @@ function alocarOnibus(){
   ESPECIAIS.forEach(e=>{state.especiais[e.key]=state.especiais[e.key].filter(x=>x.frota!==frota);});
   // Salva linha nova se não existir
   if(linha && !state.linhas.includes(linha)) state.linhas.push(linha);
-  const item={frota, linha};
+  // Calcula próxima posição sem conflito
   const esp=ESPECIAIS.find(e=>e.key===modalFilaAtual);
+  const listaAtual = esp ? (state.especiais[modalFilaAtual]||[]) : (state.filas[modalFilaAtual]||[]);
+  const maxPos = listaAtual.length > 0 ? Math.max(...listaAtual.map(x=>x.pos||0)) : 0;
+  const item={frota, linha, pos: maxPos + 1};
   if(esp)state.especiais[modalFilaAtual].push(item);else state.filas[modalFilaAtual].push(item);
   document.getElementById('input-linha-alocar').value='';
+  const ifA = document.getElementById('input-frota-alocar');
+  if(ifA) ifA.value='';
   save();renderAll();closeModal('modal-alocar');
 }
 
@@ -741,11 +867,29 @@ function renderPatio(){
     const chips=onibus.map(o=>{
       const cadastro = state.frota.find(x=>String(x.frota)===String(o.frota));
       const hora = cadastro&&cadastro.hora ? cadastro.hora : '';
+      const isPreso    = state.presos.find(p=>String(p.frota)===String(o.frota));
+      const isAmostral = state.revisoes.find(r=>String(r.frota)===String(o.frota));
+      const status     = cadastro&&cadastro.status ? cadastro.status : '';
+      // Lógica: sem horário → mostra status/situação
+      let infoLinha = '';
+      if(hora) {
+        infoLinha = `<span style="font-size:10px;color:#aaa;font-weight:400">${hora}</span>`;
+      } else if(isPreso) {
+        infoLinha = `<span class="chip-status chip-status-preso">PRESO</span>`;
+      } else if(isAmostral) {
+        infoLinha = `<span class="chip-status chip-status-amostral">AMOSTRAL</span>`;
+      } else if(status === 'manutencao') {
+        infoLinha = `<span class="chip-status chip-status-manutencao">MANUTENÇÃO</span>`;
+      } else if(status === 'evento') {
+        infoLinha = `<span class="chip-status chip-status-evento">EVENTO</span>`;
+      } else if(status) {
+        infoLinha = `<span class="chip-status" style="background:var(--surface);color:var(--muted)">${status.toUpperCase()}</span>`;
+      }
       return `<div class="chip" onclick="abrirEdicaoChip('${o.frota}','${f}',false)">
-        <div style="display:flex;flex-direction:column;gap:1px">
+        <div style="display:flex;flex-direction:column;gap:2px">
           <div style="display:flex;align-items:center;gap:6px">
             <span>${o.frota}</span>
-            ${hora?`<span style="font-size:10px;color:#aaa;font-weight:400">${hora}</span>`:''}
+            ${infoLinha}
           </div>
           <span style="font-size:10px;color:var(--accent);font-weight:400">${o.pos?'P.'+o.pos:''}${o.linha?' L.'+o.linha:''}</span>
         </div>
@@ -768,11 +912,28 @@ function renderEspeciais(){
     const chips=onibus.map(o=>{
       const cadastro = state.frota.find(x=>String(x.frota)===String(o.frota));
       const hora = cadastro&&cadastro.hora ? cadastro.hora : '';
+      const isPreso    = state.presos.find(p=>String(p.frota)===String(o.frota));
+      const isAmostral = state.revisoes.find(r=>String(r.frota)===String(o.frota));
+      const status     = cadastro&&cadastro.status ? cadastro.status : '';
+      let infoLinha = '';
+      if(hora) {
+        infoLinha = `<span style="font-size:10px;color:#aaa;font-weight:400">${hora}</span>`;
+      } else if(isPreso) {
+        infoLinha = `<span class="chip-status chip-status-preso">PRESO</span>`;
+      } else if(isAmostral) {
+        infoLinha = `<span class="chip-status chip-status-amostral">AMOSTRAL</span>`;
+      } else if(status === 'manutencao') {
+        infoLinha = `<span class="chip-status chip-status-manutencao">MANUTENÇÃO</span>`;
+      } else if(status === 'evento') {
+        infoLinha = `<span class="chip-status chip-status-evento">EVENTO</span>`;
+      } else if(status) {
+        infoLinha = `<span class="chip-status" style="background:var(--surface);color:var(--muted)">${status.toUpperCase()}</span>`;
+      }
       return `<div class="chip" onclick="abrirEdicaoChip('${o.frota}','${e.key}',true)">
-        <div style="display:flex;flex-direction:column;gap:1px">
+        <div style="display:flex;flex-direction:column;gap:2px">
           <div style="display:flex;align-items:center;gap:6px">
             <span>${o.frota}</span>
-            ${hora?`<span style="font-size:10px;color:#aaa;font-weight:400">${hora}</span>`:''}
+            ${infoLinha}
           </div>
           ${o.linha?`<span style="font-size:10px;color:var(--accent);font-weight:400">${o.pos?'P.'+o.pos+' ':''}L.${o.linha}</span>`:''}
         </div>
@@ -841,7 +1002,7 @@ function updateStats(){
   document.getElementById('stat-revisao').textContent=state.revisoes.length;
 }
 
-function renderAll(){renderPatio();renderEspeciais();renderAlertas();renderFrota();updateStats();popularDatalistsRapido();}
+function renderAll(){renderPatio();renderEspeciais();renderManutencao();renderAlertas();renderFrota();updateStats();popularDatalistsRapido();}
 
 
 function imprimirLista() {
@@ -1006,8 +1167,10 @@ function alocarRapido() {
   const el = document.getElementById('rapido-carro');
   if(!el) return;
   const frota = String(el.value).trim();
-  const filaInput = String(document.getElementById('rapido-fila').value).trim().toLowerCase();
-  const linha = String(document.getElementById('rapido-linha').value).trim();
+  const elFila = document.getElementById('rapido-fila');
+  const elLinha = document.getElementById('rapido-linha');
+  const filaInput = elFila ? String(elFila.value).trim().toLowerCase() : '';
+  const linha = elLinha ? String(elLinha.value).trim() : '';
 
   if(!frota){ alert('Informe o número do carro.'); return; }
   if(!filaInput){ alert('Informe a fila ou posição.'); return; }
@@ -1047,10 +1210,8 @@ function alocarRapido() {
   else state.filas[filaNum].push(item);
 
   // Limpa campos e foca no carro para próxima alocação
-  document.getElementById('rapido-carro').value='';
-  document.getElementById('rapido-fila').value='';
-  document.getElementById('rapido-linha').value='';
-  document.getElementById('rapido-carro').focus();
+  ['rapido-carro','rapido-fila','rapido-linha'].forEach(id=>{ const el=document.getElementById(id); if(el) el.value=''; });
+  const elFoco = document.getElementById('rapido-carro'); if(elFoco) elFoco.focus();
 
   save(); renderAll();
 }
@@ -1086,14 +1247,14 @@ function popularSelectBlocoFila() {
   if(!dl) return;
   let opts = FILAS_NUM.map(f => `<option value="${f}">Fila ${f}</option>`).join('');
   opts += ESPECIAIS.map(e => `<option value="${e.key}">${e.label}</option>`).join('');
+  opts += Object.entries(TIPOS_MANUT).map(([k,t]) => `<option value="manut:${k}">Manutenção ${t.label}</option>`).join('');
   dl.innerHTML = opts;
 }
 
 function atualizarStatusBloco() {
   const filaInput = (document.getElementById('bloco-fila-input')||{value:''}).value.trim();
   const status = document.getElementById('bloco-status');
-  if(!status) return;
-  if(!filaInput) { status.textContent = ''; return; }
+  if(!status || !filaInput) { status.textContent = ''; return; }
   const filaVal = resolverFilaInput(filaInput);
   if(!filaVal) { status.textContent = ''; return; }
   const lista = getListaBloco(filaVal);
@@ -1104,6 +1265,11 @@ function atualizarStatusBloco() {
 
 function getListaBloco(filaVal) {
   if(!filaVal) return [];
+  if(filaVal.startsWith('manut:')) {
+    const tipo = filaVal.replace('manut:','');
+    if(!state.manutencao) state.manutencao = [];
+    return state.manutencao.filter(m => m.tipo === tipo);
+  }
   if(filaVal.startsWith('esp:')) {
     const k = filaVal.replace('esp:','');
     if(!state.especiais[k]) state.especiais[k] = [];
@@ -1126,6 +1292,13 @@ function resolverFilaInput(input) {
     e.label.toLowerCase().startsWith(val)
   );
   if(esp) return 'esp:' + esp.key;
+  // Tenta manutenção
+  if(val === 'manutencao' || val === 'manutenção' || val === 'manut') return 'manut:mecanica';
+  const tipoManut = Object.entries(TIPOS_MANUT).find(([k, t]) =>
+    k === val || t.label.toLowerCase() === val || t.label.toLowerCase().startsWith(val) ||
+    ('manut:'+k) === val
+  );
+  if(tipoManut) return 'manut:' + tipoManut[0];
   return null;
 }
 
@@ -1171,8 +1344,17 @@ function adicionarBloco() {
   }
 
   // Salva na estrutura correta
-  if(filaVal.startsWith('esp:')) state.especiais[filaVal.replace('esp:','')] = lista;
-  else state.filas[filaVal.replace('fila:','')] = lista;
+  if(filaVal.startsWith('manut:')) {
+    const tipo = filaVal.replace('manut:','');
+    if(!state.manutencao) state.manutencao = [];
+    // Remove do tipo e reinsere com os dados atualizados
+    state.manutencao = state.manutencao.filter(m => m.tipo !== tipo);
+    lista.forEach(m => { if(!state.manutencao.find(x=>String(x.frota)===String(m.frota)&&x.tipo===tipo)) state.manutencao.push({frota:m.frota, tipo, hora: m.hora||''}); });
+  } else if(filaVal.startsWith('esp:')) {
+    state.especiais[filaVal.replace('esp:','')] = lista;
+  } else {
+    state.filas[filaVal.replace('fila:','')] = lista;
+  }
 
   // Atualiza status se elemento existir
   const nomeFila = filaInput;
@@ -1206,7 +1388,7 @@ function desfazerBloco() {
 
 function renderHistoricoBloco(filaVal) {
   const container = document.getElementById('bloco-historico');
-  if(!container) return;
+  if(!container) return; // elemento removido da UI, sem impacto
   const lista = getListaBloco(filaVal);
   if(!lista.length) {
     container.innerHTML = '';
@@ -1250,6 +1432,12 @@ const AC_OPCOES = () => {
     label: e.icon + ' ' + e.label,
     value: e.key,
     count: (state.especiais[e.key]||[]).length
+  }));
+  // Adiciona subtipos de manutenção
+  Object.entries(TIPOS_MANUT).forEach(([key, t]) => opts.push({
+    label: t.icon + ' Manutenção · ' + t.label,
+    value: 'manut:' + key,
+    count: (state.manutencao||[]).filter(m=>m.tipo===key).length
   }));
   return opts;
 };
@@ -1393,15 +1581,35 @@ function parsearLinhasEscala(texto) {
   const linhas = texto.split('\n').map(l => l.trim()).filter(l => l.length > 2);
   if(!linhas.length) return [];
   const {colCarro, colLinha, colHora} = detectarColunas(linhas);
+  const STATUS_CONHECIDOS = ['PRESO','AMOSTRAL','MANUTENCAO','MANUTENÇÃO','EVENTO'];
   const resultado = [];
   for(const linha of linhas) {
     const cols = linha.split(/\t|;|,/).map(c => c.trim());
     const carro = colCarro >= 0 ? cols[colCarro] : '';
-    const linhaBus = colLinha >= 0 ? cols[colLinha] : '';
-    const hora = colHora >= 0 ? cols[colHora] : '';
-    if(carro && /^\d{3,4}$/.test(carro)) {
-      resultado.push({carro, linha: linhaBus, hora});
+    if(!carro || !/^\d{3,4}$/.test(carro)) continue;
+
+    // Verifica se alguma coluna contém um status conhecido
+    let status = '';
+    let linhaBus = '';
+    let hora = '';
+
+    for(const col of cols) {
+      const upper = col.toUpperCase().replace(/[^A-ZÁÉÍÓÚÃÕÇ]/g, '');
+      if(STATUS_CONHECIDOS.includes(upper)) {
+        status = upper === 'MANUTENCAO' ? 'manutencao' : upper.toLowerCase();
+        continue;
+      }
+      // Hora: padrão H:MM ou HH:MM
+      if(/^\d{1,2}[:h]\d{2}$/.test(col) || /^\d{1,2}\.\d{2}$/.test(col)) {
+        hora = col; continue;
+      }
+      // Linha: alfanumérico tipo 178T, 271C, 1156
+      if(col !== carro && /^\d{3,4}[A-Z]?$/.test(col) && !/^\d{4}$/.test(col)) {
+        linhaBus = col; continue;
+      }
     }
+
+    resultado.push({carro, linha: linhaBus, hora, status});
   }
   return resultado;
 }
@@ -1432,36 +1640,53 @@ function aplicarEscalaColar() {
 }
 
 function aplicarEscala(dados) {
-  let novos = 0, atualizados = 0;
-  // Cadastra carros novos e atualiza linhas
+  let novos = 0, atualizados = 0, presos = 0;
   dados.forEach(d => {
     const frota = String(d.carro);
+    const isPreso = (d.status && d.status.toLowerCase() === 'preso') || (d.linha && d.linha.toUpperCase() === 'PRESO');
+    const linha = isPreso ? '' : (d.linha || '');
+
+    // Cadastra ou atualiza na frota
     const existente = state.frota.find(o => String(o.frota) === frota);
     if(!existente) {
-      state.frota.push({frota, linha: d.linha, hora: d.hora});
+      state.frota.push({frota, linha, hora: d.hora, status: d.status||''});
       novos++;
     } else {
-      // Atualiza linha e hora no cadastro
-      existente.linha = d.linha;
+      if(!isPreso) existente.linha = linha;
       existente.hora = d.hora;
+      existente.status = d.status || existente.status || '';
       atualizados++;
     }
+
+    // Registra como PRESO automaticamente
+    if(isPreso) {
+      const jaExiste = state.presos.find(p => String(p.frota) === frota);
+      if(!jaExiste) {
+        state.presos.push({
+          frota,
+          motivo: 'Registrado via escala',
+          hora: new Date().toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'})
+        });
+        presos++;
+      }
+    }
+
     // Atualiza linha nas filas onde o carro já está alocado
-    if(d.linha) {
+    if(linha) {
       FILAS_NUM.forEach(f => {
         const item = (state.filas[f]||[]).find(x => String(x.frota) === frota);
-        if(item) item.linha = d.linha;
+        if(item) item.linha = linha;
       });
       ESPECIAIS.forEach(e => {
         const item = (state.especiais[e.key]||[]).find(x => String(x.frota) === frota);
-        if(item) item.linha = d.linha;
+        if(item) item.linha = linha;
       });
-      if(!state.linhas.includes(d.linha)) state.linhas.push(d.linha);
+      if(!state.linhas.includes(linha)) state.linhas.push(linha);
     }
   });
   state.frota.sort((a,b) => Number(a.frota) - Number(b.frota));
   save(); renderAll();
-  alert(dados.length + ' veículos processados!\n' + novos + ' novos cadastrados\n' + atualizados + ' linhas atualizadas');
+  alert(dados.length + ' veículos processados!\n' + novos + ' novos cadastrados\n' + atualizados + ' atualizados\n' + presos + ' marcados como PRESO');
 }
 
 // Importar Excel/CSV
@@ -1515,6 +1740,391 @@ function aplicarEscalaExcelDados(dados) {
   closeModal('modal-escala');
 }
 
+// ─── SUBMENU ─────────────────────────────────────────────────────
+// ─── MANUTENÇÃO ──────────────────────────────────────────────────
+const TIPOS_MANUT = {
+  eletrica:       {label:'Elétrica',      icon:'⚡', cor:'#06b6d4'},
+  funilaria:      {label:'Funilaria',     icon:'🔨', cor:'#f97316'},
+  mecanica:       {label:'Mecânica',      icon:'🔧', cor:'#f97316'},
+  'ar-condicionado': {label:'Ar-cond.',   icon:'❄️', cor:'#3b82f6'},
+};
+
+function renderManutencao() {
+  const container = document.getElementById('manutencao-container');
+  if(!container) return;
+
+  // Agrupa por tipo
+  const grupos = {};
+  Object.keys(TIPOS_MANUT).forEach(t => { grupos[t] = []; });
+  (state.manutencao||[]).forEach(m => {
+    if(grupos[m.tipo]) grupos[m.tipo].push(m);
+  });
+
+  const chips = (state.manutencao||[]).map(m => {
+    const t = TIPOS_MANUT[m.tipo] || {label: m.tipo, icon:'🔧', cor:'#f97316'};
+    return `<div class="chip" onclick="removerManutencao('${m.frota}','${m.tipo}')">
+      <div style="display:flex;flex-direction:column;gap:2px">
+        <span>${m.frota}</span>
+        <span style="font-size:10px;color:${t.cor};font-weight:700">${t.icon} ${t.label}</span>
+      </div>
+      <span style="font-size:13px;color:var(--muted)">×</span>
+    </div>`;
+  }).join('');
+
+  container.innerHTML = `<div class="card" style="border-top:3px solid #f97316">
+    <div class="card-header">
+      <div style="display:flex;align-items:center;gap:10px">
+        <div class="fila-num">🔧</div>
+        <div class="fila-label">Manutenção</div>
+      </div>
+      <div style="display:flex;align-items:center;gap:8px">
+        <span class="fila-count">${(state.manutencao||[]).length} ôn.</span>
+        <button class="btn btn-ghost btn-sm" onclick="openModal('modal-manutencao')">+ Adicionar</button>
+      </div>
+    </div>
+    <div class="chips">${chips||'<span style="color:var(--muted);font-size:13px;padding:4px 0">Vazia</span>'}</div>
+  </div>`;
+}
+
+function adicionarManutencao() {
+  const frota = String(document.getElementById('input-frota-manut').value).trim();
+  const tipo  = document.getElementById('select-tipo-manut').value;
+  if(!frota) { document.getElementById('input-frota-manut').focus(); return; }
+  if(!state.manutencao) state.manutencao = [];
+  // Evita duplicata do mesmo carro no mesmo tipo
+  if(state.manutencao.find(m => String(m.frota)===frota && m.tipo===tipo)) {
+    alert('Este veículo já está nessa categoria de manutenção.');
+    return;
+  }
+  // Cadastra se não existir
+  if(!state.frota.find(o=>String(o.frota)===frota)) {
+    state.frota.push({frota});
+    state.frota.sort((a,b)=>Number(a.frota)-Number(b.frota));
+  }
+  state.manutencao.push({frota, tipo, hora: new Date().toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'})});
+  document.getElementById('input-frota-manut').value = '';
+  save(); renderAll(); closeModal('modal-manutencao');
+}
+
+function removerManutencao(frota, tipo) {
+  if(!confirm(`Remover ônibus ${frota} da manutenção (${TIPOS_MANUT[tipo]?.label||tipo})?`)) return;
+  state.manutencao = (state.manutencao||[]).filter(m=>!(String(m.frota)===String(frota) && m.tipo===tipo));
+  save(); renderAll();
+}
+
+// Autocomplete de frota no modal manutenção
+let acFrotaManutIdx = -1;
+function acFrotaManutFiltrar(val) {
+  const list = document.getElementById('ac-frota-manut-list');
+  acFrotaManutIdx = -1;
+  if(!val || val.length < 1) { list.classList.remove('open'); return; }
+  const filtradas = state.frota.filter(o=>String(o.frota).startsWith(String(val))).slice(0,8);
+  if(!filtradas.length) { list.classList.remove('open'); return; }
+  list.innerHTML = filtradas.map(o =>
+    `<div class="autocomplete-item" data-value="${o.frota}" onmousedown="acFrotaManutSelecionar('${o.frota}')">
+      <span style="font-weight:800">${o.frota}</span>
+      <span class="ac-count">${o.hora?'· '+o.hora:''}</span>
+    </div>`
+  ).join('');
+  list.classList.add('open');
+}
+function acFrotaManutSelecionar(frota) {
+  document.getElementById('input-frota-manut').value = frota;
+  document.getElementById('ac-frota-manut-list').classList.remove('open');
+  document.getElementById('select-tipo-manut').focus();
+}
+function acFrotaManutKeydown(e) {
+  const list = document.getElementById('ac-frota-manut-list');
+  const items = list.querySelectorAll('.autocomplete-item');
+  if(e.key==='ArrowDown'){e.preventDefault();acFrotaManutIdx=Math.min(acFrotaManutIdx+1,items.length-1);items.forEach((el,i)=>el.classList.toggle('selected',i===acFrotaManutIdx));}
+  else if(e.key==='ArrowUp'){e.preventDefault();acFrotaManutIdx=Math.max(acFrotaManutIdx-1,0);items.forEach((el,i)=>el.classList.toggle('selected',i===acFrotaManutIdx));}
+  else if(e.key==='Enter'){if(acFrotaManutIdx>=0&&items[acFrotaManutIdx]){e.preventDefault();acFrotaManutSelecionar(items[acFrotaManutIdx].dataset.value);}else{list.classList.remove('open');document.getElementById('select-tipo-manut').focus();}}
+  else if(e.key==='Escape'){list.classList.remove('open');}
+}
+
+// ─── AUTOCOMPLETE FROTA NO MODAL ALOCAR ─────────────────────────
+let acFrotaIdx = -1;
+
+function acFrotaFiltrar(val) {
+  const list = document.getElementById('ac-frota-list');
+  acFrotaIdx = -1;
+  if(!val || val.length < 1) { list.classList.remove('open'); return; }
+  const q = String(val);
+  const filtradas = state.frota
+    .filter(o => String(o.frota).startsWith(q))
+    .slice(0, 8);
+  if(!filtradas.length) { list.classList.remove('open'); return; }
+  list.innerHTML = filtradas.map(o => {
+    const hora = o.hora ? ' · ' + o.hora : '';
+    const linha = o.linha ? ' · L.' + o.linha : '';
+    return `<div class="autocomplete-item" data-value="${o.frota}" onmousedown="acFrotaSelecionar('${o.frota}')">
+      <span style="font-weight:800">${o.frota}</span>
+      <span class="ac-count">${hora}${linha}</span>
+    </div>`;
+  }).join('');
+  list.classList.add('open');
+}
+
+function acFrotaSelecionar(frota) {
+  const input = document.getElementById('input-frota-alocar');
+  if(input) input.value = frota;
+  document.getElementById('ac-frota-list').classList.remove('open');
+  acFrotaIdx = -1;
+  // Preenche linha automaticamente se o carro tiver linha na escala
+  const cadastro = state.frota.find(o => String(o.frota) === String(frota));
+  if(cadastro && cadastro.linha) {
+    const inputLinha = document.getElementById('input-linha-alocar');
+    if(inputLinha && !inputLinha.value) inputLinha.value = cadastro.linha;
+  }
+  document.getElementById('input-linha-alocar').focus();
+}
+
+function acFrotaKeydown(e) {
+  const list = document.getElementById('ac-frota-list');
+  const items = list.querySelectorAll('.autocomplete-item');
+  if(e.key === 'ArrowDown') {
+    e.preventDefault();
+    acFrotaIdx = Math.min(acFrotaIdx + 1, items.length - 1);
+    items.forEach((el, i) => el.classList.toggle('selected', i === acFrotaIdx));
+  } else if(e.key === 'ArrowUp') {
+    e.preventDefault();
+    acFrotaIdx = Math.max(acFrotaIdx - 1, 0);
+    items.forEach((el, i) => el.classList.toggle('selected', i === acFrotaIdx));
+  } else if(e.key === 'Enter') {
+    if(acFrotaIdx >= 0 && items[acFrotaIdx]) {
+      e.preventDefault();
+      acFrotaSelecionar(items[acFrotaIdx].dataset.value);
+    } else {
+      list.classList.remove('open');
+      document.getElementById('input-linha-alocar').focus();
+    }
+  } else if(e.key === 'Escape') {
+    list.classList.remove('open');
+  }
+}
+
+// Fecha autocomplete de frota ao clicar fora
+document.addEventListener('click', function(e) {
+  const input = document.getElementById('input-frota-alocar');
+  const list = document.getElementById('ac-frota-list');
+  if(list && input && !input.contains(e.target) && !list.contains(e.target)) {
+    list.classList.remove('open');
+  }
+});
+
+function toggleSubmenu(id) {
+  const el = document.getElementById(id);
+  const arrow = document.getElementById('arrow-' + id);
+  const isOpen = el.classList.contains('open');
+  // Fecha todos os submenus
+  document.querySelectorAll('.menu-dots-submenu').forEach(s => s.classList.remove('open'));
+  document.querySelectorAll('.menu-dots-arrow').forEach(a => a.classList.remove('open'));
+  if(!isOpen) {
+    el.classList.add('open');
+    if(arrow) arrow.classList.add('open');
+  }
+}
+
+// ─── ZERAR PÁTIO ─────────────────────────────────────────────────
+function zerarPatio() {
+  if(!confirm('Zerar Pátio: remove todos os ônibus das filas e posições. Os cadastros de frota e escala são mantidos. Confirma?')) return;
+  FILAS_NUM.forEach(f => { state.filas[f] = []; });
+  ESPECIAIS.forEach(e => { state.especiais[e.key] = []; });
+  state.manutencao = [];
+  save(); renderAll();
+  alert('Pátio zerado com sucesso!');
+}
+
+// ─── ZERAR ESCALA ─────────────────────────────────────────────────
+function zerarEscala() {
+  if(!confirm('Zerar Escala: remove linhas, horários e status de todos os veículos. As alocações no pátio são mantidas. Confirma?')) return;
+  state.frota.forEach(o => { o.linha = ''; o.hora = ''; o.status = ''; });
+  state.presos = [];
+  state.revisoes = [];
+  // Limpa linha nas filas também
+  FILAS_NUM.forEach(f => { (state.filas[f]||[]).forEach(o => { o.linha = ''; }); });
+  ESPECIAIS.forEach(e => { (state.especiais[e.key]||[]).forEach(o => { o.linha = ''; }); });
+  save(); renderAll();
+  alert('Escala zerada com sucesso!');
+}
+
+// ─── VER ESCALA COMPLETA ─────────────────────────────────────────
+function abrirEscalaCompleta() {
+  renderEscalaCompleta('');
+  openModal('modal-escala-completa');
+}
+
+function filtrarEscalaCompleta() {
+  const q = document.getElementById('search-escala-completa').value;
+  renderEscalaCompleta(q);
+}
+
+function renderEscalaCompleta(busca) {
+  const q = busca.toLowerCase().trim();
+  const lista = state.frota
+    .filter(o => o.hora || o.linha || o.status)
+    .filter(o => !q || String(o.frota).includes(q) || (o.linha||'').toLowerCase().includes(q) || (o.status||'').toLowerCase().includes(q))
+    .sort((a,b) => Number(a.frota) - Number(b.frota));
+
+  const container = document.getElementById('escala-completa-content');
+  if(!lista.length) {
+    container.innerHTML = '<div class="empty"><div class="empty-icon">📅</div>Nenhum dado de escala encontrado</div>';
+    return;
+  }
+
+  const CORES_STATUS = {
+    preso:      'chip-status-preso',
+    amostral:   'chip-status-amostral',
+    manutencao: 'chip-status-manutencao',
+    evento:     'chip-status-evento',
+  };
+
+  container.innerHTML = `<div style="font-size:11px;color:var(--muted);font-family:var(--mono);margin-bottom:8px">${lista.length} veículos escalados</div>
+    <table class="escala-table">
+      <thead><tr><th>Frota</th><th>Hora</th><th>Linha</th><th>Status</th></tr></thead>
+      <tbody>` +
+    lista.map(o => {
+      const isPreso    = state.presos.find(p=>String(p.frota)===String(o.frota));
+      const isAmostral = state.revisoes.find(r=>String(r.frota)===String(o.frota));
+      const st = isPreso ? 'preso' : isAmostral ? 'amostral' : (o.status||'');
+      const badgeCls = CORES_STATUS[st] || '';
+      const badge = st ? `<span class="chip-status ${badgeCls}">${st.toUpperCase()}</span>` : '—';
+      return `<tr>
+        <td class="escala-frota">${o.frota}</td>
+        <td>${o.hora||'—'}</td>
+        <td>${o.linha||'—'}</td>
+        <td>${badge}</td>
+      </tr>`;
+    }).join('') +
+    '</tbody></table>';
+}
+
+// ─── RELATÓRIOS EXCEL ─────────────────────────────────────────────
+function exportarExcel(tipo) {
+  let dados = [], cabecalho = [], nome = '';
+
+  if(tipo === 'patio') {
+    nome = 'Patio_' + new Date().toLocaleDateString('pt-BR').replace(/\//g,'-');
+    cabecalho = ['Frota','Fila','Posição','Linha','Status'];
+    FILAS_NUM.forEach(f => {
+      (state.filas[f]||[]).forEach(o => {
+        const cad = state.frota.find(x=>String(x.frota)===String(o.frota));
+        const isPreso = state.presos.find(p=>String(p.frota)===String(o.frota));
+        const isAm = state.revisoes.find(r=>String(r.frota)===String(o.frota));
+        const st = isPreso?'PRESO':isAm?'AMOSTRAL':(cad&&cad.status?cad.status.toUpperCase():'');
+        dados.push([o.frota,'Fila '+f, o.pos||'', o.linha||'', st]);
+      });
+    });
+    ESPECIAIS.forEach(e => {
+      (state.especiais[e.key]||[]).forEach(o => {
+        const cad = state.frota.find(x=>String(x.frota)===String(o.frota));
+        const isPreso = state.presos.find(p=>String(p.frota)===String(o.frota));
+        const isAm = state.revisoes.find(r=>String(r.frota)===String(o.frota));
+        const st = isPreso?'PRESO':isAm?'AMOSTRAL':(cad&&cad.status?cad.status.toUpperCase():'');
+        dados.push([o.frota, e.label, o.pos||'', o.linha||'', st]);
+      });
+    });
+    dados.sort((a,b)=>Number(a[0])-Number(b[0]));
+
+  } else if(tipo === 'escala') {
+    nome = 'Escala_' + new Date().toLocaleDateString('pt-BR').replace(/\//g,'-');
+    cabecalho = ['Frota','Hora','Linha','Status'];
+    state.frota
+      .filter(o => o.hora || o.linha || o.status)
+      .sort((a,b)=>Number(a.frota)-Number(b.frota))
+      .forEach(o => {
+        const isPreso = state.presos.find(p=>String(p.frota)===String(o.frota));
+        const isAm = state.revisoes.find(r=>String(r.frota)===String(o.frota));
+        const st = isPreso?'PRESO':isAm?'AMOSTRAL':(o.status?o.status.toUpperCase():'');
+        dados.push([o.frota, o.hora||'', o.linha||'', st]);
+      });
+
+  } else if(tipo === 'alertas') {
+    nome = 'Alertas_' + new Date().toLocaleDateString('pt-BR').replace(/\//g,'-');
+    cabecalho = ['Frota','Tipo','Descrição','Registrado às'];
+    state.presos.forEach(p => dados.push([p.frota,'PRESO',p.motivo||'',p.hora||'']));
+    state.revisoes.forEach(r => dados.push([r.frota,'AMOSTRAL',r.desc||'',r.hora||'']));
+    (state.manutencao||[]).forEach(m => dados.push([m.frota,'MANUTENÇÃO',(TIPOS_MANUT[m.tipo]?.label||m.tipo),m.hora||'']));
+    dados.sort((a,b)=>Number(a[0])-Number(b[0]));
+
+  } else if(tipo === 'frota') {
+    nome = 'Frota_' + new Date().toLocaleDateString('pt-BR').replace(/\//g,'-');
+    cabecalho = ['Frota','Linha','Hora','Status','Posição no Pátio'];
+    state.frota.sort((a,b)=>Number(a.frota)-Number(b.frota)).forEach(o => {
+      let loc = 'Não alocado';
+      for(const f of FILAS_NUM) { if((state.filas[f]||[]).find(x=>String(x.frota)===String(o.frota))) { loc='Fila '+f; break; } }
+      for(const e of ESPECIAIS) { if((state.especiais[e.key]||[]).find(x=>String(x.frota)===String(o.frota))) { loc=e.label; break; } }
+      const isPreso = state.presos.find(p=>String(p.frota)===String(o.frota));
+      const isAm = state.revisoes.find(r=>String(r.frota)===String(o.frota));
+      const st = isPreso?'PRESO':isAm?'AMOSTRAL':(o.status?o.status.toUpperCase():'');
+      dados.push([o.frota, o.linha||'', o.hora||'', st, loc]);
+    });
+  }
+
+  // Gera CSV e força download
+  const bom = '﻿'; // BOM para Excel reconhecer UTF-8
+  const csv = bom + [cabecalho, ...dados].map(row =>
+    row.map(v => '"' + String(v).replace(/"/g,'""') + '"').join(';')
+  ).join('\r\n');
+  const blob = new Blob([csv], {type:'text/csv;charset=utf-8'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = nome + '.csv';
+  a.click(); URL.revokeObjectURL(url);
+}
+
+// ─── IMPRIMIR POR MÓDULO ─────────────────────────────────────────
+function imprimirRelatorio(tipo) {
+  // Reutiliza imprimirLista para pátio, gera HTML para os outros
+  if(tipo === 'patio') { imprimirLista(); return; }
+
+  const now = new Date();
+  const meta = 'Gerado em ' + now.toLocaleDateString('pt-BR') + ' às ' + now.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'});
+  let html = '';
+
+  if(tipo === 'escala') {
+    const lista = state.frota.filter(o=>o.hora||o.linha||o.status).sort((a,b)=>Number(a.frota)-Number(b.frota));
+    html = '<h2 style="margin:0 0 4px;font-size:14px">Escala do Dia</h2><p style="font-size:10px;color:#888;margin:0 0 8px">'+meta+' · '+lista.length+' veículos</p>';
+    html += '<table style="width:100%;border-collapse:collapse;font-size:11px"><thead><tr style="background:#000;color:#fff"><th style="padding:4px 6px;text-align:left">Frota</th><th style="padding:4px 6px;text-align:left">Hora</th><th style="padding:4px 6px;text-align:left">Linha</th><th style="padding:4px 6px;text-align:left">Status</th></tr></thead><tbody>';
+    lista.forEach((o,i) => {
+      const isPreso = state.presos.find(p=>String(p.frota)===String(o.frota));
+      const isAm = state.revisoes.find(r=>String(r.frota)===String(o.frota));
+      const st = isPreso?'PRESO':isAm?'AMOSTRAL':(o.status?o.status.toUpperCase():'—');
+      const bg = i%2===0?'':'background:#f5f5f5';
+      html += `<tr style="${bg}"><td style="padding:3px 6px;font-weight:800">${o.frota}</td><td style="padding:3px 6px">${o.hora||'—'}</td><td style="padding:3px 6px">${o.linha||'—'}</td><td style="padding:3px 6px;color:${isPreso?'red':isAm?'#b45309':'#333'};font-weight:700">${st}</td></tr>`;
+    });
+    html += '</tbody></table>';
+
+  } else if(tipo === 'alertas') {
+    html = '<h2 style="margin:0 0 4px;font-size:14px">Alertas Ativos</h2><p style="font-size:10px;color:#888;margin:0 0 8px">'+meta+'</p>';
+    if(state.presos.length) {
+      html += '<h3 style="font-size:12px;margin:8px 0 4px;border-left:3px solid red;padding-left:6px">Veículos Presos</h3>';
+      state.presos.forEach(p => { html += `<div style="padding:4px 0;font-size:11px;border-bottom:1px solid #eee"><b>${p.frota}</b> — ${p.motivo||'—'}</div>`; });
+    }
+    if(state.revisoes.length) {
+      html += '<h3 style="font-size:12px;margin:8px 0 4px;border-left:3px solid #b45309;padding-left:6px">Amostrais SPTRANS</h3>';
+      state.revisoes.forEach(r => { html += `<div style="padding:4px 0;font-size:11px;border-bottom:1px solid #eee"><b>${r.frota}</b> — ${r.tipo||''} ${r.desc||''}</div>`; });
+    }
+    if(!state.presos.length && !state.revisoes.length) html += '<p style="font-size:11px;color:#888">Nenhum alerta ativo.</p>';
+
+  } else if(tipo === 'frota') {
+    const lista = state.frota.sort((a,b)=>Number(a.frota)-Number(b.frota));
+    html = '<h2 style="margin:0 0 4px;font-size:14px">Frota Completa</h2><p style="font-size:10px;color:#888;margin:0 0 8px">'+meta+' · '+lista.length+' veículos</p>';
+    html += '<table style="width:100%;border-collapse:collapse;font-size:11px"><thead><tr style="background:#000;color:#fff"><th style="padding:4px 6px;text-align:left">Frota</th><th style="padding:4px 6px;text-align:left">Linha</th><th style="padding:4px 6px;text-align:left">Hora</th><th style="padding:4px 6px;text-align:left">Pátio</th></tr></thead><tbody>';
+    lista.forEach((o,i) => {
+      let loc = '—';
+      for(const f of FILAS_NUM) { if((state.filas[f]||[]).find(x=>String(x.frota)===String(o.frota))) { loc='Fila '+f; break; } }
+      for(const e of ESPECIAIS) { if((state.especiais[e.key]||[]).find(x=>String(x.frota)===String(o.frota))) { loc=e.label; break; } }
+      const bg = i%2===0?'':'background:#f5f5f5';
+      html += `<tr style="${bg}"><td style="padding:3px 6px;font-weight:800">${o.frota}</td><td style="padding:3px 6px">${o.linha||'—'}</td><td style="padding:3px 6px">${o.hora||'—'}</td><td style="padding:3px 6px">${loc}</td></tr>`;
+    });
+    html += '</tbody></table>';
+  }
+
+  document.getElementById('print-content').innerHTML = html;
+  window.print();
+}
+
 function toggleMenuDots(){
   document.getElementById('menu-dots-dropdown').classList.toggle('open');
 }
@@ -1527,8 +2137,10 @@ document.addEventListener('click', function(e){
 });
 
 function resetarSistema(){
-  if(!confirm('Atenção! Isso vai apagar TODOS os ônibus, filas e alertas cadastrados. Confirma?')) return;
-  if(!confirm('Tem certeza? Esta ação não pode ser desfeita.')) return;
+  if(!confirm('RESETAR SISTEMA: Apaga TUDO — frota, filas, escala e alertas. Esta ação não pode ser desfeita. Confirma?')) return;
+  const senha = prompt('Digite a senha de administrador para continuar:');
+  if(senha === null) return;
+  if(senha !== '0000') { alert('Senha incorreta. Operação cancelada.'); return; }
   try { localStorage.removeItem('sambaiba_v2'); } catch(e){}
   state = JSON.parse(JSON.stringify(EXEMPLO));
   FILAS_NUM.forEach(f=>{if(!state.filas[f])state.filas[f]=[];});
