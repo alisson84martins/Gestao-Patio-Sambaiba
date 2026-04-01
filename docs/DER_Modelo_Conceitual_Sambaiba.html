@@ -1,0 +1,361 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<title>DER + Modelo Conceitual — Gestão de Pátio Sambaíba</title>
+<style>
+  @page { size: A3 landscape; margin: 15mm; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: Arial, sans-serif; background: #fff; color: #111; }
+
+  .page { width: 100%; padding: 10px; }
+  .doc-header { text-align: center; margin-bottom: 16px; border-bottom: 3px solid #CC0000; padding-bottom: 10px; }
+  .doc-header h1 { font-size: 22px; color: #CC0000; font-weight: 900; letter-spacing: 1px; }
+  .doc-header h2 { font-size: 14px; color: #444; font-weight: 400; margin-top: 4px; }
+  .doc-header .meta { font-size: 11px; color: #888; margin-top: 4px; }
+
+  .section-title { font-size: 15px; font-weight: 800; color: #CC0000; text-transform: uppercase;
+    letter-spacing: 1px; border-left: 4px solid #CC0000; padding-left: 8px; margin: 20px 0 12px; }
+
+  /* MODELO CONCEITUAL */
+  .conceitual { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 20px; }
+  .entidade { border: 2px solid #CC0000; border-radius: 6px; min-width: 130px; overflow: hidden; }
+  .entidade-header { background: #CC0000; color: #fff; padding: 5px 8px; font-size: 12px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.5px; }
+  .entidade-body { padding: 6px 8px; background: #fff9f9; }
+  .entidade-attr { font-size: 10.5px; color: #333; padding: 2px 0; border-bottom: 1px solid #f0e0e0; display: flex; align-items: center; gap: 4px; }
+  .entidade-attr:last-child { border-bottom: none; }
+  .attr-pk { color: #CC0000; font-weight: 800; }
+  .attr-fk { color: #1a56cc; font-weight: 700; }
+  .tag { font-size: 9px; padding: 1px 4px; border-radius: 2px; font-weight: 800; }
+  .tag-pk { background: #ffecec; color: #CC0000; border: 1px solid #CC0000; }
+  .tag-fk { background: #ecf0ff; color: #1a56cc; border: 1px solid #1a56cc; }
+
+  /* DER */
+  .der-container { width: 100%; overflow-x: auto; }
+  .der-svg { width: 100%; }
+
+  /* RELAÇÕES */
+  .rels { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+  .rel-item { font-size: 10.5px; background: #f9f9f9; border: 1px solid #ddd; border-radius: 4px; padding: 4px 8px; }
+  .rel-item b { color: #CC0000; }
+
+  .legend { display: flex; gap: 16px; flex-wrap: wrap; font-size: 10px; margin-top: 12px; color: #555; }
+  .legend-item { display: flex; align-items: center; gap: 4px; }
+  .legend-dot { width: 10px; height: 10px; border-radius: 2px; }
+
+  .footer { text-align: center; font-size: 10px; color: #aaa; margin-top: 20px; border-top: 1px solid #eee; padding-top: 8px; }
+
+  @media print {
+    body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  }
+</style>
+</head>
+<body>
+
+<div class="page">
+  <div class="doc-header">
+    <h1>Sambaíba Transportes — Sistema de Gestão de Pátio</h1>
+    <h2>Modelo Conceitual & Diagrama Entidade-Relacionamento (DER)</h2>
+    <div class="meta">Desenvolvido por Alisson Martins · ADS Anhanguera · © 2026 · Garagem 3</div>
+  </div>
+
+  <!-- MODELO CONCEITUAL -->
+  <div class="section-title">Modelo Conceitual — Entidades e Atributos</div>
+  <div class="conceitual">
+
+    <div class="entidade">
+      <div class="entidade-header">🏭 Garagem</div>
+      <div class="entidade-body">
+        <div class="entidade-attr"><span class="attr-pk"><span class="tag tag-pk">PK</span> id</span></div>
+        <div class="entidade-attr">nome</div>
+        <div class="entidade-attr">codigo (único)</div>
+        <div class="entidade-attr">ativa (bool)</div>
+        <div class="entidade-attr">criado_em</div>
+      </div>
+    </div>
+
+    <div class="entidade">
+      <div class="entidade-header">👤 Usuário</div>
+      <div class="entidade-body">
+        <div class="entidade-attr"><span class="attr-pk"><span class="tag tag-pk">PK</span> id</span></div>
+        <div class="entidade-attr">re (registro)</div>
+        <div class="entidade-attr">nome</div>
+        <div class="entidade-attr">senha_hash</div>
+        <div class="entidade-attr">perfil (enum)</div>
+        <div class="entidade-attr">ativo (bool)</div>
+        <div class="entidade-attr"><span class="attr-fk"><span class="tag tag-fk">FK</span> garagem_id</span></div>
+        <div class="entidade-attr">criado_em</div>
+        <div class="entidade-attr">ultimo_acesso</div>
+      </div>
+    </div>
+
+    <div class="entidade">
+      <div class="entidade-header">🚌 Ônibus</div>
+      <div class="entidade-body">
+        <div class="entidade-attr"><span class="attr-pk"><span class="tag tag-pk">PK</span> id</span></div>
+        <div class="entidade-attr">numero_frota (4 dig.)</div>
+        <div class="entidade-attr">placa (opt.)</div>
+        <div class="entidade-attr">tipo (gerado: AR1/AR2)</div>
+        <div class="entidade-attr">status (enum)</div>
+        <div class="entidade-attr"><span class="attr-fk"><span class="tag tag-fk">FK</span> garagem_id</span></div>
+        <div class="entidade-attr">criado_em</div>
+      </div>
+    </div>
+
+    <div class="entidade">
+      <div class="entidade-header">📋 Fila</div>
+      <div class="entidade-body">
+        <div class="entidade-attr"><span class="attr-pk"><span class="tag tag-pk">PK</span> id</span></div>
+        <div class="entidade-attr">numero (1-33)</div>
+        <div class="entidade-attr">descricao</div>
+        <div class="entidade-attr">tipo (enum)</div>
+        <div class="entidade-attr"><span class="attr-fk"><span class="tag tag-fk">FK</span> garagem_id</span></div>
+      </div>
+    </div>
+
+    <div class="entidade">
+      <div class="entidade-header">📍 Alocação Pátio</div>
+      <div class="entidade-body">
+        <div class="entidade-attr"><span class="attr-pk"><span class="tag tag-pk">PK</span> id</span></div>
+        <div class="entidade-attr"><span class="attr-fk"><span class="tag tag-fk">FK</span> onibus_id</span></div>
+        <div class="entidade-attr"><span class="attr-fk"><span class="tag tag-fk">FK</span> fila_id</span></div>
+        <div class="entidade-attr">posicao (int)</div>
+        <div class="entidade-attr"><span class="attr-fk"><span class="tag tag-fk">FK</span> alocado_por</span></div>
+        <div class="entidade-attr">alocado_em</div>
+        <div class="entidade-attr">ativa (bool)</div>
+      </div>
+    </div>
+
+    <div class="entidade">
+      <div class="entidade-header">📅 Escala</div>
+      <div class="entidade-body">
+        <div class="entidade-attr"><span class="attr-pk"><span class="tag tag-pk">PK</span> id</span></div>
+        <div class="entidade-attr"><span class="attr-fk"><span class="tag tag-fk">FK</span> onibus_id</span></div>
+        <div class="entidade-attr"><span class="attr-fk"><span class="tag tag-fk">FK</span> motorista_id</span></div>
+        <div class="entidade-attr">linha</div>
+        <div class="entidade-attr">horario_saida</div>
+        <div class="entidade-attr">data</div>
+        <div class="entidade-attr">status (enum)</div>
+        <div class="entidade-attr"><span class="attr-fk"><span class="tag tag-fk">FK</span> importado_por</span></div>
+        <div class="entidade-attr">criado_em</div>
+      </div>
+    </div>
+
+    <div class="entidade">
+      <div class="entidade-header">🔧 Ficha Manutenção</div>
+      <div class="entidade-body">
+        <div class="entidade-attr"><span class="attr-pk"><span class="tag tag-pk">PK</span> id</span></div>
+        <div class="entidade-attr"><span class="attr-fk"><span class="tag tag-fk">FK</span> onibus_id</span></div>
+        <div class="entidade-attr"><span class="attr-fk"><span class="tag tag-fk">FK</span> motorista_id</span></div>
+        <div class="entidade-attr"><span class="attr-fk"><span class="tag tag-fk">FK</span> mecanico_id</span></div>
+        <div class="entidade-attr">tipo_defeito (enum)</div>
+        <div class="entidade-attr">descricao</div>
+        <div class="entidade-attr">status (enum)</div>
+        <div class="entidade-attr">aberta_em</div>
+        <div class="entidade-attr">concluida_em</div>
+      </div>
+    </div>
+
+    <div class="entidade">
+      <div class="entidade-header">⚠️ Alerta</div>
+      <div class="entidade-body">
+        <div class="entidade-attr"><span class="attr-pk"><span class="tag tag-pk">PK</span> id</span></div>
+        <div class="entidade-attr"><span class="attr-fk"><span class="tag tag-fk">FK</span> onibus_id</span></div>
+        <div class="entidade-attr"><span class="attr-fk"><span class="tag tag-fk">FK</span> registrado_por</span></div>
+        <div class="entidade-attr">tipo (PRESO/AMOSTRAL)</div>
+        <div class="entidade-attr">motivo</div>
+        <div class="entidade-attr">resolvido (bool)</div>
+        <div class="entidade-attr">criado_em</div>
+      </div>
+    </div>
+
+    <div class="entidade">
+      <div class="entidade-header">🔐 Permissão</div>
+      <div class="entidade-body">
+        <div class="entidade-attr"><span class="attr-pk"><span class="tag tag-pk">PK</span> id</span></div>
+        <div class="entidade-attr"><span class="attr-fk"><span class="tag tag-fk">FK</span> usuario_id</span></div>
+        <div class="entidade-attr">recurso (enum)</div>
+        <div class="entidade-attr">pode_ler (bool)</div>
+        <div class="entidade-attr">pode_escrever (bool)</div>
+        <div class="entidade-attr"><span class="attr-fk"><span class="tag tag-fk">FK</span> concedido_por</span></div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- DER SVG -->
+  <div class="section-title">Diagrama Entidade-Relacionamento (DER)</div>
+  <div class="der-container">
+  <svg viewBox="0 0 1060 560" width="100%" style="font-family:Arial;font-size:11px;" xmlns="http://www.w3.org/2000/svg">
+    <defs>
+      <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+        <path d="M1 1L9 5L1 9" fill="none" stroke="#999" stroke-width="1.5" stroke-linecap="round"/>
+      </marker>
+    </defs>
+
+    <!-- GARAGEM (centro-topo) -->
+    <rect x="430" y="10" width="120" height="56" rx="6" fill="#CC0000" stroke="#CC0000"/>
+    <text x="490" y="32" text-anchor="middle" fill="#fff" font-weight="800" font-size="12">GARAGEM</text>
+    <text x="490" y="48" text-anchor="middle" fill="#ffcccc" font-size="10">id · nome · codigo</text>
+
+    <!-- USUARIO (esquerda-topo) -->
+    <rect x="60" y="10" width="130" height="76" rx="6" fill="#fff" stroke="#CC0000" stroke-width="2"/>
+    <rect x="60" y="10" width="130" height="22" rx="6" fill="#CC0000"/>
+    <rect x="60" y="22" width="130" height="10" fill="#CC0000"/>
+    <text x="125" y="26" text-anchor="middle" fill="#fff" font-weight="800" font-size="11">USUÁRIO</text>
+    <text x="125" y="44" text-anchor="middle" fill="#333" font-size="10">id · re · nome</text>
+    <text x="125" y="57" text-anchor="middle" fill="#333" font-size="10">senha_hash · perfil</text>
+    <text x="125" y="70" text-anchor="middle" fill="#1a56cc" font-size="10">FK: garagem_id</text>
+
+    <!-- ONIBUS (direita-topo) -->
+    <rect x="770" y="10" width="130" height="76" rx="6" fill="#fff" stroke="#CC0000" stroke-width="2"/>
+    <rect x="770" y="10" width="130" height="22" rx="6" fill="#CC0000"/>
+    <rect x="770" y="22" width="130" height="10" fill="#CC0000"/>
+    <text x="835" y="26" text-anchor="middle" fill="#fff" font-weight="800" font-size="11">ÔNIBUS</text>
+    <text x="835" y="44" text-anchor="middle" fill="#333" font-size="10">id · numero_frota</text>
+    <text x="835" y="57" text-anchor="middle" fill="#333" font-size="10">tipo(GERADO) · status</text>
+    <text x="835" y="70" text-anchor="middle" fill="#1a56cc" font-size="10">FK: garagem_id</text>
+
+    <!-- FILA (centro-esquerda) -->
+    <rect x="230" y="170" width="130" height="66" rx="6" fill="#fff" stroke="#444" stroke-width="1.5"/>
+    <rect x="230" y="170" width="130" height="20" rx="6" fill="#444"/>
+    <rect x="230" y="180" width="130" height="10" fill="#444"/>
+    <text x="295" y="185" text-anchor="middle" fill="#fff" font-weight="800" font-size="11">FILA</text>
+    <text x="295" y="202" text-anchor="middle" fill="#333" font-size="10">id · numero (1-33)</text>
+    <text x="295" y="215" text-anchor="middle" fill="#333" font-size="10">tipo · descricao</text>
+    <text x="295" y="228" text-anchor="middle" fill="#1a56cc" font-size="10">FK: garagem_id</text>
+
+    <!-- ALOCACAO_PATIO (centro) -->
+    <rect x="430" y="190" width="140" height="80" rx="6" fill="#fff" stroke="#444" stroke-width="1.5"/>
+    <rect x="430" y="190" width="140" height="20" rx="6" fill="#444"/>
+    <rect x="430" y="200" width="140" height="10" fill="#444"/>
+    <text x="500" y="205" text-anchor="middle" fill="#fff" font-weight="800" font-size="10">ALOCAÇÃO PÁTIO</text>
+    <text x="500" y="223" text-anchor="middle" fill="#1a56cc" font-size="10">FK: onibus_id · fila_id</text>
+    <text x="500" y="236" text-anchor="middle" fill="#1a56cc" font-size="10">FK: alocado_por</text>
+    <text x="500" y="249" text-anchor="middle" fill="#333" font-size="10">posicao · alocado_em</text>
+    <text x="500" y="262" text-anchor="middle" fill="#333" font-size="10">ativa (bool)</text>
+
+    <!-- ESCALA (direita-centro) -->
+    <rect x="700" y="170" width="140" height="96" rx="6" fill="#fff" stroke="#444" stroke-width="1.5"/>
+    <rect x="700" y="170" width="140" height="20" rx="6" fill="#444"/>
+    <rect x="700" y="180" width="140" height="10" fill="#444"/>
+    <text x="770" y="185" text-anchor="middle" fill="#fff" font-weight="800" font-size="11">ESCALA</text>
+    <text x="770" y="203" text-anchor="middle" fill="#1a56cc" font-size="10">FK: onibus_id</text>
+    <text x="770" y="216" text-anchor="middle" fill="#1a56cc" font-size="10">FK: motorista_id</text>
+    <text x="770" y="229" text-anchor="middle" fill="#333" font-size="10">linha · horario_saida</text>
+    <text x="770" y="242" text-anchor="middle" fill="#333" font-size="10">data · status</text>
+    <text x="770" y="255" text-anchor="middle" fill="#1a56cc" font-size="10">FK: importado_por</text>
+
+    <!-- FICHA_MANUTENCAO (direita-baixo) -->
+    <rect x="700" y="360" width="150" height="96" rx="6" fill="#fff" stroke="#f97316" stroke-width="2"/>
+    <rect x="700" y="360" width="150" height="20" rx="6" fill="#f97316"/>
+    <rect x="700" y="370" width="150" height="10" fill="#f97316"/>
+    <text x="775" y="375" text-anchor="middle" fill="#fff" font-weight="800" font-size="10">FICHA MANUTENÇÃO</text>
+    <text x="775" y="393" text-anchor="middle" fill="#1a56cc" font-size="10">FK: onibus_id</text>
+    <text x="775" y="406" text-anchor="middle" fill="#1a56cc" font-size="10">FK: motorista_id</text>
+    <text x="775" y="419" text-anchor="middle" fill="#1a56cc" font-size="10">FK: mecanico_id</text>
+    <text x="775" y="432" text-anchor="middle" fill="#333" font-size="10">tipo_defeito · status</text>
+    <text x="775" y="445" text-anchor="middle" fill="#333" font-size="10">aberta_em · concluida_em</text>
+
+    <!-- ALERTA (centro-baixo) -->
+    <rect x="420" y="370" width="140" height="80" rx="6" fill="#fff" stroke="#CC0000" stroke-width="2"/>
+    <rect x="420" y="370" width="140" height="20" rx="6" fill="#CC0000"/>
+    <rect x="420" y="380" width="140" height="10" fill="#CC0000"/>
+    <text x="490" y="385" text-anchor="middle" fill="#fff" font-weight="800" font-size="11">ALERTA</text>
+    <text x="490" y="403" text-anchor="middle" fill="#1a56cc" font-size="10">FK: onibus_id</text>
+    <text x="490" y="416" text-anchor="middle" fill="#1a56cc" font-size="10">FK: registrado_por</text>
+    <text x="490" y="429" text-anchor="middle" fill="#333" font-size="10">tipo · motivo</text>
+    <text x="490" y="442" text-anchor="middle" fill="#333" font-size="10">resolvido · criado_em</text>
+
+    <!-- PERMISSAO (esquerda-baixo) -->
+    <rect x="60" y="370" width="140" height="80" rx="6" fill="#fff" stroke="#444" stroke-width="1.5"/>
+    <rect x="60" y="370" width="140" height="20" rx="6" fill="#444"/>
+    <rect x="60" y="380" width="140" height="10" fill="#444"/>
+    <text x="130" y="385" text-anchor="middle" fill="#fff" font-weight="800" font-size="11">PERMISSÃO</text>
+    <text x="130" y="403" text-anchor="middle" fill="#1a56cc" font-size="10">FK: usuario_id</text>
+    <text x="130" y="416" text-anchor="middle" fill="#1a56cc" font-size="10">FK: concedido_por</text>
+    <text x="130" y="429" text-anchor="middle" fill="#333" font-size="10">recurso · pode_ler</text>
+    <text x="130" y="442" text-anchor="middle" fill="#333" font-size="10">pode_escrever</text>
+
+    <!-- CONEXÕES -->
+    <!-- GARAGEM → USUARIO -->
+    <line x1="430" y1="38" x2="190" y2="38" stroke="#CC0000" stroke-width="1.5" marker-end="url(#arr)"/>
+    <text x="310" y="33" text-anchor="middle" fill="#CC0000" font-size="9" font-weight="700">pertence a</text>
+
+    <!-- GARAGEM → ONIBUS -->
+    <line x1="550" y1="38" x2="770" y2="38" stroke="#CC0000" stroke-width="1.5" marker-end="url(#arr)"/>
+    <text x="660" y="33" text-anchor="middle" fill="#CC0000" font-size="9" font-weight="700">tem</text>
+
+    <!-- GARAGEM → FILA -->
+    <line x1="470" y1="66" x2="340" y2="170" stroke="#888" stroke-width="1" stroke-dasharray="4 3" marker-end="url(#arr)"/>
+
+    <!-- USUARIO → ALOCACAO -->
+    <line x1="190" y1="48" x2="430" y2="220" stroke="#888" stroke-width="1" stroke-dasharray="4 3" marker-end="url(#arr)"/>
+    <text x="290" y="125" text-anchor="middle" fill="#888" font-size="9">realiza</text>
+
+    <!-- FILA → ALOCACAO -->
+    <line x1="360" y1="215" x2="430" y2="228" stroke="#666" stroke-width="1.5" marker-end="url(#arr)"/>
+    <text x="390" y="210" text-anchor="middle" fill="#666" font-size="9">recebe</text>
+
+    <!-- ONIBUS → ALOCACAO -->
+    <line x1="770" y1="60" x2="570" y2="220" stroke="#666" stroke-width="1.5" marker-end="url(#arr)"/>
+    <text x="700" y="130" text-anchor="middle" fill="#666" font-size="9">alocado em</text>
+
+    <!-- ONIBUS → ESCALA -->
+    <line x1="835" y1="86" x2="810" y2="170" stroke="#666" stroke-width="1.5" marker-end="url(#arr)"/>
+    <text x="850" y="130" text-anchor="middle" fill="#666" font-size="9">compõe</text>
+
+    <!-- ONIBUS → FICHA_MANUT -->
+    <line x1="900" y1="86" x2="840" y2="360" stroke="#f97316" stroke-width="1.5" marker-end="url(#arr)"/>
+    <text x="920" y="230" text-anchor="middle" fill="#f97316" font-size="9">origina</text>
+
+    <!-- ONIBUS → ALERTA -->
+    <line x1="770" y1="86" x2="560" y2="370" stroke="#CC0000" stroke-width="1.5" marker-end="url(#arr)"/>
+    <text x="680" y="250" text-anchor="middle" fill="#CC0000" font-size="9">gera</text>
+
+    <!-- USUARIO → PERMISSAO -->
+    <line x1="125" y1="86" x2="130" y2="370" stroke="#888" stroke-width="1" stroke-dasharray="4 3" marker-end="url(#arr)"/>
+    <text x="105" y="230" text-anchor="middle" fill="#888" font-size="9">possui</text>
+
+    <!-- USUARIO → ALERTA (registra) -->
+    <line x1="190" y1="70" x2="420" y2="390" stroke="#888" stroke-width="1" stroke-dasharray="4 3" marker-end="url(#arr)"/>
+
+    <!-- CARDINALIDADES -->
+    <text x="405" y="35" text-anchor="middle" fill="#555" font-size="9" font-weight="700">1:N</text>
+    <text x="575" y="35" text-anchor="middle" fill="#555" font-size="9" font-weight="700">1:N</text>
+    <text x="395" y="222" text-anchor="middle" fill="#555" font-size="9" font-weight="700">1:N</text>
+    <text x="655" y="215" text-anchor="middle" fill="#555" font-size="9" font-weight="700">1:N</text>
+    <text x="840" y="120" text-anchor="middle" fill="#555" font-size="9" font-weight="700">1:N</text>
+  </svg>
+  </div>
+
+  <!-- LEGENDA RELAÇÕES -->
+  <div class="section-title">Relacionamentos</div>
+  <div class="rels">
+    <div class="rel-item"><b>GARAGEM</b> 1:N <b>USUÁRIO</b> — Uma garagem tem muitos usuários</div>
+    <div class="rel-item"><b>GARAGEM</b> 1:N <b>ÔNIBUS</b> — Uma garagem tem muitos ônibus</div>
+    <div class="rel-item"><b>GARAGEM</b> 1:N <b>FILA</b> — Uma garagem tem muitas filas</div>
+    <div class="rel-item"><b>ÔNIBUS</b> 1:N <b>ALOCAÇÃO PÁTIO</b> — Um ônibus tem muitas alocações (histórico)</div>
+    <div class="rel-item"><b>FILA</b> 1:N <b>ALOCAÇÃO PÁTIO</b> — Uma fila recebe muitas alocações</div>
+    <div class="rel-item"><b>ÔNIBUS</b> 1:N <b>ESCALA</b> — Um ônibus aparece em muitas escalas (datas)</div>
+    <div class="rel-item"><b>ÔNIBUS</b> 1:N <b>FICHA MANUTENÇÃO</b> — Um ônibus tem muitas fichas</div>
+    <div class="rel-item"><b>ÔNIBUS</b> 1:N <b>ALERTA</b> — Um ônibus pode ter muitos alertas</div>
+    <div class="rel-item"><b>USUÁRIO</b> 1:N <b>PERMISSÃO</b> — Um usuário tem várias permissões por recurso</div>
+  </div>
+
+  <div class="legend">
+    <div class="legend-item"><div class="legend-dot" style="background:#CC0000;"></div> Entidade principal</div>
+    <div class="legend-item"><div class="legend-dot" style="background:#444;"></div> Entidade operacional</div>
+    <div class="legend-item"><div class="legend-dot" style="background:#f97316;"></div> Entidade de manutenção</div>
+    <div class="legend-item"><span style="color:#CC0000;font-weight:800">PK</span> Chave primária</div>
+    <div class="legend-item"><span style="color:#1a56cc;font-weight:800">FK</span> Chave estrangeira</div>
+    <div class="legend-item"><span style="border-bottom:2px dashed #888;padding:0 8px"> </span> Relacionamento indireto</div>
+  </div>
+
+  <div class="footer">
+    Sistema de Gestão de Pátio Sambaíba · Banco: gestao_frota_sambaiba (PostgreSQL) · Alisson Martins © 2026
+  </div>
+</div>
+
+</body>
+</html>
