@@ -123,7 +123,10 @@ function alocarOnibus(){
   const esp=ESPECIAIS.find(e=>e.key===modalFilaAtual);
   const listaAtual = esp ? (state.especiais[modalFilaAtual]||[]) : (state.filas[modalFilaAtual]||[]);
   const maxPos = listaAtual.length > 0 ? Math.max(...listaAtual.map(x=>x.pos||0)) : 0;
-  const item={frota, linha, pos: maxPos + 1};
+  const cadastro = state.frota.find(o => String(o.frota) === String(frota));
+  const linhaFinal = linha || (cadastro && cadastro.linha) || '';
+  if(linhaFinal && !state.linhas.includes(linhaFinal)) state.linhas.push(linhaFinal);
+  const item={frota, linha: linhaFinal, pos: maxPos + 1};
   if(esp)state.especiais[modalFilaAtual].push(item);else state.filas[modalFilaAtual].push(item);
   document.getElementById('input-linha-alocar').value='';
   const ifA = document.getElementById('input-frota-alocar');
@@ -267,9 +270,9 @@ function renderPatio(){
             <span>${o.frota}</span>
             ${infoLinha}
           </div>
-          <span style="font-size:10px;color:var(--accent);font-weight:400">${o.pos?'P.'+o.pos:''}${o.linha?' L.'+o.linha:''}</span>
+          
         </div>
-        <span style="font-size:14px;color:var(--muted)">✎</span>
+        <span style="font-size:10px;color:var(--accent);font-weight:400">${o.pos?'P.'+o.pos:''}${(o.linha||(cadastro&&cadastro.linha))?' L.'+(o.linha||(cadastro&&cadastro.linha)):''}</span>
       </div>`;
     }).join('');
     return `<div class="card">
@@ -505,15 +508,14 @@ function salvarEdicaoChip() {
   const linha = document.getElementById('edit-linha').value.trim();
   const novaPosicao = document.getElementById('edit-nova-posicao').value;
 
-  // Salva linha nova se não existir
-  if(linha && !state.linhas.includes(linha)) state.linhas.push(linha);
-
   // Remove da posição atual
   if(isEspecial) state.especiais[filaKey] = state.especiais[filaKey].filter(x => x.frota !== frota);
   else state.filas[filaKey] = state.filas[filaKey].filter(x => x.frota !== frota);
 
   // Define nova posição
-  const item = {frota, linha};
+  const cadastro = state.frota.find(o => String(o.frota) === String(frota));
+  const linhaFinal = linha || (cadastro && cadastro.linha) || '';
+  const item = {frota, linha: linhaFinal};
   if(novaPosicao.startsWith('fila:')) {
     const f = novaPosicao.replace('fila:','');
     state.filas[f].push(item);
@@ -980,7 +982,7 @@ function parsearLinhasEscala(texto) {
         hora = col; continue;
       }
       // Linha: alfanumérico tipo 178T, 271C, 1156
-      if(col !== carro && /^\d{3,4}[A-Z]?$/.test(col) && !/^\d{4}$/.test(col)) {
+     if(col !== carro && /^\d{3,4}[A-Z]?$/.test(col)) {
         linhaBus = col; continue;
       }
     }
@@ -1348,28 +1350,22 @@ function renderEscalaCompleta(busca) {
     return;
   }
 
-  const CORES_STATUS = {
-    preso:      'chip-status-preso',
-    amostral:   'chip-status-amostral',
-    manutencao: 'chip-status-manutencao',
-    evento:     'chip-status-evento',
-  };
-
   container.innerHTML = `<div style="font-size:11px;color:var(--muted);font-family:var(--mono);margin-bottom:8px">${lista.length} veículos escalados</div>
     <table class="escala-table">
-      <thead><tr><th>Frota</th><th>Hora</th><th>Linha</th><th>Status</th></tr></thead>
+      <thead><tr><th>Frota</th><th>Hora</th><th>Linha</th></tr></thead>
       <tbody>` +
     lista.map(o => {
       const isPreso    = state.presos.find(p=>String(p.frota)===String(o.frota));
       const isAmostral = state.revisoes.find(r=>String(r.frota)===String(o.frota));
       const st = isPreso ? 'preso' : isAmostral ? 'amostral' : (o.status||'');
-      const badgeCls = CORES_STATUS[st] || '';
-      const badge = st ? `<span class="chip-status ${badgeCls}">${st.toUpperCase()}</span>` : '—';
+      let linha;
+      if(st === 'preso')         linha = '<span style="color:red;font-weight:800">PRESO</span>';
+      else if(st === 'amostral') linha = '<span style="color:#b45309;font-weight:800">AMOSTRAL</span>';
+      else                       linha = o.linha || '—';
       return `<tr>
         <td class="escala-frota">${o.frota}</td>
         <td>${o.hora||'—'}</td>
-        <td>${o.linha||'—'}</td>
-        <td>${badge}</td>
+        <td>${linha}</td>
       </tr>`;
     }).join('') +
     '</tbody></table>';
