@@ -1,4 +1,5 @@
 const FILAS_NUM = Array.from({length:33},(_,i)=>String(i+1));
+
 const ESPECIAIS = [
   {key:'coqueiro',label:'Coqueiro',icon:'🌴',cls:'esp-coqueiro'},
   {key:'laje',label:'Laje',icon:'🪨',cls:'esp-laje'},
@@ -15,7 +16,8 @@ const EXEMPLO = {
   filas:{},
   especiais:{coqueiro:[],lavador:[],eletricos:[],bomba:[],laje:[],fundao:[]},
   presos:[],
-  revisoes:[]
+  revisoes:[],
+  escala:{ tipo:null, data:'', importadoEm:null, manobra:[], e2:[], ar2:[] }
 };
 
 let state;
@@ -40,6 +42,10 @@ function initState(){
   if(!state.revisoes) state.revisoes=[];
   if(!state.filas) state.filas={};
   if(!state.especiais) state.especiais={};
+  if(!state.escala) state.escala={ tipo:null, data:'', importadoEm:null, manobra:[], e2:[], ar2:[] };
+  if(!state.escala.manobra) state.escala.manobra=[];
+  if(!state.escala.e2) state.escala.e2=[];
+  if(!state.escala.ar2) state.escala.ar2=[];
   // Garante todas as filas e especiais existem e migra formato antigo
   FILAS_NUM.forEach(f=>{ state.filas[f]=migrarDados(state.filas[f]||[]); });
   ESPECIAIS.forEach(e=>{ state.especiais[e.key]=migrarDados(state.especiais[e.key]||[]); });
@@ -86,6 +92,22 @@ function openModal(id,filaKey){
 }
 function closeModal(id){document.getElementById(id).classList.remove('open');modalFilaAtual=null;}
 document.querySelectorAll('.modal-overlay').forEach(m=>{m.addEventListener('click',e=>{if(e.target===m)m.classList.remove('open');});});
+
+// ─── MODAL DE CONFIRMAÇÃO GENÉRICO ───────────────────────────────
+let _confirmaCallback = null;
+function confirmar(titulo, msg, onSim, onNao) {
+  document.getElementById('confirma-titulo').textContent = titulo;
+  document.getElementById('confirma-msg').textContent   = msg;
+  _confirmaCallback = { onSim: onSim || null, onNao: onNao || null };
+  openModal('modal-confirma');
+}
+function _confirmaResolve(resp) {
+  closeModal('modal-confirma');
+  const cb = _confirmaCallback;
+  _confirmaCallback = null;
+  if (resp && cb && cb.onSim) cb.onSim();
+  else if (!resp && cb && cb.onNao) cb.onNao();
+}
 
 function populateSelects(){
   const opts=state.frota.length
@@ -381,7 +403,7 @@ function updateStats(){
   document.getElementById('stat-revisao').textContent=state.revisoes.length;
 }
 
-function renderAll(){renderPatio();renderEspeciais();renderManutencao();renderAlertas();renderFrota();updateStats();popularDatalistsRapido();}
+function renderAll(){renderPatio();renderEspeciais();renderManutencao();renderAlertas();renderFrota();renderManobra();renderPlantaoE2();renderPlantaoAR2();updateStats();popularDatalistsRapido();}
 
 
 function imprimirLista() {
@@ -396,13 +418,15 @@ function imprimirLista() {
   FILAS_NUM.forEach(f => {
     state.filas[f].forEach(o => {
       const cadastro = state.frota.find(x => String(x.frota) === String(o.frota));
-      todos.push({frota: o.frota, posicao: f, linha: o.linha||'', pos: o.pos||'', hora: (cadastro&&cadastro.hora)||'', preso: false});
+      const linha = o.linha || (cadastro && cadastro.linha) || '';
+      todos.push({frota: o.frota, posicao: f, linha, pos: o.pos||'', hora: (cadastro&&cadastro.hora)||'', preso: false});
     });
   });
   ESPECIAIS.forEach(e => {
     state.especiais[e.key].forEach(o => {
       const cadastro = state.frota.find(x => String(x.frota) === String(o.frota));
-      todos.push({frota: o.frota, posicao: ESPECIAIS_LABELS[e.key], linha: o.linha||'', pos: o.pos||'', hora: (cadastro&&cadastro.hora)||'', preso: false});
+      const linha = o.linha || (cadastro && cadastro.linha) || '';
+      todos.push({frota: o.frota, posicao: ESPECIAIS_LABELS[e.key], linha, pos: o.pos||'', hora: (cadastro&&cadastro.hora)||'', preso: false});
     });
   });
   state.presos.forEach(p => {
@@ -681,65 +705,121 @@ function resolverFilaInput(input) {
 }
 
 function adicionarBloco() {
-  const frota = String(document.getElementById('bloco-carro').value).trim();
+  const frota    = String(document.getElementById('bloco-carro').value).trim();
   const filaInput = document.getElementById('bloco-fila-input').value.trim();
-  const linha = String(document.getElementById('bloco-linha').value).trim();
+  const linha    = String(document.getElementById('bloco-linha').value).trim();
 
-  if(!frota) { document.getElementById('bloco-carro').focus(); return; }
-  if(!filaInput) { alert('Informe a fila ou posição.'); document.getElementById('bloco-fila-input').focus(); return; }
+  if (!frota) { document.getElementById('bloco-carro').focus(); return; }
+  if (!filaInput) { alert('Informe a fila ou posição.'); document.getElementById('bloco-fila-input').focus(); return; }
 
   const filaVal = resolverFilaInput(filaInput);
-  if(!filaVal) {
+  if (!filaVal) {
     alert('Posição "' + filaInput + '" não encontrada. Use: 1 a 33, coqueiro, laje, lavador, bomba, eletricos ou fundao');
     document.getElementById('bloco-fila-input').focus();
     return;
   }
 
-  // Cadastra se não existir
-  if(!state.frota.find(o => String(o.frota) === frota)) {
-    state.frota.push({frota});
-    state.frota.sort((a,b) => Number(a.frota) - Number(b.frota));
+  // ── Descobre onde o carro já está alocado (se estiver) ──────────
+  let filaAtualLabel = null;
+  for (const f of FILAS_NUM) {
+    if ((state.filas[f] || []).some(x => String(x.frota) === frota)) {
+      filaAtualLabel = 'fila ' + f; break;
+    }
+  }
+  if (!filaAtualLabel) {
+    for (const e of ESPECIAIS) {
+      if ((state.especiais[e.key] || []).some(x => String(x.frota) === frota)) {
+        filaAtualLabel = e.label || e.key; break;
+      }
+    }
   }
 
-  // Remove de qualquer posição anterior
+  const naFrota = !!state.frota.find(o => String(o.frota) === frota);
+
+  // ── Função que executa a alocação após confirmações ─────────────
+  const executar = () => _executarAlocarBloco(frota, filaVal, filaInput, linha, naFrota);
+
+  // ── Verificação 1: carro já alocado em outra posição? ───────────
+  if (filaAtualLabel) {
+    confirmar(
+      '🔄 Substituir alocação?',
+      `Carro ${frota} já está na ${filaAtualLabel}. Deseja substituir?`,
+      () => {
+        // ── Verificação 2 (após confirmar substituição): não cadastrado? ──
+        if (!naFrota) {
+          confirmar(
+            '➕ Cadastrar veículo?',
+            `Carro ${frota} não está cadastrado na frota. Deseja cadastrar?`,
+            executar   // Sim → cadastra e aloca
+            // Não → cancela (sem onNao = fecha modal e não faz nada)
+          );
+        } else {
+          executar();
+        }
+      }
+      // Não substituir → cancela tudo
+    );
+    return;
+  }
+
+  // ── Verificação 2: não está na frota? ───────────────────────────
+  if (!naFrota) {
+    confirmar(
+      '➕ Cadastrar veículo?',
+      `Carro ${frota} não está cadastrado na frota. Deseja cadastrar?`,
+      executar   // Sim → cadastra e aloca
+      // Não → cancela
+    );
+    return;
+  }
+
+  // ── Caminho direto: tudo ok, aloca sem confirmação ──────────────
+  executar();
+}
+
+function _executarAlocarBloco(frota, filaVal, filaInput, linha, naFrota) {
+  // Cadastra na frota se não existir e usuário confirmou
+  if (!naFrota) {
+    state.frota.push({frota});
+    state.frota.sort((a, b) => Number(a.frota) - Number(b.frota));
+  }
+
+  // Remove de qualquer posição anterior (garante sem duplicata)
   FILAS_NUM.forEach(f => { state.filas[f] = state.filas[f].filter(x => String(x.frota) !== frota); });
   ESPECIAIS.forEach(e => { state.especiais[e.key] = state.especiais[e.key].filter(x => String(x.frota) !== frota); });
 
-  if(linha && !state.linhas.includes(linha)) state.linhas.push(linha);
+  if (linha && !state.linhas.includes(linha)) state.linhas.push(linha);
 
   const lista = getListaBloco(filaVal);
 
-  // Posição depende do sentido
-  let pos;
-  if(blocoSentido === 'ida') {
-    pos = lista.length + 1;
-    lista.push({frota, linha, pos});
+  // Insere na posição correta conforme sentido
+  if (blocoSentido === 'ida') {
+    lista.push({frota, linha, pos: lista.length + 1});
   } else {
-    // Volta: insere no início e renumera tudo
     lista.unshift({frota, linha, pos: 1});
     lista.forEach((o, i) => o.pos = i + 1);
-    pos = 1;
   }
 
   // Salva na estrutura correta
-  if(filaVal.startsWith('manut:')) {
-    const tipo = filaVal.replace('manut:','');
-    if(!state.manutencao) state.manutencao = [];
-    // Remove do tipo e reinsere com os dados atualizados
+  if (filaVal.startsWith('manut:')) {
+    const tipo = filaVal.replace('manut:', '');
+    if (!state.manutencao) state.manutencao = [];
     state.manutencao = state.manutencao.filter(m => m.tipo !== tipo);
-    lista.forEach(m => { if(!state.manutencao.find(x=>String(x.frota)===String(m.frota)&&x.tipo===tipo)) state.manutencao.push({frota:m.frota, tipo, hora: m.hora||''}); });
-  } else if(filaVal.startsWith('esp:')) {
-    state.especiais[filaVal.replace('esp:','')] = lista;
+    lista.forEach(m => {
+      if (!state.manutencao.find(x => String(x.frota) === String(m.frota) && x.tipo === tipo))
+        state.manutencao.push({frota: m.frota, tipo, hora: m.hora || ''});
+    });
+  } else if (filaVal.startsWith('esp:')) {
+    state.especiais[filaVal.replace('esp:', '')] = lista;
   } else {
-    state.filas[filaVal.replace('fila:','')] = lista;
+    state.filas[filaVal.replace('fila:', '')] = lista;
   }
 
-  // Atualiza status se elemento existir
-  const nomeFila = filaInput;
-  const proxPos = blocoSentido === 'ida' ? lista.length + 1 : 1;
+  // Atualiza barra de status do bloco
   const sentidoLabel = blocoSentido === 'ida' ? '→' : '←';
-  const statusEl = document.getElementById('bloco-status');
-  if(statusEl) statusEl.textContent = nomeFila + ' ' + sentidoLabel + ' · ' + lista.length + ' carros · próxima pos.' + proxPos;
+  const proxPos      = blocoSentido === 'ida' ? lista.length + 1 : 1;
+  const statusEl     = document.getElementById('bloco-status');
+  if (statusEl) statusEl.textContent = filaInput + ' ' + sentidoLabel + ' · ' + lista.length + ' carros · próxima pos.' + proxPos;
 
   document.getElementById('bloco-carro').value = '';
   document.getElementById('bloco-carro').focus();
@@ -1013,12 +1093,346 @@ function aplicarEscalaColar() {
   const texto = document.getElementById('escala-texto').value;
   const dados = parsearLinhasEscala(texto);
   if(!dados.length) { alert('Nenhum dado reconhecido. Verifique o formato.'); return; }
-  aplicarEscala(dados);
   closeModal('modal-escala');
+  verificarEAplicarEscala(dados);
 }
 
-function aplicarEscala(dados) {
-  let novos = 0, atualizados = 0, presos = 0;
+// ─── DETECÇÃO AUTOMÁTICA DE TIPO DE ESCALA ───────────────────────
+function detectarTipoEscala(rawLinhas) {
+  // Detecta se é Manobra ou Plantão (E2+AR2).
+  // A separação E2 / AR2 é sempre feita pelo prefixo do número do veículo:
+  //   1xxx → E2 (Centro) | 2xxx → AR2 (Bairro)
+  const texto = rawLinhas.slice(0, 8).flat().join(' ').toUpperCase();
+  // Palavras-chave de plantão no cabeçalho
+  if (texto.includes('AR2') || texto.includes('(E2)') ||
+      texto.includes('E2 ') || texto.includes(' E2') ||
+      texto.includes('PLANTÃO') || texto.includes('PLANTAO')) {
+    return 'plantao';
+  }
+  // Fallback: se houver veículos com 4 dígitos (1xxx ou 2xxx) é plantão
+  const nums = rawLinhas.flat()
+    .map(v => parseInt(String(v).trim()))
+    .filter(v => !isNaN(v) && v >= 1000 && v < 10000);
+  if (nums.length) return 'plantao';
+  return 'manobra';
+}
+
+function calcularStatsEscala(dados) {
+  const total = dados.length;
+  const presos = dados.filter(d =>
+    (d.status && d.status.toLowerCase() === 'preso') ||
+    (d.linha && d.linha.toUpperCase() === 'PRESO')
+  ).length;
+  const escalados = dados.filter(d => d.hora && d.hora.trim() !== '' && !( (d.status && d.status.toLowerCase() === 'preso') || (d.linha && d.linha.toUpperCase() === 'PRESO') )).length;
+  const reserva = total - escalados - presos;
+  return { total, escalados, presos, reserva };
+}
+
+// ─── PARSERS POR TIPO DE ESCALA ───────────────────────────────────
+function parsearManobra(dados) {
+  return dados.map(d => {
+    const isPreso = (d.status && d.status.toLowerCase() === 'preso') ||
+                    (d.linha && d.linha.toUpperCase() === 'PRESO');
+    const status = isPreso ? 'preso' : (d.hora && d.hora.trim() ? 'escalado' : 'reserva');
+    return {
+      carro: String(d.carro),
+      hora: isPreso ? '' : (d.hora || ''),
+      linha: isPreso ? '' : (d.linha || ''),
+      status
+    };
+  }).sort((a, b) => Number(a.carro) - Number(b.carro));
+}
+
+function parsearPlantao(dados) {
+  // Agrupa por linha, ordena por horário dentro de cada grupo
+  const toMin = h => { if(!h||!h.trim()) return 9999; const p=h.split(':'); return parseInt(p[0])*60+(parseInt(p[1])||0); };
+  const porLinha = {};
+  dados
+    .filter(d => d.carro && d.linha && d.linha.toUpperCase() !== 'PRESO' && String(d.carro).trim())
+    .forEach(d => {
+      const linha = String(d.linha).trim();
+      if (!porLinha[linha]) porLinha[linha] = [];
+      porLinha[linha].push({ carro: String(d.carro), hora: d.hora || '', mot: '', cob: '' });
+    });
+  return Object.entries(porLinha)
+    .map(([linha, veiculos]) => ({
+      linha,
+      tabelas: veiculos.length,
+      veiculos: veiculos.sort((a, b) => toMin(a.hora) - toMin(b.hora))
+    }))
+    .sort((a, b) => a.linha.localeCompare(b.linha, 'pt-BR', { numeric:true }));
+}
+
+// ─── MODAL DE PREVIEW DE ESCALA ───────────────────────────────────
+function abrirPreviewEscala(dados, rawLinhas) {
+  const tipo = detectarTipoEscala(rawLinhas);
+  const stats = calcularStatsEscala(dados);
+  window._escalaTemp = dados;
+  window._tipoEscalaTemp = tipo;
+
+  // Conta quantos veículos vão para cada setor (pelo prefixo)
+  const countE2  = dados.filter(d => String(d.carro).startsWith('1')).length;
+  const countAR2 = dados.filter(d => String(d.carro).startsWith('2')).length;
+
+  // Badge do tipo detectado
+  const isManobra = tipo === 'manobra';
+  const nomeBadge = isManobra ? '📋 ESCALA DE MANOBRA' : '🚍 E2 + 🚌 AR2 — SEPARAÇÃO AUTOMÁTICA';
+  const corBadge  = isManobra ? 'var(--accent4)' : '#1a3a6b';
+  document.getElementById('preview-tipo-badge').innerHTML =
+    `<div style="background:${corBadge};color:#fff;border-radius:8px;padding:10px 14px;font-family:var(--mono);font-size:13px;font-weight:800;letter-spacing:1px">${nomeBadge}</div>` +
+    (!isManobra && (countE2 || countAR2) ? `<div style="display:flex;gap:8px;margin-top:8px">
+      <span style="background:#1a3a6b;color:#fff;border-radius:6px;padding:4px 10px;font-size:12px;font-family:var(--mono)">🚍 E2: ${countE2} veíc.</span>
+      <span style="background:var(--accent);color:#fff;border-radius:6px;padding:4px 10px;font-size:12px;font-family:var(--mono)">🚌 AR2: ${countAR2} veíc.</span>
+    </div>` : '');
+
+  // Stats em mini-cards
+  document.getElementById('preview-stats').innerHTML =
+    `<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px">
+      <div class="stat-box"><div class="stat-num" style="font-size:18px">${stats.total}</div><div class="stat-label">Total</div></div>
+      <div class="stat-box"><div class="stat-num" style="font-size:18px;color:var(--accent3)">${stats.escalados}</div><div class="stat-label">Escalados</div></div>
+      <div class="stat-box"><div class="stat-num" style="font-size:18px;color:var(--accent2)">${stats.presos}</div><div class="stat-label">Presos</div></div>
+      <div class="stat-box"><div class="stat-num" style="font-size:18px;color:var(--muted)">${stats.reserva}</div><div class="stat-label">Reserva</div></div>
+    </div>`;
+
+  // Seleciona o tipo detectado no dropdown
+  document.getElementById('preview-tipo-select').value = tipo;
+  openModal('modal-preview-escala');
+}
+
+function confirmarPreviewEscala() {
+  const dados = window._escalaTemp;
+  if (!dados || !dados.length) return;
+  const tipo = document.getElementById('preview-tipo-select').value;
+  window._tipoEscalaTemp = tipo;
+  closeModal('modal-preview-escala');
+  window._escalaTemp = null;
+  verificarEAplicarEscala(dados, tipo);
+}
+
+// ─── RENDERS DE ESCALA POR SETOR ─────────────────────────────────
+let _manobraFiltro = 'todos';
+function filtrarManobra(filtro, btn) {
+  _manobraFiltro = filtro;
+  document.querySelectorAll('.manobra-filtro').forEach(b => b.classList.remove('active'));
+  if (btn) btn.classList.add('active');
+  renderManobra();
+}
+
+function abrirManobra() {
+  renderManobra();
+  openModal('modal-manobra');
+}
+
+function renderManobra() {
+  const grid    = document.getElementById('manobra-grid');
+  const statsEl = document.getElementById('manobra-stats');
+  const vaziEl  = document.getElementById('manobra-vazio');
+  if (!grid) return;
+
+  const dados = state.escala && state.escala.tipo === 'manobra' && state.escala.manobra.length
+    ? state.escala.manobra : null;
+
+  if (!dados) {
+    grid.innerHTML = '';
+    if (statsEl) statsEl.innerHTML = '';
+    if (vaziEl) vaziEl.style.display = 'block';
+    return;
+  }
+  if (vaziEl) vaziEl.style.display = 'none';
+
+  // Stats banner
+  const tot = dados.length;
+  const esc = dados.filter(d => d.status === 'escalado').length;
+  const pre = dados.filter(d => d.status === 'preso').length;
+  const res = dados.filter(d => d.status === 'reserva').length;
+  if (statsEl) statsEl.innerHTML =
+    `<div class="manobra-stats-bar">
+      <span class="ms-item total">${tot} frota</span>
+      <span class="ms-item escalado">🟢 ${esc}</span>
+      <span class="ms-item preso">🔴 ${pre}</span>
+      <span class="ms-item reserva">⚫ ${res}</span>
+      ${state.escala.data ? '<span class="ms-item data">📅 ' + state.escala.data + '</span>' : ''}
+    </div>`;
+
+  // Grid filtrado
+  const visíveis = _manobraFiltro === 'todos' ? dados : dados.filter(d => d.status === _manobraFiltro);
+  if (!visíveis.length) { grid.innerHTML = '<div class="empty" style="padding:20px 0">Nenhum veículo neste filtro.</div>'; return; }
+
+  grid.innerHTML = visíveis.map(d => {
+    const cls   = `manobra-card ${d.status}`;
+    const info  = d.status === 'escalado' ? d.hora : d.status === 'preso' ? 'PRESO' : '—';
+    const linha = d.linha ? `<div class="manobra-linha">${d.linha}</div>` : '';
+    return `<div class="${cls}" onclick="detalheManobra('${d.carro}')">
+      <div class="manobra-num">${d.carro}</div>
+      <div class="manobra-hora">${info}</div>
+      ${linha}
+    </div>`;
+  }).join('');
+}
+
+function detalheManobra(carro) {
+  const item = (state.escala.manobra || []).find(d => d.carro === String(carro));
+  if (!item) return;
+  const st = { escalado:'🟢 Escalado', preso:'🔴 PRESO', reserva:'⚫ Reserva' };
+  alert(`Carro ${item.carro}\n${st[item.status] || item.status}${item.hora ? '\nHorário: ' + item.hora : ''}${item.linha ? '\nLinha: ' + item.linha : ''}`);
+}
+
+function renderPlantaoE2() {
+  const container = document.getElementById('e2-container');
+  const metaEl    = document.getElementById('e2-meta');
+  if (!container) return;
+  const dados = state.escala && state.escala.e2 && state.escala.e2.length ? state.escala.e2 : null;
+  if (!dados) {
+    container.innerHTML = '<div class="empty" style="padding:30px 0"><div class="empty-icon">🚍</div>Nenhuma escala E2 importada.<br>Use ⋮ → Importar Escala e selecione um arquivo de Plantão E2.</div>';
+    if (metaEl) metaEl.textContent = 'Nenhuma escala importada';
+    return;
+  }
+  const total = dados.reduce((s, g) => s + g.tabelas, 0);
+  if (metaEl) metaEl.textContent = `${total} veículos · ${dados.length} linhas · ${state.escala.data || ''}`;
+  _renderPlantaoGrupos(container, dados, 'e2');
+}
+
+function renderPlantaoAR2() {
+  const container = document.getElementById('ar2-container');
+  const metaEl    = document.getElementById('ar2-meta');
+  if (!container) return;
+  const dados = state.escala && state.escala.ar2 && state.escala.ar2.length ? state.escala.ar2 : null;
+  if (!dados) {
+    container.innerHTML = '<div class="empty" style="padding:30px 0"><div class="empty-icon">🚌</div>Nenhuma escala AR2 importada.<br>Use ⋮ → Importar Escala e selecione um arquivo de Plantão AR2.</div>';
+    if (metaEl) metaEl.textContent = 'Nenhuma escala importada';
+    return;
+  }
+  const total = dados.reduce((s, g) => s + g.tabelas, 0);
+  if (metaEl) metaEl.textContent = `${total} veículos · ${dados.length} linhas · ${state.escala.data || ''}`;
+  _renderPlantaoGrupos(container, dados, 'ar2');
+}
+
+function _renderPlantaoGrupos(container, grupos, setor) {
+  const filtro = (document.getElementById(`search-${setor}`) || {}).value || '';
+  const fl = filtro.trim().toLowerCase();
+  const visiveis = fl
+    ? grupos.filter(g => g.linha.toLowerCase().includes(fl) || g.veiculos.some(v => v.carro.includes(fl)))
+    : grupos;
+
+  if (!visiveis.length) {
+    container.innerHTML = '<div class="empty" style="padding:20px 0">Nenhum resultado encontrado.</div>';
+    return;
+  }
+
+  container.innerHTML = visiveis.map(g => {
+    const id = `plantao-${setor}-${g.linha}`;
+    const rows = fl
+      ? g.veiculos.filter(v => v.carro.includes(fl) || g.linha.toLowerCase().includes(fl))
+      : g.veiculos;
+    return `<div class="plantao-grupo">
+      <div class="plantao-grupo-header" onclick="togglePlantaoGrupo('${id}')">
+        <div style="display:flex;align-items:center;gap:10px">
+          <span class="plantao-linha-badge">${g.linha}</span>
+          <span class="plantao-tabelas">${g.tabelas} tabelas</span>
+        </div>
+        <span class="plantao-chevron" id="chev-${id}">▼</span>
+      </div>
+      <div class="plantao-grupo-body" id="${id}">
+        <div class="plantao-row plantao-row-header">
+          <span>Carro</span><span>Hora</span><span>Motorista</span><span>Cobrador</span>
+        </div>
+        ${rows.map((v, i) => `
+          <div class="plantao-row ${i%2===0?'':'par'}">
+            <span class="plantao-carro">${v.carro}</span>
+            <span class="plantao-hora">${v.hora || '—'}</span>
+            <input class="plantao-input" placeholder="MOT" value="${v.mot||''}"
+              oninput="salvarMOT('${setor}','${g.linha}',${i},this.value)">
+            <input class="plantao-input" placeholder="COB" value="${v.cob||''}"
+              oninput="salvarCOB('${setor}','${g.linha}',${i},this.value)">
+          </div>`).join('')}
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function togglePlantaoGrupo(id) {
+  const el = document.getElementById(id);
+  const chev = document.getElementById('chev-' + id);
+  if (!el) return;
+  const aberto = el.style.display !== 'none';
+  el.style.display = aberto ? 'none' : 'block';
+  if (chev) chev.textContent = aberto ? '▶' : '▼';
+}
+
+function filtrarPlantao(setor) {
+  if (setor === 'e2') renderPlantaoE2();
+  else renderPlantaoAR2();
+}
+
+function salvarMOT(setor, linha, idx, val) {
+  const g = (state.escala[setor] || []).find(x => x.linha === linha);
+  if (g && g.veiculos[idx]) { g.veiculos[idx].mot = val; save(); }
+}
+function salvarCOB(setor, linha, idx, val) {
+  const g = (state.escala[setor] || []).find(x => x.linha === linha);
+  if (g && g.veiculos[idx]) { g.veiculos[idx].cob = val; save(); }
+}
+
+// ─── VERIFICAÇÃO DE NOVOS VEÍCULOS ANTES DE APLICAR ESCALA ──────
+function verificarEAplicarEscala(dados, tipo) {
+  const frotaSet = new Set(state.frota.map(o => String(o.frota)));
+
+  // Filtra veículos que não estão na frota (ignora PRESO pois já serão tratados)
+  const naoNaCadastro = dados.filter(d => {
+    const frota = String(d.carro);
+    const isPreso = (d.status && d.status.toLowerCase() === 'preso') ||
+                    (d.linha && d.linha.toUpperCase() === 'PRESO');
+    return !frotaSet.has(frota) && !isPreso && frota && frota !== 'NaN';
+  });
+
+  if (naoNaCadastro.length === 0) {
+    // Todos conhecidos — aplica direto sem passar pela confirmação
+    aplicarEscala(dados, new Set(), tipo);
+    return;
+  }
+
+  // Guarda os dados para usar após confirmação
+  window._escalaParaAplicar = dados;
+  window._tipoEscalaParaAplicar = tipo;
+
+  // Monta lista no modal
+  const lista = document.getElementById('lista-novos-veiculos');
+  lista.innerHTML = naoNaCadastro.map(d => `
+    <label class="novo-veiculo-item">
+      <input type="checkbox" class="novo-veiculo-check" value="${d.carro}" checked>
+      <span class="novo-veiculo-num">${d.carro}</span>
+      <span class="novo-veiculo-info">${d.linha && d.linha.toUpperCase() !== 'PRESO' ? d.linha : '—'}${d.hora ? ' · ' + d.hora : ''}</span>
+    </label>
+  `).join('');
+
+  document.getElementById('novos-count').textContent = naoNaCadastro.length;
+  openModal('modal-novos-veiculos');
+}
+
+function selecionarTodosNovos(marcar) {
+  document.querySelectorAll('.novo-veiculo-check').forEach(c => c.checked = marcar);
+}
+
+function confirmarNovosVeiculos() {
+  const dados = window._escalaParaAplicar;
+  if (!dados) return;
+
+  // Coleta quais o usuário NÃO quer cadastrar
+  const naoCadastrar = new Set();
+  document.querySelectorAll('.novo-veiculo-check').forEach(c => {
+    if (!c.checked) naoCadastrar.add(c.value);
+  });
+
+  const tipo = window._tipoEscalaParaAplicar || null;
+  closeModal('modal-novos-veiculos');
+  window._escalaParaAplicar = null;
+  window._tipoEscalaParaAplicar = null;
+  aplicarEscala(dados, naoCadastrar, tipo);
+}
+
+// ─────────────────────────────────────────────────────────────────
+function aplicarEscala(dados, naoCadastrar = new Set(), tipo = null) {
+  let novos = 0, atualizados = 0, presos = 0, ignorados = 0;
   dados.forEach(d => {
     const frota = String(d.carro);
     const isPreso = (d.status && d.status.toLowerCase() === 'preso') || (d.linha && d.linha.toUpperCase() === 'PRESO');
@@ -1027,6 +1441,11 @@ function aplicarEscala(dados) {
     // Cadastra ou atualiza na frota
     const existente = state.frota.find(o => String(o.frota) === frota);
     if(!existente) {
+      // Veículo não cadastrado: respeita a decisão do usuário
+      if(naoCadastrar.has(frota)) {
+        ignorados++;
+        return; // pula sem cadastrar nem alocar
+      }
       state.frota.push({frota, linha, hora: d.hora, status: d.status||''});
       novos++;
     } else {
@@ -1063,11 +1482,42 @@ function aplicarEscala(dados) {
     }
   });
   state.frota.sort((a,b) => Number(a.frota) - Number(b.frota));
+
+  // Grava na estrutura state.escala de acordo com o tipo detectado
+  if (tipo) {
+    const data = new Date().toLocaleDateString('pt-BR');
+    const dadosValidos = dados.filter(d => !naoCadastrar.has(String(d.carro)));
+    state.escala.data = data;
+    state.escala.importadoEm = new Date().toISOString();
+    if (tipo === 'manobra') {
+      state.escala.tipo = 'manobra';
+      state.escala.manobra = parsearManobra(dadosValidos);
+      state.escala.e2  = [];
+      state.escala.ar2 = [];
+    } else {
+      // Plantão (E2 ou AR2): divide sempre pelo prefixo do número do veículo
+      // Carros 1xxx → E2 (Centro) | Carros 2xxx → AR2 (Bairro)
+      const dadosE2  = dadosValidos.filter(d => String(d.carro).startsWith('1'));
+      const dadosAR2 = dadosValidos.filter(d => String(d.carro).startsWith('2'));
+      state.escala.tipo    = 'plantao';
+      state.escala.manobra = [];
+      state.escala.e2      = parsearPlantao(dadosE2);
+      state.escala.ar2     = parsearPlantao(dadosAR2);
+    }
+  }
+
   save(); renderAll();
-  alert(dados.length + ' veículos processados!\n' + novos + ' novos cadastrados\n' + atualizados + ' atualizados\n' + presos + ' marcados como PRESO');
+
+  // Monta resumo final
+  let resumo = dados.length + ' veículos processados!\n'
+    + novos + ' novos cadastrados\n'
+    + atualizados + ' atualizados\n'
+    + presos + ' marcados como PRESO';
+  if (ignorados > 0) resumo += '\n' + ignorados + ' ignorados (não cadastrados)';
+  alert(resumo);
 }
 
-// Importar Excel/CSV
+// Importar Excel/CSV — com detecção automática de tipo
 function importarExcel(input) {
   const file = input.files[0];
   if(!file) return;
@@ -1075,14 +1525,12 @@ function importarExcel(input) {
 
   if(file.name.endsWith('.csv')) {
     reader.onload = function(e) {
-      const dados = parsearLinhasEscala(e.target.result);
+      const texto = e.target.result;
+      const rawLinhas = texto.split('\n').map(l => l.split(','));
+      const dados = parsearLinhasEscala(texto);
       if(!dados.length) { alert('Nenhum dado reconhecido no CSV.'); return; }
-      document.getElementById('escala-preview-excel').innerHTML =
-        '<div class="escala-preview"><div style="font-size:11px;color:var(--muted);margin-bottom:6px">' + dados.length + ' veículos detectados. Clique em Aplicar para confirmar.</div>' +
-        dados.slice(0,5).map(d => '<div class="escala-preview-item"><span class="ep-carro">'+d.carro+'</span><span class="ep-linha">'+d.linha+'</span><span class="ep-hora">'+d.hora+'</span></div>').join('') +
-        (dados.length > 5 ? '<div style="color:var(--muted);font-size:11px;padding:4px 0">... e mais '+(dados.length-5)+' veículos</div>' : '') +
-        '</div><button class="btn btn-primary btn-full" onclick="aplicarEscalaExcelDados(window._escalaTemp)" style="margin-top:8px">✔ Aplicar Escala</button>';
-      window._escalaTemp = dados;
+      closeModal('modal-escala');
+      abrirPreviewEscala(dados, rawLinhas);
     };
     reader.readAsText(file, 'UTF-8');
   } else {
@@ -1092,15 +1540,13 @@ function importarExcel(input) {
         const data = new Uint8Array(e.target.result);
         const wb = XLSX.read(data, {type: 'array'});
         const ws = wb.Sheets[wb.SheetNames[0]];
+        // Lê como array de arrays para detecção
+        const rawLinhas = XLSX.utils.sheet_to_json(ws, {header:1, defval:''});
         const csv = XLSX.utils.sheet_to_csv(ws);
         const dados = parsearLinhasEscala(csv);
         if(!dados.length) { alert('Nenhum dado reconhecido. Verifique as colunas.'); return; }
-        document.getElementById('escala-preview-excel').innerHTML =
-          '<div class="escala-preview"><div style="font-size:11px;color:var(--muted);margin-bottom:6px">' + dados.length + ' veículos detectados:</div>' +
-          dados.slice(0,5).map(d => '<div class="escala-preview-item"><span class="ep-carro">'+d.carro+'</span><span class="ep-linha">'+d.linha+'</span><span class="ep-hora">'+d.hora+'</span></div>').join('') +
-          (dados.length > 5 ? '<div style="color:var(--muted);font-size:11px;padding:4px 0">... e mais '+(dados.length-5)+' veículos</div>' : '') +
-          '</div><button class="btn btn-primary btn-full" onclick="aplicarEscalaExcelDados(window._escalaTemp)" style="margin-top:8px">✔ Aplicar Escala</button>';
-        window._escalaTemp = dados;
+        closeModal('modal-escala');
+        abrirPreviewEscala(dados, rawLinhas);
       } catch(err) {
         alert('Erro ao ler Excel: ' + err.message + '\nTente salvar como CSV e importar novamente.');
       }
@@ -1108,14 +1554,6 @@ function importarExcel(input) {
     reader.readAsArrayBuffer(file);
   }
   input.value = '';
-}
-
-function aplicarEscalaExcelDados(dados) {
-  if(!dados || !dados.length) return;
-  aplicarEscala(dados);
-  document.getElementById('escala-preview-excel').innerHTML = '';
-  window._escalaTemp = null;
-  closeModal('modal-escala');
 }
 
 // ─── SUBMENU ─────────────────────────────────────────────────────
@@ -1319,6 +1757,7 @@ function zerarEscala() {
   state.frota.forEach(o => { o.linha = ''; o.hora = ''; o.status = ''; });
   state.presos = [];
   state.revisoes = [];
+  state.escala = { tipo:null, data:'', importadoEm:null, manobra:[], e2:[], ar2:[] };
   // Limpa linha nas filas também
   FILAS_NUM.forEach(f => { (state.filas[f]||[]).forEach(o => { o.linha = ''; }); });
   ESPECIAIS.forEach(e => { (state.especiais[e.key]||[]).forEach(o => { o.linha = ''; }); });

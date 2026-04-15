@@ -50,6 +50,9 @@
     <!-- Ver Escala -->
     <div class="menu-dots-item" onclick="abrirEscalaCompleta();toggleMenuDots()">📅 Ver Escala</div>
 
+    <!-- Escala de Manobra -->
+    <div class="menu-dots-item" onclick="abrirManobra();toggleMenuDots()">📋 Escala de Manobra</div>
+
     <!-- Imprimir submenu -->
     <div class="menu-dots-item menu-dots-parent" onclick="toggleSubmenu('sub-imprimir')">
       <span>🖨️ Imprimir</span><span class="menu-dots-arrow" id="arrow-sub-imprimir">›</span>
@@ -99,7 +102,8 @@
 
 <div class="nav">
   <div class="nav-tab active" onclick="showPage('patio',this)"><span class="tab-icon">🅿️</span>Pátio</div>
-  
+  <div class="nav-tab" onclick="showPage('e2',this)"><span class="tab-icon">🚍</span>E2</div>
+  <div class="nav-tab" onclick="showPage('ar2',this)"><span class="tab-icon">🚌</span>AR2</div>
   <div class="nav-tab" onclick="showPage('alertas',this)"><span class="tab-icon">⚠️</span>Alertas</div>
   <div class="nav-tab" onclick="showPage('frota',this)"><span class="tab-icon">🔧</span>Frota</div>
 </div>
@@ -112,6 +116,7 @@
     <div class="stat-box"><div class="stat-num" id="stat-presos" style="color:var(--accent2)">0</div><div class="stat-label">Presos</div></div>
     <div class="stat-box"><div class="stat-num" id="stat-revisao" style="color:var(--accent)">0</div><div class="stat-label">SPTRANS</div></div>
   </div>
+
   <div class="search-box">
     <input type="text" id="search-patio" placeholder="Digite o número do veículo..." oninput="buscarVeiculo()">
   </div>
@@ -153,6 +158,34 @@
 </div>
 
 
+
+<!-- PAGE: PLANTÃO E2 -->
+<div class="page" id="page-e2">
+  <div style="margin-top:16px">
+    <div class="plantao-header e2-header" id="e2-header">
+      <div class="plantao-header-titulo">🚍 PLANTÃO E2 — CENTRO</div>
+      <div class="plantao-header-meta" id="e2-meta">Nenhuma escala importada</div>
+    </div>
+    <div class="search-box" style="margin-top:12px">
+      <input type="text" id="search-e2" placeholder="Buscar linha ou carro..." oninput="filtrarPlantao('e2')">
+    </div>
+    <div id="e2-container"></div>
+  </div>
+</div>
+
+<!-- PAGE: PLANTÃO AR2 -->
+<div class="page" id="page-ar2">
+  <div style="margin-top:16px">
+    <div class="plantao-header ar2-header" id="ar2-header">
+      <div class="plantao-header-titulo">🚌 PLANTÃO AR2 — BAIRRO</div>
+      <div class="plantao-header-meta" id="ar2-meta">Nenhuma escala importada</div>
+    </div>
+    <div class="search-box" style="margin-top:12px">
+      <input type="text" id="search-ar2" placeholder="Buscar linha ou carro..." oninput="filtrarPlantao('ar2')">
+    </div>
+    <div id="ar2-container"></div>
+  </div>
+</div>
 
 <div class="page" id="page-alertas">
   <div style="margin-top:16px">
@@ -339,7 +372,74 @@
     </div>
   </div>
 </div>
-<script src="js/app.js"></script>
+<!-- MODAL: PREVIEW / DETECÇÃO DE ESCALA -->
+<div class="modal-overlay" id="modal-preview-escala">
+  <div class="modal">
+    <button class="modal-close" onclick="closeModal('modal-preview-escala')">✕</button>
+    <div class="modal-title">🔍 Escala detectada</div>
+    <div id="preview-tipo-badge" style="margin-bottom:14px"></div>
+    <div id="preview-stats" style="margin-bottom:16px"></div>
+    <div class="form-group">
+      <label class="form-label">Tipo de escala — corrigir se necessário</label>
+      <select class="form-select" id="preview-tipo-select">
+        <option value="manobra">📋 Escala de Manobra</option>
+        <option value="plantao">🚍🚌 Plantão (E2 + AR2 automático por prefixo)</option>
+      </select>
+    </div>
+    <button class="btn btn-primary btn-full" onclick="confirmarPreviewEscala()">✔ Confirmar e Importar</button>
+    <button class="btn btn-ghost btn-full" onclick="closeModal('modal-preview-escala')" style="margin-top:6px">Cancelar</button>
+  </div>
+</div>
+
+<!-- MODAL: VEÍCULOS NÃO CADASTRADOS NA FROTA -->
+<div class="modal-overlay" id="modal-novos-veiculos">
+  <div class="modal" style="max-height:90vh;overflow-y:auto">
+    <button class="modal-close" onclick="closeModal('modal-novos-veiculos')">✕</button>
+    <div class="modal-title">🚌 Veículos não cadastrados</div>
+    <p style="font-size:13px;color:var(--muted);margin-bottom:12px">
+      <span id="novos-count">0</span> veículos da escala não estão na frota. Selecione quais deseja cadastrar:
+    </p>
+    <div style="display:flex;gap:8px;margin-bottom:10px">
+      <button class="btn btn-ghost btn-sm" onclick="selecionarTodosNovos(true)">✔ Todos</button>
+      <button class="btn btn-ghost btn-sm" onclick="selecionarTodosNovos(false)">✕ Nenhum</button>
+    </div>
+    <div id="lista-novos-veiculos" style="display:flex;flex-direction:column;gap:6px;margin-bottom:16px"></div>
+    <button class="btn btn-primary btn-full" onclick="confirmarNovosVeiculos()">✔ Confirmar e Aplicar Escala</button>
+    <button class="btn btn-ghost btn-full" onclick="closeModal('modal-novos-veiculos')" style="margin-top:6px">Cancelar</button>
+  </div>
+</div>
+
+<!-- MODAL: CONFIRMAÇÃO GENÉRICA -->
+<div class="modal-overlay" id="modal-confirma">
+  <div class="modal" style="max-width:360px">
+    <div class="modal-title" id="confirma-titulo"></div>
+    <p id="confirma-msg" style="font-size:14px;color:var(--muted);margin:8px 0 20px"></p>
+    <div style="display:flex;gap:10px">
+      <button class="btn btn-primary" style="flex:1" onclick="_confirmaResolve(true)">✔ Sim</button>
+      <button class="btn btn-ghost" style="flex:1" onclick="_confirmaResolve(false)">✕ Não</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL: ESCALA DE MANOBRA -->
+<div class="modal-overlay" id="modal-manobra">
+  <div class="modal" style="max-height:90vh;overflow-y:auto;max-width:700px">
+    <button class="modal-close" onclick="closeModal('modal-manobra')">✕</button>
+    <div class="modal-title">📋 Escala de Manobra</div>
+    <div class="manobra-stats" id="manobra-stats"></div>
+    <div class="manobra-filtros">
+      <button class="manobra-filtro active" onclick="filtrarManobra('todos',this)">Todos</button>
+      <button class="manobra-filtro escalado" onclick="filtrarManobra('escalado',this)">🟢 Escalados</button>
+      <button class="manobra-filtro preso" onclick="filtrarManobra('preso',this)">🔴 Presos</button>
+      <button class="manobra-filtro reserva" onclick="filtrarManobra('reserva',this)">⚫ Reserva</button>
+    </div>
+    <div class="manobra-grid" id="manobra-grid"></div>
+    <div id="manobra-vazio" class="empty" style="display:none;padding:30px 0">
+      <div class="empty-icon">📋</div>Nenhuma escala de manobra importada.<br>Use ⋮ → Importar Escala e selecione um arquivo de Manobra.
+    </div>
+  </div>
+</div>
+
 <div id="print-area">
   <div class="print-header">
     <div class="print-title">🚌 SAMBAÍBA TRANSPORTES — GESTÃO DE PÁTIO</div>
@@ -348,5 +448,6 @@
   </div>
   <div id="print-content"></div>
 </div>
+<script src="js/app.js"></script>
 </body>
 </html>

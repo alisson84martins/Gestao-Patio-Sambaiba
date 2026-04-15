@@ -271,6 +271,61 @@
   .input-carro { width: 90px; }
   .input-fila { width: 70px; }
   .input-linha-r { flex: 1; }
+  /* Itens de novos veículos na importação de escala */
+  .novo-veiculo-item { display:flex;align-items:center;gap:10px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:10px 12px;cursor:pointer; }
+  .novo-veiculo-item input[type=checkbox] { width:18px;height:18px;accent-color:var(--accent);cursor:pointer;flex-shrink:0; }
+  .novo-veiculo-num { font-family:var(--mono);font-size:16px;font-weight:800;color:var(--accent);min-width:52px; }
+  .novo-veiculo-info { font-size:13px;color:var(--muted); }
+  .novo-veiculo-item:has(input:checked) { border-color:var(--accent3);background:rgba(16,185,129,.08); }
+
+  /* ─── SEÇÃO MANOBRA ─────────────────────────────────────────── */
+  .manobra-stats-bar { display:flex;flex-wrap:wrap;gap:8px;margin-bottom:10px;font-family:var(--mono);font-size:12px; }
+  .ms-item { background:var(--surface2);border:1px solid var(--border);border-radius:20px;padding:3px 10px; }
+  .ms-item.escalado { color:#10b981; } .ms-item.preso { color:var(--accent2); }
+  .ms-item.reserva { color:var(--muted); } .ms-item.data { color:var(--accent4); }
+
+  .manobra-filtros { display:flex;gap:6px;margin-bottom:10px;flex-wrap:wrap; }
+  .manobra-filtro { background:var(--surface2);border:1px solid var(--border);border-radius:20px;padding:5px 12px;font-family:var(--mono);font-size:12px;font-weight:700;cursor:pointer;color:var(--muted);transition:all .15s; }
+  .manobra-filtro.active,.manobra-filtro:active { background:var(--accent);border-color:var(--accent);color:#fff; }
+
+  .manobra-grid { display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-bottom:16px; }
+  @media(max-width:480px){ .manobra-grid { grid-template-columns:repeat(3,1fr); } }
+  .manobra-card { background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:8px 10px;cursor:pointer;transition:transform .1s;text-align:center; }
+  .manobra-card:active { transform:scale(.95); }
+  .manobra-card.escalado { border-left:3px solid #10b981; }
+  .manobra-card.preso    { border-left:3px solid var(--accent2);opacity:.85; }
+  .manobra-card.reserva  { border-left:3px solid var(--border);opacity:.65; }
+  .manobra-num  { font-family:var(--mono);font-size:14px;font-weight:800;color:var(--text); }
+  .manobra-hora { font-family:var(--mono);font-size:11px;color:var(--muted);margin-top:2px; }
+  .manobra-card.escalado .manobra-hora { color:#10b981; }
+  .manobra-card.preso .manobra-hora    { color:var(--accent2);font-weight:700; }
+  .manobra-linha { font-size:10px;color:var(--accent4);margin-top:2px; }
+
+  /* ─── PLANTÃO E2 / AR2 ──────────────────────────────────────── */
+  .plantao-header { border-radius:10px;padding:12px 14px;margin-bottom:4px; }
+  .e2-header  { background:#1a3a6b;border-left:4px solid #4a7fc1; }
+  .ar2-header { background:#7a2e0e;border-left:4px solid var(--accent); }
+  .plantao-header-titulo { font-size:16px;font-weight:800;color:#fff;letter-spacing:1px; }
+  .plantao-header-meta   { font-size:11px;color:rgba(255,255,255,.65);font-family:var(--mono);margin-top:3px; }
+
+  .plantao-grupo { background:var(--surface);border:1px solid var(--border);border-radius:10px;overflow:hidden;margin-bottom:8px; }
+  .plantao-grupo-header { display:flex;align-items:center;justify-content:space-between;padding:11px 14px;cursor:pointer;background:var(--surface2);transition:background .15s; }
+  .plantao-grupo-header:active { background:var(--border); }
+  .plantao-linha-badge { font-family:var(--mono);font-size:15px;font-weight:800;color:var(--accent); }
+  .plantao-tabelas { font-size:12px;color:var(--muted);font-family:var(--mono); }
+  .plantao-chevron { color:var(--muted);font-size:12px; }
+
+  .plantao-grupo-body { padding:0; }
+  .plantao-row { display:grid;grid-template-columns:60px 56px 1fr 1fr;gap:4px;align-items:center;padding:7px 12px;border-bottom:1px solid var(--border); }
+  .plantao-row:last-child { border-bottom:none; }
+  .plantao-row.par { background:rgba(255,255,255,.02); }
+  .plantao-row-header { background:var(--bg);font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;font-family:var(--mono); }
+  .plantao-carro { font-family:var(--mono);font-size:13px;font-weight:800;color:var(--text); }
+  .plantao-hora  { font-family:var(--mono);font-size:12px;color:var(--accent3); }
+  .plantao-input { background:transparent;border:none;border-bottom:1px dashed var(--border);color:var(--text);font-family:var(--mono);font-size:12px;outline:none;width:100%;padding:2px 4px;transition:border-color .15s; }
+  .plantao-input:focus { border-bottom-color:var(--accent4); }
+  .plantao-input::placeholder { color:var(--border); }
+
   .menu-dots { position: fixed; top: 12px; right: 16px; z-index: 300; }
   .menu-dots-btn { background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.15); color: #fff; border-radius: 8px; width: 38px; height: 38px; font-size: 20px; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: background .15s; }
   .menu-dots-btn:active { background: rgba(255,255,255,0.2); }
