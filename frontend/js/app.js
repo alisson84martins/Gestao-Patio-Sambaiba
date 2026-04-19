@@ -508,6 +508,64 @@ function removerLinha(codigo) {
   );
 }
 
+function importarLinhasExcel(input) {
+  const file = input.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = function(e) {
+    try {
+      const data = new Uint8Array(e.target.result);
+      const wb   = XLSX.read(data, {type:'array'});
+      const ws   = wb.Sheets[wb.SheetNames[0]];
+      const rows = XLSX.utils.sheet_to_json(ws, {defval:''});
+
+      if (!rows.length) { alert('Nenhuma linha encontrada na planilha.'); return; }
+
+      // Normaliza os nomes das colunas — aceita com/sem acento, maiúsculo/minúsculo
+      function normCol(obj, ...nomes) {
+        for (const chave of Object.keys(obj)) {
+          const norm = chave.toLowerCase()
+            .normalize('NFD').replace(/[\u0300-\u036f]/g,'');
+          if (nomes.includes(norm)) return String(obj[chave]).trim();
+        }
+        return '';
+      }
+
+      let novos = 0, atualizados = 0, ignorados = 0;
+
+      rows.forEach(row => {
+        const codigo    = normCol(row, 'codigo', 'code', 'linha').toUpperCase();
+        const descricao = normCol(row, 'descricao', 'descricao', 'description', 'nome');
+        // Normaliza setor: remove espaços e aceita "E 2", "e2", "AR 2", "ar2"
+        const setorRaw  = normCol(row, 'setor', 'sector', 'tipo').toUpperCase().replace(/\s/g,'');
+        const setor     = setorRaw.startsWith('AR') ? 'AR2' : 'E2';
+
+        if (!codigo || codigo === 'CODIGO' || codigo === 'CODE') { ignorados++; return; }
+
+        const existente = state.linhas.find(l => l.codigo === codigo);
+        if (existente) {
+          // Atualiza descrição e setor se já existir
+          if (descricao) existente.descricao = descricao;
+          existente.setor = setor;
+          atualizados++;
+        } else {
+          state.linhas.push({ codigo, descricao, setor });
+          novos++;
+        }
+      });
+
+      save();
+      renderLinhas();
+      populateSelects();
+      alert(`✔ Importação concluída!\n${novos} novas linhas\n${atualizados} atualizadas${ignorados ? '\n' + ignorados + ' ignoradas (sem código)' : ''}`);
+    } catch(err) {
+      alert('Erro ao ler o arquivo: ' + err.message);
+    }
+    input.value = '';
+  };
+  reader.readAsArrayBuffer(file);
+}
+
 function updateStats(){
   let alocados=0;
   FILAS_NUM.forEach(f=>alocados+=(state.filas[f]||[]).length);

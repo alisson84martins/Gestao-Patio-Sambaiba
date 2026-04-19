@@ -222,6 +222,8 @@
       <div class="search-box">
         <input type="text" id="search-linhas" placeholder="Buscar código ou descrição..." oninput="renderLinhas()">
         <button class="btn btn-primary" onclick="abrirNovaLinha()">+</button>
+        <button class="btn btn-ghost" onclick="document.getElementById('input-importar-linhas').click()" title="Importar Excel">↑ Excel</button>
+        <input type="file" id="input-importar-linhas" accept=".xlsx,.xls" style="display:none" onchange="importarLinhasExcel(this)">
       </div>
       <div class="section-title">Linhas cadastradas</div>
       <div id="linhas-container"></div>
