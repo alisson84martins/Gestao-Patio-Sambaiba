@@ -517,27 +517,22 @@ function importarLinhasExcel(input) {
       const data = new Uint8Array(e.target.result);
       const wb   = XLSX.read(data, {type:'array'});
       const ws   = wb.Sheets[wb.SheetNames[0]];
-      const rows = XLSX.utils.sheet_to_json(ws, {defval:''});
+      // Lê por posição de coluna (header:1) — ignora o nome do cabeçalho
+      // Coluna A (0) = código, B (1) = descrição, C (2) = setor
+      const rows = XLSX.utils.sheet_to_json(ws, {header:1, defval:''});
 
       if (!rows.length) { alert('Nenhuma linha encontrada na planilha.'); return; }
 
-      // Normaliza os nomes das colunas — aceita com/sem acento, maiúsculo/minúsculo
-      function normCol(obj, ...nomes) {
-        for (const chave of Object.keys(obj)) {
-          const norm = chave.toLowerCase()
-            .normalize('NFD').replace(/[\u0300-\u036f]/g,'');
-          if (nomes.includes(norm)) return String(obj[chave]).trim();
-        }
-        return '';
-      }
+      // Ignora a linha de cabeçalho (linha 0)
+      const dados = rows.slice(1);
 
       let novos = 0, atualizados = 0, ignorados = 0;
 
-      rows.forEach(row => {
-        const codigo    = normCol(row, 'codigo', 'code', 'linha').toUpperCase();
-        const descricao = normCol(row, 'descricao', 'descricao', 'description', 'nome');
-        // Normaliza setor: remove espaços e aceita "E 2", "e2", "AR 2", "ar2"
-        const setorRaw  = normCol(row, 'setor', 'sector', 'tipo').toUpperCase().replace(/\s/g,'');
+      dados.forEach(row => {
+        const codigo    = String(row[0] || '').trim().toUpperCase();
+        const descricao = String(row[1] || '').trim();
+        // Coluna C: aceita "E2", "E 2", "AR2", "AR 2", etc.
+        const setorRaw  = String(row[2] || '').toUpperCase().replace(/\s/g,'');
         const setor     = setorRaw.startsWith('AR') ? 'AR2' : 'E2';
 
         if (!codigo || codigo === 'CODIGO' || codigo === 'CODE') { ignorados++; return; }
@@ -2126,13 +2121,4 @@ function resetarSistema(){
   const senha = prompt('Digite a senha de administrador para continuar:');
   if(senha === null) return;
   if(senha !== '0000') { alert('Senha incorreta. Operação cancelada.'); return; }
-  try { localStorage.removeItem('sambaiba_v2'); } catch(e){}
-  state = JSON.parse(JSON.stringify(EXEMPLO));
-  FILAS_NUM.forEach(f=>{if(!state.filas[f])state.filas[f]=[];});
-  ESPECIAIS.forEach(e=>{if(!state.especiais[e.key])state.especiais[e.key]=[];});
-  save();
-  renderAll();
-  alert('Dados apagados com sucesso!');
-}
-
-initState();renderAll();
+  try { localStorage
