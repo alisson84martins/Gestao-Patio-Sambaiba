@@ -280,12 +280,12 @@ function renderPatio(){
       const isPreso    = state.presos.find(p=>String(p.frota)===String(o.frota));
       const isAmostral = state.revisoes.find(r=>String(r.frota)===String(o.frota));
       const status     = cadastro&&cadastro.status ? cadastro.status : '';
-      // Lógica: sem horário → mostra status/situação
+      // PRESO tem prioridade absoluta sobre hora e linha
       let infoLinha = '';
-      if(hora) {
-        infoLinha = `<span style="font-size:10px;color:#aaa;font-weight:400">${hora}</span>`;
-      } else if(isPreso) {
+      if(isPreso) {
         infoLinha = `<span class="chip-status chip-status-preso">PRESO</span>`;
+      } else if(hora) {
+        infoLinha = `<span style="font-size:10px;color:#aaa;font-weight:400">${hora}</span>`;
       } else if(isAmostral) {
         infoLinha = `<span class="chip-status chip-status-amostral">AMOSTRAL</span>`;
       } else if(status === 'manutencao') {
@@ -303,7 +303,7 @@ function renderPatio(){
           </div>
           
         </div>
-        <span style="font-size:10px;color:var(--accent);font-weight:400">${o.pos?'P.'+o.pos:''}${(o.linha||(cadastro&&cadastro.linha))?' L.'+(o.linha||(cadastro&&cadastro.linha)):''}</span>
+        ${!isPreso ? `<span style="font-size:10px;color:var(--accent);font-weight:400">${o.pos?'P.'+o.pos:''}${(o.linha||(cadastro&&cadastro.linha))?' L.'+(o.linha||(cadastro&&cadastro.linha)):''}</span>` : ''}
       </div>`;
     }).join('');
     return `<div class="card">
@@ -345,7 +345,7 @@ function renderEspeciais(){
             <span>${o.frota}</span>
             ${infoLinha}
           </div>
-          ${o.linha?`<span style="font-size:10px;color:var(--accent);font-weight:400">${o.pos?'P.'+o.pos+' ':''}L.${o.linha}</span>`:''}
+          ${(!isPreso && o.linha)?`<span style="font-size:10px;color:var(--accent);font-weight:400">${o.pos?'P.'+o.pos+' ':''}L.${o.linha}</span>`:''}
         </div>
         <span style="font-size:13px;color:var(--muted)">✎</span>
       </div>`;
@@ -1167,9 +1167,10 @@ function parsearLinhasEscala(texto) {
     let hora = '';
 
     for(const col of cols) {
-      const upper = col.toUpperCase().replace(/[^A-ZÁÉÍÓÚÃÕÇ]/g, '');
+      const upper = col.toUpperCase().trim();
+      // Só aceita status se for texto exato — evita falsos positivos
       if(STATUS_CONHECIDOS.includes(upper)) {
-        status = upper === 'MANUTENCAO' ? 'manutencao' : upper.toLowerCase();
+        status = upper === 'MANUTENCAO' || upper === 'MANUTENÇÃO' ? 'manutencao' : upper.toLowerCase();
         continue;
       }
       // Hora: padrão H:MM ou HH:MM
