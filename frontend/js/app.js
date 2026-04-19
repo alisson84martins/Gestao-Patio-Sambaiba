@@ -2121,4 +2121,13 @@ function resetarSistema(){
   const senha = prompt('Digite a senha de administrador para continuar:');
   if(senha === null) return;
   if(senha !== '0000') { alert('Senha incorreta. Operação cancelada.'); return; }
-  try { localStorage
+  try { localStorage.removeItem('sambaiba_v2'); } catch(e){}
+  state = JSON.parse(JSON.stringify(EXEMPLO));
+  FILAS_NUM.forEach(f=>{if(!state.filas[f])state.filas[f]=[];});
+  ESPECIAIS.forEach(e=>{if(!state.especiais[e.key])state.especiais[e.key]=[];});
+  save();
+  renderAll();
+  alert('Dados apagados com sucesso!');
+}
+
+initState();renderAll();
