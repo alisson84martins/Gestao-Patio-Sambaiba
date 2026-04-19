@@ -36,12 +36,12 @@ function initState(){
     state=JSON.parse(JSON.stringify(EXEMPLO));
   }
   if(!state.linhas) state.linhas=[];
-  // Migra linhas antigas (array de strings) para array de objetos
-  state.linhas = state.linhas.map(l =>
-    typeof l === 'string'
+  // Migra linhas antigas (array de strings) para array de objetos e remove entradas inválidas
+  state.linhas = state.linhas
+    .map(l => typeof l === 'string'
       ? { codigo: l, descricao: '', setor: String(l).startsWith('1') ? 'E2' : 'AR2' }
-      : l
-  );
+      : l)
+    .filter(l => l && l.codigo && typeof l.codigo === 'string' && l.codigo.trim() !== '');
   if(!state.frota) state.frota=[];
   if(!state.presos) state.presos=[];
   if(!state.manutencao) state.manutencao=[];
@@ -2128,6 +2128,312 @@ function resetarSistema(){
   save();
   renderAll();
   alert('Dados apagados com sucesso!');
+}
+
+// ─────────────────────────────────────────────────────────────────
+// IMPORTAÇÃO EXCEL COMPLETO (E2 + AR2 + MANOBRA/PRESO)
+// ─────────────────────────────────────────────────────────────────
+
+// Dados temporários da prévia — só aplicados se o usuário confirmar
+let _escalaCompletaTemp = null;
+
+function previewEscalaCompleta(input) {
+  const file = input.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = function(e) {
+    try {
+      const data = new Uint8Array(e.target.result);
+      const wb = XLSX.read(data, {type:'array', cellDates:true});
+
+      // Helper: formata hora (Date ou string)
+      function fmtHora(v) {
+        if (!v && v !== 0) return '';
+        if (typeof v === 'string') {
+          const u = v.trim().toUpperCase();
+          if (u === 'PRESO' || u === 'EVENTO') return u;
+          return v.trim();
+        }
+        if (v instanceof Date) {
+          const h = String(v.getHours()).padStart(2,'0');
+          const m = String(v.getMinutes()).padStart(2,'0');
+          return `${h}:${m}`;
+        }
+        return String(v).trim();
+      }
+
+      // Helper: valida carro (3-4 dígitos)
+      function valCarro(v) {
+        if (!v) return null;
+        const s = String(Math.round(Number(v)));
+        return /^\d{3,4}$/.test(s) ? s : null;
+      }
+
+      // Detecta tipo da aba pelo conteúdo das primeiras linhas
+      function detectarTipoAba(ws) {
+        const rows = XLSX.utils.sheet_to_json(ws, {header:1, defval:'', raw:false});
+        const cabecalho = rows.slice(0,3).flat().join(' ').toUpperCase();
+        if (cabecalho.includes('E2')) return 'e2';
+        if (cabecalho.includes('AR2')) return 'ar2';
+        if (cabecalho.includes('MANOBRA') || cabecalho.includes('PRESO')) return 'manobra';
+        if (cabecalho.includes('CONFIGURA')) return 'configuracao';
+        return null;
+      }
+
+      // Lê aba de plantão (E2 ou AR2): 3 grupos (cols 0,1,2 / 6,7,8 / 12,13,14)
+      function lerPlantao(ws) {
+        const rows = XLSX.utils.sheet_to_json(ws, {header:1, defval:'', cellDates:true});
+        const grupos = [[0,1,2],[6,7,8],[12,13,14]];
+        const resultado = [];
+        rows.slice(3).forEach(row => {
+          grupos.forEach(([ci,hi,li]) => {
+            const carro = valCarro(row[ci]);
+            if (!carro) return;
+            const hora = fmtHora(row[hi]);
+            if (!hora || hora === 'TABELAS' || hora === 'EVENTO') return;
+            const linha = String(row[li] || '').trim();
+            resultado.push({carro, hora, linha});
+          });
+        });
+        return resultado;
+      }
+
+      // Lê aba de manobra/preso: 6 grupos de (carro, hora) — cols 0,1 / 3,4 / 6,7 / 9,10 / 12,13 / 15,16
+      function lerManobra(ws) {
+        const rows = XLSX.utils.sheet_to_json(ws, {header:1, defval:'', cellDates:true});
+        const grupos = [[0,1],[3,4],[6,7],[9,10],[12,13],[15,16]];
+        const manobra = [], presos = [];
+        rows.slice(1).forEach(row => {
+          grupos.forEach(([ci,hi]) => {
+            const carro = valCarro(row[ci]);
+            if (!carro) return;
+            const hora = fmtHora(row[hi]);
+            if (hora === 'PRESO') { presos.push(carro); return; }
+            if (hora && hora !== 'EVENTO') manobra.push({carro, hora, linha:''});
+          });
+        });
+        return {manobra, presos};
+      }
+
+      // Lê aba de configuração: 4 grupos de (carro, hora, linha) — cols 0,1,2 / 4,5,6 / ...
+      // Detecta grupos pelo cabeçalho (CARRO = início de grupo)
+      function lerConfiguracao(ws) {
+        const rows = XLSX.utils.sheet_to_json(ws, {header:1, defval:'', cellDates:true});
+        // Encontra colunas CARRO no cabeçalho
+        const header = rows[0] || [];
+        const grupos = [];
+        header.forEach((h,i) => {
+          if (String(h).toUpperCase().trim() === 'CARRO') {
+            grupos.push([i, i+1, i+2]); // CARRO, HORA, LINHA
+          }
+        });
+        if (!grupos.length) grupos.push([0,1,2],[4,5,6],[8,9,10],[12,13,14]);
+        const e2=[], ar2=[], manobra=[], presos=[];
+        rows.slice(1).forEach(row => {
+          grupos.forEach(([ci,hi,li]) => {
+            const carro = valCarro(row[ci]);
+            if (!carro) return;
+            const hora = fmtHora(row[hi]);
+            if (hora === 'PRESO') { presos.push(carro); return; }
+            if (!hora || hora === 'EVENTO') return;
+            const linha = String(row[li] || '').trim();
+            const item = {carro, hora, linha};
+            if (carro.startsWith('1')) e2.push(item);
+            else if (carro.startsWith('2')) ar2.push(item);
+          });
+        });
+        return {e2, ar2, manobra, presos};
+      }
+
+      // Processa todas as abas
+      const resultado = {e2:[], ar2:[], manobra:[], presos:[], abas:[], avisos:[]};
+
+      wb.SheetNames.forEach(nome => {
+        const ws = wb.Sheets[nome];
+        const tipo = detectarTipoAba(ws);
+        resultado.abas.push({nome, tipo});
+
+        if (tipo === 'e2') {
+          resultado.e2 = resultado.e2.concat(lerPlantao(ws));
+        } else if (tipo === 'ar2') {
+          resultado.ar2 = resultado.ar2.concat(lerPlantao(ws));
+        } else if (tipo === 'manobra') {
+          const {manobra, presos} = lerManobra(ws);
+          resultado.manobra = resultado.manobra.concat(manobra);
+          resultado.presos  = resultado.presos.concat(presos);
+        } else if (tipo === 'configuracao') {
+          const conf = lerConfiguracao(ws);
+          // Configuração só usa se não tiver E2/AR2 separados
+          resultado._confE2  = conf.e2;
+          resultado._confAR2 = conf.ar2;
+          if (!resultado.manobra.length) resultado.manobra = conf.manobra;
+          if (!resultado.presos.length)  resultado.presos  = conf.presos;
+        } else {
+          resultado.avisos.push(`Aba "${nome}" não reconhecida — ignorada`);
+        }
+      });
+
+      // Se não achou E2/AR2 mas tem configuração, usa ela
+      if (!resultado.e2.length && resultado._confE2)  resultado.e2  = resultado._confE2;
+      if (!resultado.ar2.length && resultado._confAR2) resultado.ar2 = resultado._confAR2;
+
+      // Remove duplicatas de presos
+      resultado.presos = [...new Set(resultado.presos)];
+
+      if (!resultado.e2.length && !resultado.ar2.length && !resultado.manobra.length) {
+        alert('Nenhum dado reconhecido no arquivo. Verifique se as abas têm os cabeçalhos corretos (E2, AR2, Manobra).');
+        input.value = '';
+        return;
+      }
+
+      // Guarda temporariamente
+      _escalaCompletaTemp = resultado;
+
+      // Monta prévia
+      let statsHtml = `
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">
+          <div style="background:var(--surface2);border-radius:8px;padding:12px;text-align:center">
+            <div style="font-size:22px;font-weight:800;color:var(--primary)">${resultado.e2.length}</div>
+            <div style="font-size:11px;color:var(--muted)">veículos E2</div>
+          </div>
+          <div style="background:var(--surface2);border-radius:8px;padding:12px;text-align:center">
+            <div style="font-size:22px;font-weight:800;color:#3b82f6">${resultado.ar2.length}</div>
+            <div style="font-size:11px;color:var(--muted)">veículos AR2</div>
+          </div>
+          <div style="background:var(--surface2);border-radius:8px;padding:12px;text-align:center">
+            <div style="font-size:22px;font-weight:800;color:#f59e0b">${resultado.manobra.length}</div>
+            <div style="font-size:11px;color:var(--muted)">veículos Manobra</div>
+          </div>
+          <div style="background:var(--surface2);border-radius:8px;padding:12px;text-align:center">
+            <div style="font-size:22px;font-weight:800;color:#ef4444">${resultado.presos.length}</div>
+            <div style="font-size:11px;color:var(--muted)">Presos</div>
+          </div>
+        </div>
+        <div style="font-size:11px;color:var(--muted)">
+          Abas lidas: ${resultado.abas.map(a => `<b>${a.nome}</b> (${a.tipo || '?'})`).join(', ')}
+        </div>`;
+
+      // Amostra E2
+      let amostrasHtml = '';
+      if (resultado.e2.length) {
+        amostrasHtml += `<div style="margin-bottom:6px"><b>Amostra E2:</b> ` +
+          resultado.e2.slice(0,4).map(d=>`${d.carro} ${d.hora} ${d.linha}`).join(' · ') + `</div>`;
+      }
+      if (resultado.ar2.length) {
+        amostrasHtml += `<div style="margin-bottom:6px"><b>Amostra AR2:</b> ` +
+          resultado.ar2.slice(0,4).map(d=>`${d.carro} ${d.hora} ${d.linha}`).join(' · ') + `</div>`;
+      }
+      if (resultado.presos.length) {
+        amostrasHtml += `<div><b>Presos (primeiros):</b> ` +
+          resultado.presos.slice(0,6).join(', ') + (resultado.presos.length>6?' ...':'') + `</div>`;
+      }
+
+      let avisosHtml = '';
+      if (resultado.avisos.length) {
+        avisosHtml = resultado.avisos.map(a =>
+          `<div style="font-size:11px;color:#f59e0b;background:var(--surface2);border-radius:6px;padding:6px 10px;margin-bottom:4px">⚠️ ${a}</div>`
+        ).join('');
+      }
+
+      document.getElementById('preview-completo-stats').innerHTML = statsHtml;
+      document.getElementById('preview-completo-amostras').innerHTML = amostrasHtml;
+      document.getElementById('preview-completo-avisos').innerHTML = avisosHtml;
+
+      closeModal('modal-escala');
+      openModal('modal-preview-completo');
+
+    } catch(err) {
+      alert('Erro ao ler o arquivo: ' + err.message);
+    }
+    input.value = '';
+  };
+  reader.readAsArrayBuffer(file);
+}
+
+function confirmarEscalaCompleta() {
+  if (!_escalaCompletaTemp) { alert('Dados da prévia não encontrados. Tente importar novamente.'); return; }
+  try {
+    const r = _escalaCompletaTemp;
+
+    // Garante que state.escala existe (segurança)
+    if (!state.escala) state.escala = { tipo:null, data:'', importadoEm:null, manobra:[], e2:[], ar2:[] };
+    if (!state.escala.manobra) state.escala.manobra = [];
+    if (!state.escala.e2) state.escala.e2 = [];
+    if (!state.escala.ar2) state.escala.ar2 = [];
+
+    // 1. Aplica escala
+    state.escala.tipo        = 'plantao';
+    state.escala.manobra     = r.manobra;
+    state.escala.e2          = parsearPlantao(r.e2);
+    state.escala.ar2         = parsearPlantao(r.ar2);
+    state.escala.data        = new Date().toLocaleDateString('pt-BR');
+    state.escala.importadoEm = new Date().toISOString();
+
+    // 2. Adiciona presos sem duplicar (state.presos é array de objetos {frota, motivo, hora})
+    const horaAgora = new Date().toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'});
+    r.presos.forEach(carro => {
+      const c = String(carro);
+      const jaExiste = state.presos.find(p => String(p.frota || p) === c);
+      if (!jaExiste) {
+        state.presos.push({ frota: c, motivo: 'Importado da escala', hora: horaAgora });
+      }
+    });
+
+    // 3. Atualiza frota: hora, linha, e adiciona novos veículos
+    // Monta lista plana de todos os veículos com seus dados
+    const todosDados = [
+      ...r.e2.map(d => ({ frota: String(d.carro), hora: d.hora, linha: d.linha || '' })),
+      ...r.ar2.map(d => ({ frota: String(d.carro), hora: d.hora, linha: d.linha || '' })),
+      ...r.manobra.map(d => ({ frota: String(d.carro), hora: d.hora, linha: '' })),
+      ...r.presos.map(c => ({ frota: String(c), hora: '', linha: '' }))
+    ];
+
+    let carrosNovos = 0;
+    todosDados.forEach(d => {
+      if (!d.frota || !/^\d{3,4}$/.test(d.frota)) return;
+      const existente = state.frota.find(o => String(o.frota) === d.frota);
+      if (!existente) {
+        state.frota.push({ frota: d.frota, linha: d.linha, hora: d.hora, status: '' });
+        carrosNovos++;
+      } else {
+        // Atualiza hora sempre; atualiza linha só se tiver valor
+        existente.hora = d.hora;
+        if (d.linha) existente.linha = d.linha;
+      }
+      // Atualiza linha nos chips das filas onde o carro já está alocado
+      if (d.linha) {
+        FILAS_NUM.forEach(f => {
+          const item = (state.filas[f]||[]).find(x => String(x.frota) === d.frota);
+          if (item) item.linha = d.linha;
+        });
+        ESPECIAIS.forEach(e => {
+          const item = (state.especiais[e.key]||[]).find(x => String(x.frota) === d.frota);
+          if (item) item.linha = d.linha;
+        });
+        // Registra linha no cadastro de linhas (se ainda não existir)
+        const linhaObj = state.linhas.find(l => l.codigo === d.linha);
+        if (!linhaObj && d.linha) {
+          const setor = d.frota.startsWith('1') ? 'E2' : 'AR2';
+          state.linhas.push({ codigo: d.linha, descricao: '', setor });
+        }
+      }
+    });
+    state.frota.sort((a,b) => Number(a.frota) - Number(b.frota));
+
+    _escalaCompletaTemp = null;
+    closeModal('modal-preview-completo');
+    save();
+    renderAll();
+    alert(`✔ Escala importada!\nE2: ${r.e2.length} veículos\nAR2: ${r.ar2.length} veículos\nManobra: ${r.manobra.length} veículos\nPresos: ${r.presos.length}\nAdicionados à frota: ${carrosNovos}`);
+  } catch(err) {
+    alert('Erro ao confirmar importação: ' + err.message + '\n\nAbra o console (F12) para mais detalhes.');
+    console.error('confirmarEscalaCompleta erro:', err);
+  }
+}
+
+function cancelarEscalaCompleta() {
+  _escalaCompletaTemp = null;
+  closeModal('modal-preview-completo');
 }
 
 initState();renderAll();

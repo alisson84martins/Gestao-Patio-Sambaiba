@@ -366,6 +366,7 @@
     <div class="escala-tabs">
       <button class="escala-tab active" onclick="setEscalaTab('excel',this)">📊 Excel / CSV</button>
       <button class="escala-tab" onclick="setEscalaTab('colar',this)">📝 Colar Dados</button>
+      <button class="escala-tab" onclick="setEscalaTab('completo',this)">📄 Excel Completo</button>
     </div>
 
     <!-- ABA EXCEL -->
@@ -392,6 +393,18 @@
       <div id="escala-preview-colar" class="escala-preview" style="display:none"></div>
       <button class="btn btn-primary btn-full" onclick="aplicarEscalaColar()" style="margin-top:10px">✔ Aplicar Escala</button>
     </div>
+
+    <!-- ABA EXCEL COMPLETO -->
+    <div class="escala-panel" id="escala-panel-completo">
+      <p style="font-size:13px;color:var(--muted);margin-bottom:12px">Importa o arquivo de escala completo com múltiplas abas (E2, AR2, Manobra). O sistema detecta automaticamente cada setor e exibe uma prévia antes de confirmar.</p>
+      <button class="btn btn-primary btn-full" onclick="document.getElementById('input-escala-completo').click()">📂 Selecionar Arquivo de Escala Completo</button>
+      <input type="file" id="input-escala-completo" accept=".xlsx,.xls" style="display:none" onchange="previewEscalaCompleta(this)">
+      <div class="escala-hint" style="margin-top:10px">
+        ✔ Formato: arquivo Excel com abas E2, AR2 e Manobra/Preso<br>
+        ✔ O sistema mostra uma prévia com totais antes de aplicar<br>
+        ✔ Nada é alterado até você confirmar
+      </div>
+    </div>
   </div>
 </div>
 <!-- MODAL: PREVIEW / DETECÇÃO DE ESCALA -->
@@ -410,6 +423,19 @@
     </div>
     <button class="btn btn-primary btn-full" onclick="confirmarPreviewEscala()">✔ Confirmar e Importar</button>
     <button class="btn btn-ghost btn-full" onclick="closeModal('modal-preview-escala')" style="margin-top:6px">Cancelar</button>
+  </div>
+</div>
+
+<!-- MODAL: PRÉVIA EXCEL COMPLETO -->
+<div class="modal-overlay" id="modal-preview-completo">
+  <div class="modal" style="max-height:90vh;overflow-y:auto;max-width:500px">
+    <button class="modal-close" onclick="closeModal('modal-preview-completo')">✕</button>
+    <div class="modal-title">🔍 Prévia — Excel Completo</div>
+    <div id="preview-completo-stats" style="margin-bottom:16px"></div>
+    <div id="preview-completo-amostras" style="margin-bottom:16px;font-size:12px;color:var(--muted)"></div>
+    <div id="preview-completo-avisos" style="margin-bottom:16px"></div>
+    <button class="btn btn-primary btn-full" onclick="confirmarEscalaCompleta()">✔ Confirmar e Importar</button>
+    <button class="btn btn-ghost btn-full" onclick="cancelarEscalaCompleta()" style="margin-top:6px">✕ Cancelar</button>
   </div>
 </div>
 
