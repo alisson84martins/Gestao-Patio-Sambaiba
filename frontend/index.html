@@ -200,12 +200,32 @@
 
 <div class="page" id="page-frota">
   <div style="margin-top:16px">
-    <div class="search-box">
-      <input type="text" id="search-frota" placeholder="Buscar número da frota..." oninput="renderFrota()">
-      <button class="btn btn-primary" onclick="openModal('modal-onibus')">+</button>
+
+    <!-- Sub-abas Veículos / Linhas -->
+    <div class="frota-tabs">
+      <button class="frota-tab active" id="ftab-veiculos" onclick="showFrotaTab('veiculos')">🚌 Veículos</button>
+      <button class="frota-tab" id="ftab-linhas" onclick="showFrotaTab('linhas')">🗺️ Linhas</button>
     </div>
-    <div class="section-title">Veículos cadastrados</div>
-    <div id="frota-container"></div>
+
+    <!-- PAINEL: VEÍCULOS -->
+    <div id="frota-painel-veiculos">
+      <div class="search-box">
+        <input type="text" id="search-frota" placeholder="Buscar número da frota..." oninput="renderFrota()">
+        <button class="btn btn-primary" onclick="openModal('modal-onibus')">+</button>
+      </div>
+      <div class="section-title">Veículos cadastrados</div>
+      <div id="frota-container"></div>
+    </div>
+
+    <!-- PAINEL: LINHAS -->
+    <div id="frota-painel-linhas" style="display:none">
+      <div class="search-box">
+        <input type="text" id="search-linhas" placeholder="Buscar código ou descrição..." oninput="renderLinhas()">
+        <button class="btn btn-primary" onclick="abrirNovaLinha()">+</button>
+      </div>
+      <div class="section-title">Linhas cadastradas</div>
+      <div id="linhas-container"></div>
+    </div>
 
   </div>
 </div>
@@ -406,6 +426,31 @@
     <div id="lista-novos-veiculos" style="display:flex;flex-direction:column;gap:6px;margin-bottom:16px"></div>
     <button class="btn btn-primary btn-full" onclick="confirmarNovosVeiculos()">✔ Confirmar e Aplicar Escala</button>
     <button class="btn btn-ghost btn-full" onclick="closeModal('modal-novos-veiculos')" style="margin-top:6px">Cancelar</button>
+  </div>
+</div>
+
+<!-- MODAL: CADASTRO DE LINHA -->
+<div class="modal-overlay" id="modal-linha">
+  <div class="modal" style="max-width:360px">
+    <button class="modal-close" onclick="closeModal('modal-linha')">✕</button>
+    <div class="modal-title" id="linha-modal-titulo">➕ Nova Linha</div>
+    <input type="hidden" id="linha-edit-codigo-original">
+    <div class="form-group">
+      <label class="form-label">Código <span style="color:var(--muted);font-size:11px">(ex: 4100, 271A)</span></label>
+      <input type="text" class="form-input" id="input-linha-codigo" placeholder="Código da linha" maxlength="10" style="text-transform:uppercase">
+    </div>
+    <div class="form-group">
+      <label class="form-label">Descrição <span style="color:var(--muted);font-size:11px">(opcional)</span></label>
+      <input type="text" class="form-input" id="input-linha-descricao" placeholder="Ex: Terminal Lapa" maxlength="60">
+    </div>
+    <div class="form-group">
+      <label class="form-label">Setor</label>
+      <select class="form-select" id="input-linha-setor">
+        <option value="E2">🚍 E2 — Centro</option>
+        <option value="AR2">🚌 AR2 — Bairro</option>
+      </select>
+    </div>
+    <button class="btn btn-primary btn-full" onclick="salvarLinha()">✔ Salvar</button>
   </div>
 </div>
 

@@ -36,6 +36,12 @@ function initState(){
     state=JSON.parse(JSON.stringify(EXEMPLO));
   }
   if(!state.linhas) state.linhas=[];
+  // Migra linhas antigas (array de strings) para array de objetos
+  state.linhas = state.linhas.map(l =>
+    typeof l === 'string'
+      ? { codigo: l, descricao: '', setor: String(l).startsWith('1') ? 'E2' : 'AR2' }
+      : l
+  );
   if(!state.frota) state.frota=[];
   if(!state.presos) state.presos=[];
   if(!state.manutencao) state.manutencao=[];
@@ -114,11 +120,14 @@ function populateSelects(){
     ?state.frota.map(o=>`<option value="${o.frota}">${o.frota}</option>`).join('')
     :'<option value="">Nenhum ônibus cadastrado</option>';
   ['select-preso','select-revisao'].forEach(id=>{const el=document.getElementById(id);if(el)el.innerHTML=opts;});
-  // Atualiza datalist de linhas
-  const dlL = document.getElementById('datalist-linhas');
-  if(dlL) dlL.innerHTML = state.linhas.sort((a,b)=>Number(a)-Number(b)).map(l=>`<option value="${l}">`).join('');
-  const dl=document.getElementById('datalist-linhas');
-  if(dl) dl.innerHTML=state.linhas.sort((a,b)=>Number(a)-Number(b)).map(l=>`<option value="${l}">`).join('');
+  // Atualiza datalist de linhas (suporta objetos e strings legadas)
+  const linhaOpts = state.linhas
+    .map(l => typeof l === 'object' ? l.codigo : l)
+    .sort((a,b) => String(a).localeCompare(String(b), 'pt-BR', {numeric:true}))
+    .map(c => `<option value="${c}">`)
+    .join('');
+  document.querySelectorAll('#datalist-linhas, #lista-linhas-rapido, #lista-linhas-bloco, #lista-linhas-edit')
+    .forEach(el => { if(el) el.innerHTML = linhaOpts; });
 }
 
 function cadastrarOnibus(){
@@ -391,6 +400,112 @@ function renderFrota(){
       <button class="btn btn-danger btn-sm" onclick="excluirOnibus('${o.frota}')">✕</button>
     </div>`;
   }).join('')+'</div></div>';
+}
+
+// ─── SUB-ABAS DA FROTA ───────────────────────────────────────────
+function showFrotaTab(tab) {
+  document.getElementById('frota-painel-veiculos').style.display = tab === 'veiculos' ? 'block' : 'none';
+  document.getElementById('frota-painel-linhas').style.display   = tab === 'linhas'   ? 'block' : 'none';
+  document.getElementById('ftab-veiculos').classList.toggle('active', tab === 'veiculos');
+  document.getElementById('ftab-linhas').classList.toggle('active', tab === 'linhas');
+  if (tab === 'linhas') renderLinhas();
+}
+
+// ─── CRUD DE LINHAS ──────────────────────────────────────────────
+function renderLinhas() {
+  const search  = (document.getElementById('search-linhas').value || '').toLowerCase();
+  const container = document.getElementById('linhas-container');
+  const lista   = state.linhas
+    .filter(l => {
+      const c = (l.codigo || '').toLowerCase();
+      const d = (l.descricao || '').toLowerCase();
+      return !search || c.includes(search) || d.includes(search);
+    })
+    .sort((a, b) => String(a.codigo).localeCompare(String(b.codigo), 'pt-BR', {numeric:true}));
+
+  if (!lista.length) {
+    container.innerHTML = state.linhas.length === 0
+      ? '<div class="empty"><div class="empty-icon">🗺️</div>Nenhuma linha cadastrada.<br>Toque em + para adicionar.</div>'
+      : '<div class="empty"><div class="empty-icon">🔍</div>Nenhum resultado</div>';
+    return;
+  }
+
+  container.innerHTML = '<div class="card"><div class="card-body">' +
+    lista.map(l => `
+      <div class="linha-item">
+        <div class="linha-info">
+          <span class="linha-codigo">${l.codigo}</span>
+          <span class="linha-setor ${l.setor === 'E2' ? 'setor-e2' : 'setor-ar2'}">${l.setor}</span>
+          ${l.descricao ? `<span class="linha-desc">${l.descricao}</span>` : ''}
+        </div>
+        <div style="display:flex;gap:6px">
+          <button class="btn btn-ghost btn-sm" onclick="abrirEditarLinha('${l.codigo}')">✎</button>
+          <button class="btn btn-danger btn-sm" onclick="removerLinha('${l.codigo}')">✕</button>
+        </div>
+      </div>`
+    ).join('') +
+  '</div></div>';
+}
+
+function abrirNovaLinha() {
+  document.getElementById('linha-modal-titulo').textContent = '➕ Nova Linha';
+  document.getElementById('input-linha-codigo').value = '';
+  document.getElementById('input-linha-descricao').value = '';
+  document.getElementById('input-linha-setor').value = 'E2';
+  document.getElementById('linha-edit-codigo-original').value = '';
+  document.getElementById('input-linha-codigo').removeAttribute('readonly');
+  openModal('modal-linha');
+}
+
+function abrirEditarLinha(codigo) {
+  const linha = state.linhas.find(l => l.codigo === codigo);
+  if (!linha) return;
+  document.getElementById('linha-modal-titulo').textContent = '✎ Editar Linha';
+  document.getElementById('input-linha-codigo').value = linha.codigo;
+  document.getElementById('input-linha-descricao').value = linha.descricao || '';
+  document.getElementById('input-linha-setor').value = linha.setor || 'E2';
+  document.getElementById('linha-edit-codigo-original').value = linha.codigo;
+  document.getElementById('input-linha-codigo').setAttribute('readonly', true);
+  openModal('modal-linha');
+}
+
+function salvarLinha() {
+  const codigo    = document.getElementById('input-linha-codigo').value.trim().toUpperCase();
+  const descricao = document.getElementById('input-linha-descricao').value.trim();
+  const setor     = document.getElementById('input-linha-setor').value;
+  const original  = document.getElementById('linha-edit-codigo-original').value;
+
+  if (!codigo) { alert('Informe o código da linha.'); return; }
+
+  if (!original) {
+    // Nova linha — verifica duplicata
+    if (state.linhas.find(l => l.codigo === codigo)) {
+      alert(`Linha ${codigo} já está cadastrada.`); return;
+    }
+    state.linhas.push({ codigo, descricao, setor });
+  } else {
+    // Edição — atualiza
+    const idx = state.linhas.findIndex(l => l.codigo === original);
+    if (idx >= 0) state.linhas[idx] = { codigo: original, descricao, setor };
+  }
+
+  save();
+  closeModal('modal-linha');
+  renderLinhas();
+  populateSelects();
+}
+
+function removerLinha(codigo) {
+  confirmar(
+    '🗑️ Remover linha?',
+    `Deseja remover a linha ${codigo} do cadastro?`,
+    () => {
+      state.linhas = state.linhas.filter(l => l.codigo !== codigo);
+      save();
+      renderLinhas();
+      populateSelects();
+    }
+  );
 }
 
 function updateStats(){

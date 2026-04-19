@@ -336,3 +336,18 @@
   .menu-dots-item:hover { background: var(--surface2); }
   .menu-dots-item.danger { color: var(--accent2); }
 
+
+  /* ─── SUB-ABAS FROTA ─────────────────────────────────────────── */
+  .frota-tabs { display:flex; gap:8px; margin-bottom:16px; }
+  .frota-tab { flex:1; padding:10px; background:var(--surface2); border:1px solid var(--border); border-radius:10px; color:var(--muted); font-family:var(--display); font-size:15px; font-weight:700; cursor:pointer; transition:all .15s; letter-spacing:.5px; }
+  .frota-tab.active { background:var(--accent); color:#fff; border-color:var(--accent); }
+
+  /* ─── ITENS DE LINHA ─────────────────────────────────────────── */
+  .linha-item { display:flex; align-items:center; justify-content:space-between; padding:10px 0; border-bottom:1px solid var(--border); }
+  .linha-item:last-child { border-bottom:none; }
+  .linha-info { display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
+  .linha-codigo { font-family:var(--mono); font-size:15px; font-weight:800; color:var(--text); }
+  .linha-desc { font-size:13px; color:var(--muted); font-family:var(--mono); }
+  .linha-setor { font-family:var(--mono); font-size:10px; font-weight:800; padding:3px 8px; border-radius:10px; letter-spacing:1px; }
+  .setor-e2  { background:#1a3a6b; color:#fff; }
+  .setor-ar2 { background:var(--accent); color:#fff; }
