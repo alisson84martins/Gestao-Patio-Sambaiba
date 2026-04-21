@@ -61,13 +61,12 @@ function initState(){
 }
 function save(){localStorage.setItem('sambaiba_v2',JSON.stringify(state));}
 
-// Registra uma linha no catálogo state.linhas de forma segura (sempre como objeto)
-function _registrarLinha(codigo) {
-  if (!codigo) return;
+// Valida se uma linha existe no catálogo (retorna true se vazio — campo vazio sempre é permitido)
+function _linhaExiste(codigo) {
+  if (!codigo) return true;
   const c = String(codigo).trim();
-  if (!c) return;
-  const existe = state.linhas.find(l => (l.codigo || l) === c);
-  if (!existe) state.linhas.push({ codigo: c, descricao: '', setor: '' });
+  if (!c) return true;
+  return !!state.linhas.find(l => (l.codigo || l) === c);
 }
 
 function updateClock(){
@@ -154,18 +153,20 @@ function alocarOnibus(){
   const frota = inputFrota ? String(inputFrota.value).trim() : '';
   const linha=document.getElementById('input-linha-alocar').value.trim();
   if(!frota||!modalFilaAtual)return;
+  // Valida linha digitada contra catálogo (campo vazio = sempre permitido)
+  if(!_linhaExiste(linha)){
+    alert(`Linha "${linha}" não está cadastrada.\nAcesse Frota → Linhas para cadastrá-la antes de alocar.`);
+    return;
+  }
   // Remove de qualquer posição anterior
   FILAS_NUM.forEach(f=>{state.filas[f]=state.filas[f].filter(x=>x.frota!==frota);});
   ESPECIAIS.forEach(e=>{state.especiais[e.key]=state.especiais[e.key].filter(x=>x.frota!==frota);});
-  // Salva linha nova se não existir
-  _registrarLinha(linha);
   // Calcula próxima posição sem conflito
   const esp=ESPECIAIS.find(e=>e.key===modalFilaAtual);
   const listaAtual = esp ? (state.especiais[modalFilaAtual]||[]) : (state.filas[modalFilaAtual]||[]);
   const maxPos = listaAtual.length > 0 ? Math.max(...listaAtual.map(x=>x.pos||0)) : 0;
   const cadastro = state.frota.find(o => String(o.frota) === String(frota));
   const linhaFinal = linha || (cadastro && cadastro.linha) || '';
-  _registrarLinha(linhaFinal);
   const item={frota, linha: linhaFinal, pos: maxPos + 1};
   if(esp)state.especiais[modalFilaAtual].push(item);else state.filas[modalFilaAtual].push(item);
   document.getElementById('input-linha-alocar').value='';
@@ -709,6 +710,12 @@ function salvarEdicaoChip() {
   const linha = document.getElementById('edit-linha').value.trim();
   const novaPosicao = document.getElementById('edit-nova-posicao').value;
 
+  // Valida linha digitada contra catálogo (campo vazio = sempre permitido)
+  if(!_linhaExiste(linha)){
+    alert(`Linha "${linha}" não está cadastrada.\nAcesse Frota → Linhas para cadastrá-la.`);
+    return;
+  }
+
   // Remove da posição atual
   if(isEspecial) state.especiais[filaKey] = state.especiais[filaKey].filter(x => x.frota !== frota);
   else state.filas[filaKey] = state.filas[filaKey].filter(x => x.frota !== frota);
@@ -773,12 +780,15 @@ function alocarRapido() {
     return;
   }
 
+  // Valida linha digitada contra catálogo (campo vazio = sempre permitido)
+  if(!_linhaExiste(linha)){
+    alert(`Linha "${linha}" não está cadastrada.\nAcesse Frota → Linhas para cadastrá-la.`);
+    return;
+  }
+
   // Remove de qualquer posição anterior
   FILAS_NUM.forEach(f=>{ state.filas[f]=state.filas[f].filter(x=>String(x.frota)!==frota); });
   ESPECIAIS.forEach(e=>{ state.especiais[e.key]=state.especiais[e.key].filter(x=>String(x.frota)!==frota); });
-
-  // Salva linha nova se não existir
-  _registrarLinha(linha);
 
   // Calcula próxima posição
   let proxPos = 1;
@@ -961,11 +971,15 @@ function _executarAlocarBloco(frota, filaVal, filaInput, linha, naFrota) {
     state.frota.sort((a, b) => Number(a.frota) - Number(b.frota));
   }
 
+  // Valida linha digitada contra catálogo (campo vazio = sempre permitido)
+  if(!_linhaExiste(linha)){
+    alert(`Linha "${linha}" não está cadastrada.\nAcesse Frota → Linhas para cadastrá-la.`);
+    return;
+  }
+
   // Remove de qualquer posição anterior (garante sem duplicata)
   FILAS_NUM.forEach(f => { state.filas[f] = state.filas[f].filter(x => String(x.frota) !== frota); });
   ESPECIAIS.forEach(e => { state.especiais[e.key] = state.especiais[e.key].filter(x => String(x.frota) !== frota); });
-
-  _registrarLinha(linha);
 
   const lista = getListaBloco(filaVal);
 
@@ -1159,14 +1173,10 @@ function importarDados(input) {
       const dados = JSON.parse(e.target.result);
       if(!dados.frota) { alert('Arquivo inválido.'); return; }
       if(!confirm('Isso vai substituir todos os dados atuais. Confirma?')) return;
+      // Preserva catálogo de linhas local — linhas só são alteradas no módulo Linhas
+      const linhasLocais = JSON.parse(JSON.stringify(state.linhas || []));
       state = dados;
-      // Mesmas migrações do initState — garante consistência ao importar de outro dispositivo
-      if(!state.linhas) state.linhas = [];
-      state.linhas = state.linhas
-        .map(l => typeof l === 'string'
-          ? { codigo: l, descricao: '', setor: String(l).startsWith('1') ? 'E2' : 'AR2' }
-          : l)
-        .filter(l => l && l.codigo && typeof l.codigo === 'string' && l.codigo.trim() !== '');
+      state.linhas = linhasLocais; // importação JSON nunca altera o catálogo de linhas
       if(!state.frota) state.frota = [];
       if(!state.presos) state.presos = [];
       if(!state.revisoes) state.revisoes = [];
@@ -1625,6 +1635,7 @@ function confirmarNovosVeiculos() {
 // ─────────────────────────────────────────────────────────────────
 function aplicarEscala(dados, naoCadastrar = new Set(), tipo = null) {
   let novos = 0, atualizados = 0, presos = 0, ignorados = 0;
+  const linhasNaoCadastradasEscala = new Set(); // Opção B: coleta linhas ausentes
   dados.forEach(d => {
     const frota = String(d.carro);
     const isPreso = (d.status && d.status.toLowerCase() === 'preso') || (d.linha && d.linha.toUpperCase() === 'PRESO');
@@ -1670,7 +1681,10 @@ function aplicarEscala(dados, naoCadastrar = new Set(), tipo = null) {
         const item = (state.especiais[e.key]||[]).find(x => String(x.frota) === frota);
         if(item) item.linha = linha;
       });
-      _registrarLinha(linha);
+      // Opção B: linha não cadastrada → coleta para aviso, NÃO altera catálogo
+      if (!state.linhas.find(l => l.codigo === linha)) {
+        linhasNaoCadastradasEscala.add(linha);
+      }
     }
   });
   state.frota.sort((a,b) => Number(a.frota) - Number(b.frota));
@@ -1706,6 +1720,9 @@ function aplicarEscala(dados, naoCadastrar = new Set(), tipo = null) {
     + atualizados + ' atualizados\n'
     + presos + ' marcados como PRESO';
   if (ignorados > 0) resumo += '\n' + ignorados + ' ignorados (não cadastrados)';
+  if (linhasNaoCadastradasEscala.size > 0) {
+    resumo += `\n\n⚠️ Linhas não cadastradas:\n${[...linhasNaoCadastradasEscala].join(', ')}\nCadastre-as em Frota → Linhas.`;
+  }
   alert(resumo);
 }
 
@@ -2412,6 +2429,7 @@ function confirmarEscalaCompleta() {
     ];
 
     let carrosNovos = 0;
+    const linhasNaoCadastradas = new Set(); // Opção B: coleta linhas ausentes no catálogo
     todosDados.forEach(d => {
       if (!d.frota || !/^\d{3,4}$/.test(d.frota)) return;
       const existente = state.frota.find(o => String(o.frota) === d.frota);
@@ -2433,11 +2451,9 @@ function confirmarEscalaCompleta() {
           const item = (state.especiais[e.key]||[]).find(x => String(x.frota) === d.frota);
           if (item) item.linha = d.linha;
         });
-        // Registra linha no cadastro de linhas (se ainda não existir)
-        const linhaObj = state.linhas.find(l => l.codigo === d.linha);
-        if (!linhaObj && d.linha) {
-          const setor = d.frota.startsWith('1') ? 'E2' : 'AR2';
-          state.linhas.push({ codigo: d.linha, descricao: '', setor });
+        // Opção B: linha não cadastrada → coleta para aviso, NÃO adiciona ao catálogo
+        if (!state.linhas.find(l => l.codigo === d.linha)) {
+          linhasNaoCadastradas.add(d.linha);
         }
       }
     });
@@ -2447,7 +2463,11 @@ function confirmarEscalaCompleta() {
     closeModal('modal-preview-completo');
     save();
     renderAll();
-    alert(`✔ Escala importada!\nE2: ${r.e2.length} veículos\nAR2: ${r.ar2.length} veículos\nManobra: ${r.manobra.length} veículos\nPresos: ${r.presos.length}\nAdicionados à frota: ${carrosNovos}`);
+    let msgFinal = `✔ Escala importada!\nE2: ${r.e2.length} veículos\nAR2: ${r.ar2.length} veículos\nManobra: ${r.manobra.length} veículos\nPresos: ${r.presos.length}\nAdicionados à frota: ${carrosNovos}`;
+    if (linhasNaoCadastradas.size > 0) {
+      msgFinal += `\n\n⚠️ Linhas não cadastradas (chips sem linha):\n${[...linhasNaoCadastradas].join(', ')}\nCadastre-as em Frota → Linhas.`;
+    }
+    alert(msgFinal);
   } catch(err) {
     alert('Erro ao confirmar importação: ' + err.message + '\n\nAbra o console (F12) para mais detalhes.');
     console.error('confirmarEscalaCompleta erro:', err);
@@ -2457,6 +2477,196 @@ function confirmarEscalaCompleta() {
 function cancelarEscalaCompleta() {
   _escalaCompletaTemp = null;
   closeModal('modal-preview-completo');
+}
+
+// ─── IMPORTAR / EXPORTAR ALOCAÇÕES EXCEL ────────────────────────
+
+let _alocacaoTemp = null;
+
+function exportarAlocacao() {
+  const linhas = ['"FILA";"CARRO"'];
+  FILAS_NUM.forEach(f => {
+    (state.filas[f]||[]).sort((a,b)=>(a.pos||0)-(b.pos||0)).forEach(o => {
+      linhas.push(`"Fila ${f}";"${o.frota}"`);
+    });
+  });
+  ESPECIAIS.forEach(e => {
+    (state.especiais[e.key]||[]).sort((a,b)=>(a.pos||0)-(b.pos||0)).forEach(o => {
+      linhas.push(`"${e.label}";"${o.frota}"`);
+    });
+  });
+  const bom = '\uFEFF';
+  const csv = bom + linhas.join('\r\n');
+  const blob = new Blob([csv], {type:'text/csv;charset=utf-8'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'Alocacao_' + new Date().toLocaleDateString('pt-BR').replace(/\//g,'-') + '.csv';
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+function _parsearFilaAlocacao(valor) {
+  if (!valor && valor !== 0) return null;
+  const v = String(valor).trim()
+    .normalize('NFD').replace(/[\u0300-\u036f]/g,'')
+    .toLowerCase();
+  // "fila X" ou só número (ex: "fila 3", "Fila 3", "3")
+  const mFila = v.match(/^(?:fila\s*)?(\d+)$/);
+  if (mFila) {
+    const num = mFila[1];
+    if (FILAS_NUM.includes(num)) return { tipo:'fila', key:num };
+    return null;
+  }
+  // Posições especiais — aceita label ou key, com ou sem acento
+  const espMap = {
+    'coqueiro':'coqueiro', 'laje':'laje', 'lavador':'lavador',
+    'bomba':'bomba', 'eletricos':'eletricos', 'electricos':'eletricos',
+    'fundao':'fundao'
+  };
+  if (espMap[v]) return { tipo:'especial', key:espMap[v] };
+  return null;
+}
+
+function previewAlocacaoExcel(input) {
+  const file = input.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = function(e) {
+    try {
+      const data = new Uint8Array(e.target.result);
+      const wb = XLSX.read(data, {type:'array'});
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      const rows = XLSX.utils.sheet_to_json(ws, {header:1, defval:''});
+      if (!rows.length) { alert('Planilha vazia.'); input.value=''; return; }
+
+      const dados = rows.slice(1).filter(r => r[0]!=='' || r[1]!=='');
+      const resultado = { moves:[], filasInvalidas:[], carrosNovos:[], porFila:{} };
+      let filaAtual = null;
+      const vistos = new Set();
+
+      dados.forEach(row => {
+        const filaCell = String(row[0]||'').trim();
+        const carroRaw = row[1];
+        // SheetJS lê frotas numéricas como number — converte para string
+        const frota = String(carroRaw||'').trim().replace(/\.0$/, '');
+        if (filaCell) filaAtual = filaCell; // carry-forward p/ células mescladas
+        if (!filaAtual || !frota) return;
+
+        const parsed = _parsearFilaAlocacao(filaAtual);
+        if (!parsed) {
+          if (!resultado.filasInvalidas.includes(filaAtual)) resultado.filasInvalidas.push(filaAtual);
+          return;
+        }
+        if (vistos.has(frota)) return; // primeira ocorrência vence
+        vistos.add(frota);
+
+        resultado.moves.push({...parsed, frota});
+        resultado.porFila[parsed.key] = (resultado.porFila[parsed.key]||0) + 1;
+        if (!state.frota.find(o => String(o.frota)===frota)) resultado.carrosNovos.push(frota);
+      });
+
+      // Filas inválidas → bloqueia com lista de nomes válidos
+      if (resultado.filasInvalidas.length) {
+        const validas = FILAS_NUM.map(f=>'Fila '+f).concat(ESPECIAIS.map(e=>e.label)).join(', ');
+        alert('Importação bloqueada. Filas não reconhecidas:\n' +
+          resultado.filasInvalidas.join(', ') +
+          '\n\nNomes válidos:\n' + validas);
+        input.value=''; return;
+      }
+      if (!resultado.moves.length) { alert('Nenhuma alocação encontrada na planilha.'); input.value=''; return; }
+
+      _alocacaoTemp = resultado;
+
+      // Monta preview
+      const statsHtml = `
+        <div class="preview-stat"><div class="preview-num">${resultado.moves.length}</div><div class="preview-lbl">Carros</div></div>
+        <div class="preview-stat"><div class="preview-num">${Object.keys(resultado.porFila).length}</div><div class="preview-lbl">Filas</div></div>
+        <div class="preview-stat"><div class="preview-num">${resultado.carrosNovos.length}</div><div class="preview-lbl">Novos</div></div>`;
+
+      const filaLinhas = Object.entries(resultado.porFila).map(([key,cnt]) => {
+        const esp = ESPECIAIS.find(e=>e.key===key);
+        return (esp ? esp.label : 'Fila '+key) + ': ' + cnt;
+      });
+      let detalhesHtml = `<div style="font-size:12px;color:var(--muted);margin-bottom:8px">${filaLinhas.join(' · ')}</div>`;
+      if (resultado.carrosNovos.length) {
+        detalhesHtml += `<div style="font-size:12px;color:#f59e0b">⚠️ Serão adicionados à frota: ${resultado.carrosNovos.join(', ')}</div>`;
+      }
+
+      document.getElementById('preview-alocacao-stats').innerHTML = statsHtml;
+      document.getElementById('preview-alocacao-detalhes').innerHTML = detalhesHtml;
+      openModal('modal-preview-alocacao');
+
+    } catch(err) {
+      alert('Erro ao ler o arquivo: ' + err.message);
+    }
+    input.value = '';
+  };
+  reader.readAsArrayBuffer(file);
+}
+
+function confirmarAlocacaoExcel() {
+  if (!_alocacaoTemp) { alert('Dados não encontrados. Tente importar novamente.'); return; }
+  try {
+    const r = _alocacaoTemp;
+    const filasAfetadas = new Set();
+
+    // 1. Adiciona carros novos à frota
+    r.carrosNovos.forEach(frota => {
+      if (!state.frota.find(o => String(o.frota)===frota))
+        state.frota.push({frota});
+    });
+    state.frota.sort((a,b) => Number(a.frota)-Number(b.frota));
+
+    // 2. Remove todos os carros do import de suas posições atuais
+    r.moves.forEach(({frota}) => {
+      FILAS_NUM.forEach(f => { state.filas[f]=state.filas[f].filter(x=>String(x.frota)!==frota); });
+      ESPECIAIS.forEach(e => { state.especiais[e.key]=state.especiais[e.key].filter(x=>String(x.frota)!==frota); });
+    });
+
+    // 3. Agrupa por fila mantendo ordem do Excel
+    const porFila = {};
+    r.moves.forEach(({tipo,key,frota}) => {
+      if (!porFila[key]) porFila[key] = {tipo, carros:[]};
+      porFila[key].carros.push(frota);
+      filasAfetadas.add(key);
+    });
+
+    // 4. Para cada fila: carros do import em ordem → append dos que já estavam
+    Object.entries(porFila).forEach(([key,{tipo,carros}]) => {
+      const esp = ESPECIAIS.find(e=>e.key===key);
+      // Snapshot dos carros que sobraram (não estavam no import)
+      const restantes = esp
+        ? [...(state.especiais[key]||[])]
+        : [...(state.filas[key]||[])];
+
+      const novaLista = [];
+      carros.forEach((frota,i) => {
+        const cad = state.frota.find(o=>String(o.frota)===frota);
+        novaLista.push({frota, linha:(cad&&cad.linha)||'', pos:i+1});
+      });
+      restantes.forEach((item,i) => {
+        novaLista.push({...item, pos:carros.length+i+1});
+      });
+
+      if (esp) state.especiais[key] = novaLista;
+      else state.filas[key] = novaLista;
+    });
+
+    _alocacaoTemp = null;
+    closeModal('modal-preview-alocacao');
+    save(); renderAll();
+    alert(`✔ Alocação importada!\n${r.moves.length} carros posicionados.${r.carrosNovos.length ? '\n'+r.carrosNovos.length+' carros adicionados à frota.' : ''}`);
+
+  } catch(err) {
+    alert('Erro ao confirmar alocação: ' + err.message);
+    console.error('confirmarAlocacaoExcel erro:', err);
+  }
+}
+
+function cancelarAlocacaoExcel() {
+  _alocacaoTemp = null;
+  closeModal('modal-preview-alocacao');
 }
 
 initState();renderAll();

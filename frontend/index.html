@@ -80,9 +80,11 @@
       <span>💾 Dados</span><span class="menu-dots-arrow" id="arrow-sub-dados">›</span>
     </div>
     <div class="menu-dots-submenu" id="sub-dados">
-      <div class="menu-dots-subitem" onclick="exportarDados();toggleMenuDots()">📤 Exportar</div>
-      <div class="menu-dots-subitem" onclick="document.getElementById('input-importar').click();toggleMenuDots()">📥 Importar</div>
+      <div class="menu-dots-subitem" onclick="exportarDados();toggleMenuDots()">📤 Exportar JSON</div>
+      <div class="menu-dots-subitem" onclick="document.getElementById('input-importar').click();toggleMenuDots()">📥 Importar JSON</div>
       <div class="menu-dots-subitem" onclick="openModal('modal-escala');toggleMenuDots()">📋 Importar Escala</div>
+      <div class="menu-dots-subitem" onclick="exportarAlocacao();toggleMenuDots()">⬇️ Exportar Alocação</div>
+      <div class="menu-dots-subitem" onclick="document.getElementById('input-importar-alocacao').click();toggleMenuDots()">⬆️ Importar Alocação</div>
     </div>
 
     <!-- Limpeza submenu -->
@@ -97,6 +99,7 @@
 
     <input type="file" id="input-importar" accept=".json" style="display:none" onchange="importarDados(this)">
     <input type="file" id="input-escala-excel" accept=".xlsx,.xls,.csv" style="display:none" onchange="importarExcel(this)">
+    <input type="file" id="input-importar-alocacao" accept=".xlsx,.xls,.csv" style="display:none" onchange="previewAlocacaoExcel(this)">
   </div>
 </div>
 
@@ -436,6 +439,18 @@
     <div id="preview-completo-avisos" style="margin-bottom:16px"></div>
     <button class="btn btn-primary btn-full" onclick="confirmarEscalaCompleta()">✔ Confirmar e Importar</button>
     <button class="btn btn-ghost btn-full" onclick="cancelarEscalaCompleta()" style="margin-top:6px">✕ Cancelar</button>
+  </div>
+</div>
+
+<!-- MODAL: PREVIEW IMPORTAÇÃO DE ALOCAÇÃO -->
+<div class="modal-overlay" id="modal-preview-alocacao">
+  <div class="modal" style="max-width:480px">
+    <button class="modal-close" onclick="cancelarAlocacaoExcel()">✕</button>
+    <div class="modal-title">📥 Prévia — Importar Alocação</div>
+    <div id="preview-alocacao-stats" style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:12px"></div>
+    <div id="preview-alocacao-detalhes" style="margin-bottom:16px"></div>
+    <button class="btn btn-primary btn-full" onclick="confirmarAlocacaoExcel()">✔ Confirmar</button>
+    <button class="btn btn-ghost btn-full" onclick="cancelarAlocacaoExcel()" style="margin-top:6px">✕ Cancelar</button>
   </div>
 </div>
 
