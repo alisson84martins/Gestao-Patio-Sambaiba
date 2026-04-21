@@ -61,6 +61,15 @@ function initState(){
 }
 function save(){localStorage.setItem('sambaiba_v2',JSON.stringify(state));}
 
+// Registra uma linha no catálogo state.linhas de forma segura (sempre como objeto)
+function _registrarLinha(codigo) {
+  if (!codigo) return;
+  const c = String(codigo).trim();
+  if (!c) return;
+  const existe = state.linhas.find(l => (l.codigo || l) === c);
+  if (!existe) state.linhas.push({ codigo: c, descricao: '', setor: '' });
+}
+
 function updateClock(){
   const n=new Date();
   document.getElementById('clock').textContent=n.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'});
@@ -149,14 +158,14 @@ function alocarOnibus(){
   FILAS_NUM.forEach(f=>{state.filas[f]=state.filas[f].filter(x=>x.frota!==frota);});
   ESPECIAIS.forEach(e=>{state.especiais[e.key]=state.especiais[e.key].filter(x=>x.frota!==frota);});
   // Salva linha nova se não existir
-  if(linha && !state.linhas.includes(linha)) state.linhas.push(linha);
+  _registrarLinha(linha);
   // Calcula próxima posição sem conflito
   const esp=ESPECIAIS.find(e=>e.key===modalFilaAtual);
   const listaAtual = esp ? (state.especiais[modalFilaAtual]||[]) : (state.filas[modalFilaAtual]||[]);
   const maxPos = listaAtual.length > 0 ? Math.max(...listaAtual.map(x=>x.pos||0)) : 0;
   const cadastro = state.frota.find(o => String(o.frota) === String(frota));
   const linhaFinal = linha || (cadastro && cadastro.linha) || '';
-  if(linhaFinal && !state.linhas.includes(linhaFinal)) state.linhas.push(linhaFinal);
+  _registrarLinha(linhaFinal);
   const item={frota, linha: linhaFinal, pos: maxPos + 1};
   if(esp)state.especiais[modalFilaAtual].push(item);else state.filas[modalFilaAtual].push(item);
   document.getElementById('input-linha-alocar').value='';
@@ -682,7 +691,7 @@ function abrirEdicaoChip(frota, filaKey, isEspecial) {
 
   // Preenche datalist de linhas
   const dl = document.getElementById('lista-linhas-edit');
-  if(dl) dl.innerHTML = state.linhas.sort((a,b)=>Number(a)-Number(b)).map(l=>`<option value="${l}">`).join('');
+  if(dl) dl.innerHTML = state.linhas.map(l=>l.codigo||l).filter(Boolean).sort().map(l=>`<option value="${l}">`).join('');
 
   // Monta opções de posição
   let opts = '<option value="">— Manter posição atual —</option>';
@@ -769,7 +778,7 @@ function alocarRapido() {
   ESPECIAIS.forEach(e=>{ state.especiais[e.key]=state.especiais[e.key].filter(x=>String(x.frota)!==frota); });
 
   // Salva linha nova se não existir
-  if(linha && !state.linhas.includes(linha)) state.linhas.push(linha);
+  _registrarLinha(linha);
 
   // Calcula próxima posição
   let proxPos = 1;
@@ -797,9 +806,9 @@ function popularDatalistsRapido() {
   }
   // Linhas
   const dlLinha = document.getElementById('lista-linhas-rapido');
-  if(dlLinha) dlLinha.innerHTML = state.linhas.sort((a,b)=>Number(a)-Number(b)).map(l=>`<option value="${l}">`).join('');
+  if(dlLinha) dlLinha.innerHTML = state.linhas.map(l=>l.codigo||l).filter(Boolean).sort().map(l=>`<option value="${l}">`).join('');
   const dlLinhaBloco = document.getElementById('lista-linhas-bloco');
-  if(dlLinhaBloco) dlLinhaBloco.innerHTML = state.linhas.sort((a,b)=>Number(a)-Number(b)).map(l=>`<option value="${l}">`).join('');
+  if(dlLinhaBloco) dlLinhaBloco.innerHTML = state.linhas.map(l=>l.codigo||l).filter(Boolean).sort().map(l=>`<option value="${l}">`).join('');
 }
 
 // ─── MODO BLOCO ──────────────────────────────────────────────────
@@ -956,7 +965,7 @@ function _executarAlocarBloco(frota, filaVal, filaInput, linha, naFrota) {
   FILAS_NUM.forEach(f => { state.filas[f] = state.filas[f].filter(x => String(x.frota) !== frota); });
   ESPECIAIS.forEach(e => { state.especiais[e.key] = state.especiais[e.key].filter(x => String(x.frota) !== frota); });
 
-  if (linha && !state.linhas.includes(linha)) state.linhas.push(linha);
+  _registrarLinha(linha);
 
   const lista = getListaBloco(filaVal);
 
@@ -1151,11 +1160,25 @@ function importarDados(input) {
       if(!dados.frota) { alert('Arquivo inválido.'); return; }
       if(!confirm('Isso vai substituir todos os dados atuais. Confirma?')) return;
       state = dados;
-      FILAS_NUM.forEach(f => { if(!state.filas[f]) state.filas[f] = []; });
-      ESPECIAIS.forEach(esp => { if(!state.especiais[esp.key]) state.especiais[esp.key] = []; });
+      // Mesmas migrações do initState — garante consistência ao importar de outro dispositivo
+      if(!state.linhas) state.linhas = [];
+      state.linhas = state.linhas
+        .map(l => typeof l === 'string'
+          ? { codigo: l, descricao: '', setor: String(l).startsWith('1') ? 'E2' : 'AR2' }
+          : l)
+        .filter(l => l && l.codigo && typeof l.codigo === 'string' && l.codigo.trim() !== '');
+      if(!state.frota) state.frota = [];
       if(!state.presos) state.presos = [];
       if(!state.revisoes) state.revisoes = [];
-      if(!state.linhas) state.linhas = [];
+      if(!state.manutencao) state.manutencao = [];
+      if(!state.filas) state.filas = {};
+      if(!state.especiais) state.especiais = {};
+      if(!state.escala) state.escala = { tipo:null, data:'', importadoEm:null, manobra:[], e2:[], ar2:[] };
+      if(!state.escala.manobra) state.escala.manobra = [];
+      if(!state.escala.e2) state.escala.e2 = [];
+      if(!state.escala.ar2) state.escala.ar2 = [];
+      FILAS_NUM.forEach(f => { state.filas[f] = migrarDados(state.filas[f] || []); });
+      ESPECIAIS.forEach(esp => { state.especiais[esp.key] = migrarDados(state.especiais[esp.key] || []); });
       state.frota = state.frota.map(o => typeof o === 'string' ? {frota:o} : o).filter(o => o && o.frota);
       state.frota.sort((a,b) => Number(a.frota) - Number(b.frota));
       save();
@@ -1647,7 +1670,7 @@ function aplicarEscala(dados, naoCadastrar = new Set(), tipo = null) {
         const item = (state.especiais[e.key]||[]).find(x => String(x.frota) === frota);
         if(item) item.linha = linha;
       });
-      if(!state.linhas.includes(linha)) state.linhas.push(linha);
+      _registrarLinha(linha);
     }
   });
   state.frota.sort((a,b) => Number(a.frota) - Number(b.frota));
