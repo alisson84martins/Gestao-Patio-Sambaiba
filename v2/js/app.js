@@ -36,12 +36,12 @@ function initState(){
     state=JSON.parse(JSON.stringify(EXEMPLO));
   }
   if(!state.linhas) state.linhas=[];
-  // Migra linhas antigas (array de strings) para array de objetos
-  state.linhas = state.linhas.map(l =>
-    typeof l === 'string'
+  // Migra linhas antigas (array de strings) para array de objetos e remove entradas inválidas
+  state.linhas = state.linhas
+    .map(l => typeof l === 'string'
       ? { codigo: l, descricao: '', setor: String(l).startsWith('1') ? 'E2' : 'AR2' }
-      : l
-  );
+      : l)
+    .filter(l => l && l.codigo && typeof l.codigo === 'string' && l.codigo.trim() !== '');
   if(!state.frota) state.frota=[];
   if(!state.presos) state.presos=[];
   if(!state.manutencao) state.manutencao=[];
@@ -60,6 +60,14 @@ function initState(){
   state.frota.sort((a,b)=>Number(a.frota)-Number(b.frota));
 }
 function save(){localStorage.setItem('sambaiba_v2',JSON.stringify(state));}
+
+// Valida se uma linha existe no catálogo (retorna true se vazio — campo vazio sempre é permitido)
+function _linhaExiste(codigo) {
+  if (!codigo) return true;
+  const c = String(codigo).trim();
+  if (!c) return true;
+  return !!state.linhas.find(l => (l.codigo || l) === c);
+}
 
 function updateClock(){
   const n=new Date();
@@ -145,18 +153,20 @@ function alocarOnibus(){
   const frota = inputFrota ? String(inputFrota.value).trim() : '';
   const linha=document.getElementById('input-linha-alocar').value.trim();
   if(!frota||!modalFilaAtual)return;
+  // Valida linha digitada contra catálogo (campo vazio = sempre permitido)
+  if(!_linhaExiste(linha)){
+    alert(`Linha "${linha}" não está cadastrada.\nAcesse Frota → Linhas para cadastrá-la antes de alocar.`);
+    return;
+  }
   // Remove de qualquer posição anterior
   FILAS_NUM.forEach(f=>{state.filas[f]=state.filas[f].filter(x=>x.frota!==frota);});
   ESPECIAIS.forEach(e=>{state.especiais[e.key]=state.especiais[e.key].filter(x=>x.frota!==frota);});
-  // Salva linha nova se não existir
-  if(linha && !state.linhas.includes(linha)) state.linhas.push(linha);
   // Calcula próxima posição sem conflito
   const esp=ESPECIAIS.find(e=>e.key===modalFilaAtual);
   const listaAtual = esp ? (state.especiais[modalFilaAtual]||[]) : (state.filas[modalFilaAtual]||[]);
   const maxPos = listaAtual.length > 0 ? Math.max(...listaAtual.map(x=>x.pos||0)) : 0;
   const cadastro = state.frota.find(o => String(o.frota) === String(frota));
   const linhaFinal = linha || (cadastro && cadastro.linha) || '';
-  if(linhaFinal && !state.linhas.includes(linhaFinal)) state.linhas.push(linhaFinal);
   const item={frota, linha: linhaFinal, pos: maxPos + 1};
   if(esp)state.especiais[modalFilaAtual].push(item);else state.filas[modalFilaAtual].push(item);
   document.getElementById('input-linha-alocar').value='';
@@ -682,7 +692,7 @@ function abrirEdicaoChip(frota, filaKey, isEspecial) {
 
   // Preenche datalist de linhas
   const dl = document.getElementById('lista-linhas-edit');
-  if(dl) dl.innerHTML = state.linhas.sort((a,b)=>Number(a)-Number(b)).map(l=>`<option value="${l}">`).join('');
+  if(dl) dl.innerHTML = state.linhas.map(l=>l.codigo||l).filter(Boolean).sort().map(l=>`<option value="${l}">`).join('');
 
   // Monta opções de posição
   let opts = '<option value="">— Manter posição atual —</option>';
@@ -699,6 +709,12 @@ function salvarEdicaoChip() {
   const isEspecial = document.getElementById('edit-is-especial').value === '1';
   const linha = document.getElementById('edit-linha').value.trim();
   const novaPosicao = document.getElementById('edit-nova-posicao').value;
+
+  // Valida linha digitada contra catálogo (campo vazio = sempre permitido)
+  if(!_linhaExiste(linha)){
+    alert(`Linha "${linha}" não está cadastrada.\nAcesse Frota → Linhas para cadastrá-la.`);
+    return;
+  }
 
   // Remove da posição atual
   if(isEspecial) state.especiais[filaKey] = state.especiais[filaKey].filter(x => x.frota !== frota);
@@ -764,12 +780,15 @@ function alocarRapido() {
     return;
   }
 
+  // Valida linha digitada contra catálogo (campo vazio = sempre permitido)
+  if(!_linhaExiste(linha)){
+    alert(`Linha "${linha}" não está cadastrada.\nAcesse Frota → Linhas para cadastrá-la.`);
+    return;
+  }
+
   // Remove de qualquer posição anterior
   FILAS_NUM.forEach(f=>{ state.filas[f]=state.filas[f].filter(x=>String(x.frota)!==frota); });
   ESPECIAIS.forEach(e=>{ state.especiais[e.key]=state.especiais[e.key].filter(x=>String(x.frota)!==frota); });
-
-  // Salva linha nova se não existir
-  if(linha && !state.linhas.includes(linha)) state.linhas.push(linha);
 
   // Calcula próxima posição
   let proxPos = 1;
@@ -797,9 +816,9 @@ function popularDatalistsRapido() {
   }
   // Linhas
   const dlLinha = document.getElementById('lista-linhas-rapido');
-  if(dlLinha) dlLinha.innerHTML = state.linhas.sort((a,b)=>Number(a)-Number(b)).map(l=>`<option value="${l}">`).join('');
+  if(dlLinha) dlLinha.innerHTML = state.linhas.map(l=>l.codigo||l).filter(Boolean).sort().map(l=>`<option value="${l}">`).join('');
   const dlLinhaBloco = document.getElementById('lista-linhas-bloco');
-  if(dlLinhaBloco) dlLinhaBloco.innerHTML = state.linhas.sort((a,b)=>Number(a)-Number(b)).map(l=>`<option value="${l}">`).join('');
+  if(dlLinhaBloco) dlLinhaBloco.innerHTML = state.linhas.map(l=>l.codigo||l).filter(Boolean).sort().map(l=>`<option value="${l}">`).join('');
 }
 
 // ─── MODO BLOCO ──────────────────────────────────────────────────
@@ -952,11 +971,15 @@ function _executarAlocarBloco(frota, filaVal, filaInput, linha, naFrota) {
     state.frota.sort((a, b) => Number(a.frota) - Number(b.frota));
   }
 
+  // Valida linha digitada contra catálogo (campo vazio = sempre permitido)
+  if(!_linhaExiste(linha)){
+    alert(`Linha "${linha}" não está cadastrada.\nAcesse Frota → Linhas para cadastrá-la.`);
+    return;
+  }
+
   // Remove de qualquer posição anterior (garante sem duplicata)
   FILAS_NUM.forEach(f => { state.filas[f] = state.filas[f].filter(x => String(x.frota) !== frota); });
   ESPECIAIS.forEach(e => { state.especiais[e.key] = state.especiais[e.key].filter(x => String(x.frota) !== frota); });
-
-  if (linha && !state.linhas.includes(linha)) state.linhas.push(linha);
 
   const lista = getListaBloco(filaVal);
 
@@ -1150,12 +1173,22 @@ function importarDados(input) {
       const dados = JSON.parse(e.target.result);
       if(!dados.frota) { alert('Arquivo inválido.'); return; }
       if(!confirm('Isso vai substituir todos os dados atuais. Confirma?')) return;
+      // Preserva catálogo de linhas local — linhas só são alteradas no módulo Linhas
+      const linhasLocais = JSON.parse(JSON.stringify(state.linhas || []));
       state = dados;
-      FILAS_NUM.forEach(f => { if(!state.filas[f]) state.filas[f] = []; });
-      ESPECIAIS.forEach(esp => { if(!state.especiais[esp.key]) state.especiais[esp.key] = []; });
+      state.linhas = linhasLocais; // importação JSON nunca altera o catálogo de linhas
+      if(!state.frota) state.frota = [];
       if(!state.presos) state.presos = [];
       if(!state.revisoes) state.revisoes = [];
-      if(!state.linhas) state.linhas = [];
+      if(!state.manutencao) state.manutencao = [];
+      if(!state.filas) state.filas = {};
+      if(!state.especiais) state.especiais = {};
+      if(!state.escala) state.escala = { tipo:null, data:'', importadoEm:null, manobra:[], e2:[], ar2:[] };
+      if(!state.escala.manobra) state.escala.manobra = [];
+      if(!state.escala.e2) state.escala.e2 = [];
+      if(!state.escala.ar2) state.escala.ar2 = [];
+      FILAS_NUM.forEach(f => { state.filas[f] = migrarDados(state.filas[f] || []); });
+      ESPECIAIS.forEach(esp => { state.especiais[esp.key] = migrarDados(state.especiais[esp.key] || []); });
       state.frota = state.frota.map(o => typeof o === 'string' ? {frota:o} : o).filter(o => o && o.frota);
       state.frota.sort((a,b) => Number(a.frota) - Number(b.frota));
       save();
@@ -1602,6 +1635,7 @@ function confirmarNovosVeiculos() {
 // ─────────────────────────────────────────────────────────────────
 function aplicarEscala(dados, naoCadastrar = new Set(), tipo = null) {
   let novos = 0, atualizados = 0, presos = 0, ignorados = 0;
+  const linhasNaoCadastradasEscala = new Set(); // Opção B: coleta linhas ausentes
   dados.forEach(d => {
     const frota = String(d.carro);
     const isPreso = (d.status && d.status.toLowerCase() === 'preso') || (d.linha && d.linha.toUpperCase() === 'PRESO');
@@ -1647,7 +1681,10 @@ function aplicarEscala(dados, naoCadastrar = new Set(), tipo = null) {
         const item = (state.especiais[e.key]||[]).find(x => String(x.frota) === frota);
         if(item) item.linha = linha;
       });
-      if(!state.linhas.includes(linha)) state.linhas.push(linha);
+      // Opção B: linha não cadastrada → coleta para aviso, NÃO altera catálogo
+      if (!state.linhas.find(l => l.codigo === linha)) {
+        linhasNaoCadastradasEscala.add(linha);
+      }
     }
   });
   state.frota.sort((a,b) => Number(a.frota) - Number(b.frota));
@@ -1683,6 +1720,9 @@ function aplicarEscala(dados, naoCadastrar = new Set(), tipo = null) {
     + atualizados + ' atualizados\n'
     + presos + ' marcados como PRESO';
   if (ignorados > 0) resumo += '\n' + ignorados + ' ignorados (não cadastrados)';
+  if (linhasNaoCadastradasEscala.size > 0) {
+    resumo += `\n\n⚠️ Linhas não cadastradas:\n${[...linhasNaoCadastradasEscala].join(', ')}\nCadastre-as em Frota → Linhas.`;
+  }
   alert(resumo);
 }
 
@@ -2053,10 +2093,158 @@ function exportarExcel(tipo) {
   a.click(); URL.revokeObjectURL(url);
 }
 
+// ─── IMPRIMIR PÁTIO POR SETOR ────────────────────────────────────
+function abrirModalImpressao() {
+  openModal('modal-print-patio');
+}
+
+function imprimirPatio(setor) {
+  closeModal('modal-print-patio');
+
+  const ESPECIAIS_ABR = {
+    coqueiro:'Coq', laje:'Laj', lavador:'Lav',
+    bomba:'Bmb', eletricos:'Ele', fundao:'Fun'
+  };
+
+  // Monta lista de veículos de um setor ('1' = E2, '2' = AR2)
+  function buildSetorData(prefixo) {
+    const veics   = [];
+    const vistos  = new Set(); // evita duplicatas
+
+    // 1. Filas numéricas
+    FILAS_NUM.forEach(f => {
+      (state.filas[f] || []).forEach(o => {
+        if(!String(o.frota).startsWith(prefixo)) return;
+        const cad  = state.frota.find(x => String(x.frota) === String(o.frota));
+        const linha = o.linha || (cad && cad.linha) || '';
+        const hora  = (cad && cad.hora) || '';
+        veics.push({frota: o.frota, fila: 'F' + f + (o.pos ? ' P.' + o.pos : ''), linha, hora, tipo: 'normal'});
+        vistos.add(String(o.frota));
+      });
+    });
+
+    // 2. Posições especiais
+    ESPECIAIS.forEach(e => {
+      (state.especiais[e.key] || []).forEach(o => {
+        if(!String(o.frota).startsWith(prefixo)) return;
+        if(vistos.has(String(o.frota))) return;
+        const cad  = state.frota.find(x => String(x.frota) === String(o.frota));
+        const linha = o.linha || (cad && cad.linha) || '';
+        const hora  = (cad && cad.hora) || '';
+        veics.push({frota: o.frota, fila: ESPECIAIS_ABR[e.key] || e.label, linha, hora, tipo: 'normal'});
+        vistos.add(String(o.frota));
+      });
+    });
+
+    // 3. Manutenção (não aparece em filas/especiais normalmente)
+    (state.manutencao || []).forEach(m => {
+      if(!String(m.frota).startsWith(prefixo)) return;
+      if(vistos.has(String(m.frota))) return;
+      veics.push({frota: m.frota, fila: 'Manut', linha: '', hora: '', tipo: 'normal'});
+      vistos.add(String(m.frota));
+    });
+
+    // 4. Presos — sobrepõe tipo; se não está em nenhuma posição, adiciona
+    state.presos.forEach(p => {
+      if(!String(p.frota).startsWith(prefixo)) return;
+      const ex = veics.find(x => String(x.frota) === String(p.frota));
+      if(ex) { ex.tipo = 'preso'; }
+      else   { veics.push({frota: p.frota, fila: '', linha: '', hora: '', tipo: 'preso'}); }
+    });
+
+    // 5. Amostral — sobrepõe tipo; se não está em nenhuma posição, adiciona
+    state.revisoes.forEach(r => {
+      if(!String(r.frota).startsWith(prefixo)) return;
+      const ex = veics.find(x => String(x.frota) === String(r.frota));
+      if(ex) { ex.tipo = 'amostral'; }
+      else   { veics.push({frota: r.frota, fila: '', linha: '', hora: '', tipo: 'amostral'}); }
+    });
+
+    return veics.sort((a, b) => Number(a.frota) - Number(b.frota));
+  }
+
+  // Monta o HTML de uma folha A4
+  function buildSheetHTML(veics, titulo, cor, comQuebraPagina) {
+    const now  = new Date();
+    const dthr = now.toLocaleDateString('pt-BR') + ' às ' +
+                 now.toLocaleTimeString('pt-BR', {hour:'2-digit', minute:'2-digit'});
+    const presos  = veics.filter(v => v.tipo === 'preso').length;
+    const normais = veics.length - presos;
+    const NCOLS   = 4;
+    const POR     = Math.ceil(veics.length / NCOLS) || 1;
+    const cols    = Array.from({length: NCOLS}, (_, i) => veics.slice(i * POR, (i + 1) * POR));
+
+    const colsHTML = cols.map(col => {
+      const rows = col.map(v => {
+        const cls   = v.tipo === 'preso' ? 'pt-r-preso' : (v.tipo === 'amostral' ? 'pt-r-amostral' : '');
+        // PRESO e AMOSTRAL sempre mostram o status — nunca a posição alocada
+        const fila  = v.tipo === 'preso'    ? 'PRESO' :
+                      v.tipo === 'amostral' ? 'AMOSTRAL' :
+                      (v.fila || '—');
+        // PRESO e AMOSTRAL: sem linha e hora
+        const linha = v.tipo === 'normal' ? (v.linha || '—') : '';
+        const hora  = v.tipo === 'normal' ? (v.hora  || '') : '';
+        return '<tr class="' + cls + '">' +
+          '<td class="pt-col-frota">' + v.frota + '</td>' +
+          '<td class="pt-col-fila">'  + fila    + '</td>' +
+          '<td class="pt-col-linha">' + linha   + '</td>' +
+          '<td class="pt-col-hora">'  + hora    + '</td></tr>';
+      }).join('');
+      return '<table class="pt-tbl">' +
+        '<thead><tr>' +
+          '<th class="pt-col-frota">Veíc.</th>' +
+          '<th class="pt-col-fila">Fila/Pos.</th>' +
+          '<th class="pt-col-linha">Linha</th>' +
+          '<th class="pt-col-hora">Hora</th>' +
+        '</tr></thead>' +
+        '<tbody>' + rows + '</tbody></table>';
+    }).join('');
+
+    const pbStyle = comQuebraPagina ? 'page-break-after:always;' : '';
+    return '<div class="pt-sheet" style="' + pbStyle + '">' +
+      '<div class="pt-sheet-header">' +
+        '<div class="pt-sheet-empresa">Sambaíba Transportes Urbanos — Gestão de Pátio</div>' +
+        '<div class="pt-sheet-titulo ' + cor + '">' + titulo + '</div>' +
+        '<div class="pt-sheet-meta">Gerado em ' + dthr +
+          ' &nbsp;·&nbsp; Total: ' + veics.length + ' veículos' +
+          ' &nbsp;·&nbsp; Alocados: ' + normais +
+          ' &nbsp;·&nbsp; <span class="pt-presos-badge">Presos: ' + presos + '</span></div>' +
+      '</div>' +
+      '<div class="pt-grid">' + colsHTML + '</div>' +
+      '<div class="pt-sheet-footer">' +
+        '<span class="pt-leg-preso">&#9632; PRESO — não sai</span>' +
+        '<span class="pt-leg-amostral">&#9632; Amostral SPTRANS</span>' +
+        '<span>Coq=Coqueiro &middot; Laj=Laje &middot; Lav=Lavador &middot; Bmb=Bomba &middot; Ele=Elétricos &middot; Fun=Fundão &middot; Manut=Manutenção</span>' +
+      '</div>' +
+    '</div>';
+  }
+
+  let html = '';
+  if(setor === 'e2') {
+    html = buildSheetHTML(buildSetorData('1'), 'PLANTÃO E2 — CENTRO',  'pt-titulo-e2',  false);
+  } else if(setor === 'ar2') {
+    html = buildSheetHTML(buildSetorData('2'), 'PLANTÃO AR2 — BAIRRO', 'pt-titulo-ar2', false);
+  } else {
+    // ambos: E2 com quebra de página, AR2 sem
+    html = buildSheetHTML(buildSetorData('1'), 'PLANTÃO E2 — CENTRO',  'pt-titulo-e2',  true) +
+           buildSheetHTML(buildSetorData('2'), 'PLANTÃO AR2 — BAIRRO', 'pt-titulo-ar2', false);
+  }
+
+  document.getElementById('print-content').innerHTML = html;
+
+  // Adiciona classe para ocultar o cabeçalho genérico do print-area
+  document.body.classList.add('printing-patio');
+  window.addEventListener('afterprint', function() {
+    document.body.classList.remove('printing-patio');
+  }, {once: true});
+
+  window.print();
+}
+
 // ─── IMPRIMIR POR MÓDULO ─────────────────────────────────────────
 function imprimirRelatorio(tipo) {
-  // Reutiliza imprimirLista para pátio, gera HTML para os outros
-  if(tipo === 'patio') { imprimirLista(); return; }
+  // Pátio agora usa modal de seleção de setor
+  if(tipo === 'patio') { abrirModalImpressao(); return; }
 
   const now = new Date();
   const meta = 'Gerado em ' + now.toLocaleDateString('pt-BR') + ' às ' + now.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'});
@@ -2121,4 +2309,536 @@ function resetarSistema(){
   const senha = prompt('Digite a senha de administrador para continuar:');
   if(senha === null) return;
   if(senha !== '0000') { alert('Senha incorreta. Operação cancelada.'); return; }
-  try { localStorage
+  try { localStorage.removeItem('sambaiba_v2'); } catch(e){}
+  state = JSON.parse(JSON.stringify(EXEMPLO));
+  FILAS_NUM.forEach(f=>{if(!state.filas[f])state.filas[f]=[];});
+  ESPECIAIS.forEach(e=>{if(!state.especiais[e.key])state.especiais[e.key]=[];});
+  save();
+  renderAll();
+  alert('Dados apagados com sucesso!');
+}
+
+// ─────────────────────────────────────────────────────────────────
+// IMPORTAÇÃO EXCEL COMPLETO (E2 + AR2 + MANOBRA/PRESO)
+// ─────────────────────────────────────────────────────────────────
+
+// Dados temporários da prévia — só aplicados se o usuário confirmar
+let _escalaCompletaTemp = null;
+
+function previewEscalaCompleta(input) {
+  const file = input.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = function(e) {
+    try {
+      const data = new Uint8Array(e.target.result);
+      const wb = XLSX.read(data, {type:'array', cellDates:true});
+
+      // Helper: formata hora (Date ou string)
+      function fmtHora(v) {
+        if (!v && v !== 0) return '';
+        if (typeof v === 'string') {
+          const u = v.trim().toUpperCase();
+          if (u === 'PRESO' || u === 'EVENTO') return u;
+          return v.trim();
+        }
+        if (v instanceof Date) {
+          const h = String(v.getHours()).padStart(2,'0');
+          const m = String(v.getMinutes()).padStart(2,'0');
+          return `${h}:${m}`;
+        }
+        return String(v).trim();
+      }
+
+      // Helper: valida carro (3-4 dígitos)
+      function valCarro(v) {
+        if (!v) return null;
+        const s = String(Math.round(Number(v)));
+        return /^\d{3,4}$/.test(s) ? s : null;
+      }
+
+      // Detecta tipo da aba pelo conteúdo das primeiras linhas
+      function detectarTipoAba(ws) {
+        const rows = XLSX.utils.sheet_to_json(ws, {header:1, defval:'', raw:false});
+        const cabecalho = rows.slice(0,3).flat().join(' ').toUpperCase();
+        if (cabecalho.includes('E2')) return 'e2';
+        if (cabecalho.includes('AR2')) return 'ar2';
+        if (cabecalho.includes('MANOBRA') || cabecalho.includes('PRESO')) return 'manobra';
+        if (cabecalho.includes('CONFIGURA')) return 'configuracao';
+        return null;
+      }
+
+      // Lê aba de plantão (E2 ou AR2): 3 grupos (cols 0,1,2 / 6,7,8 / 12,13,14)
+      function lerPlantao(ws) {
+        const rows = XLSX.utils.sheet_to_json(ws, {header:1, defval:'', cellDates:true});
+        const grupos = [[0,1,2],[6,7,8],[12,13,14]];
+        const dados = [], presos = [], amostral = [];
+        rows.slice(3).forEach(row => {
+          grupos.forEach(([ci,hi,li]) => {
+            const carro = valCarro(row[ci]);
+            if (!carro) return;
+            const hora = fmtHora(row[hi]);
+            // Status especiais — nunca tratados como hora/linha
+            if (hora === 'PRESO')    { presos.push(carro);   return; }
+            if (hora === 'AMOSTRAL') { amostral.push(carro); return; }
+            if (!hora || hora === 'TABELAS' || hora === 'EVENTO') return;
+            const linha = String(row[li] || '').trim();
+            dados.push({carro, hora, linha});
+          });
+        });
+        return {dados, presos, amostral};
+      }
+
+      // Lê aba de manobra/preso: 6 grupos de (carro, hora) — cols 0,1 / 3,4 / 6,7 / 9,10 / 12,13 / 15,16
+      function lerManobra(ws) {
+        const rows = XLSX.utils.sheet_to_json(ws, {header:1, defval:'', cellDates:true});
+        const grupos = [[0,1],[3,4],[6,7],[9,10],[12,13],[15,16]];
+        const manobra = [], presos = [], amostral = [];
+        rows.slice(1).forEach(row => {
+          grupos.forEach(([ci,hi]) => {
+            const carro = valCarro(row[ci]);
+            if (!carro) return;
+            const hora = fmtHora(row[hi]);
+            if (hora === 'PRESO')    { presos.push(carro);   return; }
+            if (hora === 'AMOSTRAL') { amostral.push(carro); return; }
+            if (hora && hora !== 'EVENTO') manobra.push({carro, hora, linha:''});
+          });
+        });
+        return {manobra, presos, amostral};
+      }
+
+      // Lê aba de configuração: 4 grupos de (carro, hora, linha) — cols 0,1,2 / 4,5,6 / ...
+      // Detecta grupos pelo cabeçalho (CARRO = início de grupo)
+      function lerConfiguracao(ws) {
+        const rows = XLSX.utils.sheet_to_json(ws, {header:1, defval:'', cellDates:true});
+        // Encontra colunas CARRO no cabeçalho
+        const header = rows[0] || [];
+        const grupos = [];
+        header.forEach((h,i) => {
+          if (String(h).toUpperCase().trim() === 'CARRO') {
+            grupos.push([i, i+1, i+2]); // CARRO, HORA, LINHA
+          }
+        });
+        if (!grupos.length) grupos.push([0,1,2],[4,5,6],[8,9,10],[12,13,14]);
+        const e2=[], ar2=[], manobra=[], presos=[], amostral=[];
+        rows.slice(1).forEach(row => {
+          grupos.forEach(([ci,hi,li]) => {
+            const carro = valCarro(row[ci]);
+            if (!carro) return;
+            const hora = fmtHora(row[hi]);
+            if (hora === 'PRESO')    { presos.push(carro);   return; }
+            if (hora === 'AMOSTRAL') { amostral.push(carro); return; }
+            if (!hora || hora === 'EVENTO') return;
+            const linha = String(row[li] || '').trim();
+            const item = {carro, hora, linha};
+            if (carro.startsWith('1')) e2.push(item);
+            else if (carro.startsWith('2')) ar2.push(item);
+          });
+        });
+        return {e2, ar2, manobra, presos, amostral};
+      }
+
+      // Processa todas as abas
+      const resultado = {e2:[], ar2:[], manobra:[], presos:[], amostral:[], abas:[], avisos:[]};
+
+      wb.SheetNames.forEach(nome => {
+        const ws = wb.Sheets[nome];
+        const tipo = detectarTipoAba(ws);
+        resultado.abas.push({nome, tipo});
+
+        if (tipo === 'e2') {
+          const {dados, presos, amostral} = lerPlantao(ws);
+          resultado.e2      = resultado.e2.concat(dados);
+          resultado.presos  = resultado.presos.concat(presos);
+          resultado.amostral = resultado.amostral.concat(amostral);
+        } else if (tipo === 'ar2') {
+          const {dados, presos, amostral} = lerPlantao(ws);
+          resultado.ar2     = resultado.ar2.concat(dados);
+          resultado.presos  = resultado.presos.concat(presos);
+          resultado.amostral = resultado.amostral.concat(amostral);
+        } else if (tipo === 'manobra') {
+          const {manobra, presos, amostral} = lerManobra(ws);
+          resultado.manobra  = resultado.manobra.concat(manobra);
+          resultado.presos   = resultado.presos.concat(presos);
+          resultado.amostral = resultado.amostral.concat(amostral);
+        } else if (tipo === 'configuracao') {
+          const conf = lerConfiguracao(ws);
+          // Configuração só usa se não tiver E2/AR2 separados
+          resultado._confE2  = conf.e2;
+          resultado._confAR2 = conf.ar2;
+          if (!resultado.manobra.length)  resultado.manobra  = conf.manobra;
+          if (!resultado.presos.length)   resultado.presos   = conf.presos;
+          if (!resultado.amostral.length) resultado.amostral = conf.amostral || [];
+        } else {
+          resultado.avisos.push(`Aba "${nome}" não reconhecida — ignorada`);
+        }
+      });
+
+      // Se não achou E2/AR2 mas tem configuração, usa ela
+      if (!resultado.e2.length && resultado._confE2)  resultado.e2  = resultado._confE2;
+      if (!resultado.ar2.length && resultado._confAR2) resultado.ar2 = resultado._confAR2;
+
+      // Remove duplicatas de presos e amostral
+      resultado.presos   = [...new Set(resultado.presos)];
+      resultado.amostral = [...new Set(resultado.amostral)];
+
+      if (!resultado.e2.length && !resultado.ar2.length && !resultado.manobra.length) {
+        alert('Nenhum dado reconhecido no arquivo. Verifique se as abas têm os cabeçalhos corretos (E2, AR2, Manobra).');
+        input.value = '';
+        return;
+      }
+
+      // Guarda temporariamente
+      _escalaCompletaTemp = resultado;
+
+      // Monta prévia
+      let statsHtml = `
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">
+          <div style="background:var(--surface2);border-radius:8px;padding:12px;text-align:center">
+            <div style="font-size:22px;font-weight:800;color:var(--primary)">${resultado.e2.length}</div>
+            <div style="font-size:11px;color:var(--muted)">veículos E2</div>
+          </div>
+          <div style="background:var(--surface2);border-radius:8px;padding:12px;text-align:center">
+            <div style="font-size:22px;font-weight:800;color:#3b82f6">${resultado.ar2.length}</div>
+            <div style="font-size:11px;color:var(--muted)">veículos AR2</div>
+          </div>
+          <div style="background:var(--surface2);border-radius:8px;padding:12px;text-align:center">
+            <div style="font-size:22px;font-weight:800;color:#f59e0b">${resultado.manobra.length}</div>
+            <div style="font-size:11px;color:var(--muted)">veículos Manobra</div>
+          </div>
+          <div style="background:var(--surface2);border-radius:8px;padding:12px;text-align:center">
+            <div style="font-size:22px;font-weight:800;color:#ef4444">${resultado.presos.length}</div>
+            <div style="font-size:11px;color:var(--muted)">Presos</div>
+          </div>
+        </div>
+        <div style="font-size:11px;color:var(--muted)">
+          Abas lidas: ${resultado.abas.map(a => `<b>${a.nome}</b> (${a.tipo || '?'})`).join(', ')}
+        </div>`;
+
+      // Amostra E2
+      let amostrasHtml = '';
+      if (resultado.e2.length) {
+        amostrasHtml += `<div style="margin-bottom:6px"><b>Amostra E2:</b> ` +
+          resultado.e2.slice(0,4).map(d=>`${d.carro} ${d.hora} ${d.linha}`).join(' · ') + `</div>`;
+      }
+      if (resultado.ar2.length) {
+        amostrasHtml += `<div style="margin-bottom:6px"><b>Amostra AR2:</b> ` +
+          resultado.ar2.slice(0,4).map(d=>`${d.carro} ${d.hora} ${d.linha}`).join(' · ') + `</div>`;
+      }
+      if (resultado.presos.length) {
+        amostrasHtml += `<div><b>Presos (primeiros):</b> ` +
+          resultado.presos.slice(0,6).join(', ') + (resultado.presos.length>6?' ...':'') + `</div>`;
+      }
+
+      let avisosHtml = '';
+      if (resultado.avisos.length) {
+        avisosHtml = resultado.avisos.map(a =>
+          `<div style="font-size:11px;color:#f59e0b;background:var(--surface2);border-radius:6px;padding:6px 10px;margin-bottom:4px">⚠️ ${a}</div>`
+        ).join('');
+      }
+
+      document.getElementById('preview-completo-stats').innerHTML = statsHtml;
+      document.getElementById('preview-completo-amostras').innerHTML = amostrasHtml;
+      document.getElementById('preview-completo-avisos').innerHTML = avisosHtml;
+
+      closeModal('modal-escala');
+      openModal('modal-preview-completo');
+
+    } catch(err) {
+      alert('Erro ao ler o arquivo: ' + err.message);
+    }
+    input.value = '';
+  };
+  reader.readAsArrayBuffer(file);
+}
+
+function confirmarEscalaCompleta() {
+  if (!_escalaCompletaTemp) { alert('Dados da prévia não encontrados. Tente importar novamente.'); return; }
+  try {
+    const r = _escalaCompletaTemp;
+
+    // Garante que state.escala existe (segurança)
+    if (!state.escala) state.escala = { tipo:null, data:'', importadoEm:null, manobra:[], e2:[], ar2:[] };
+    if (!state.escala.manobra) state.escala.manobra = [];
+    if (!state.escala.e2) state.escala.e2 = [];
+    if (!state.escala.ar2) state.escala.ar2 = [];
+
+    // 1. Aplica escala
+    state.escala.tipo        = 'plantao';
+    state.escala.manobra     = r.manobra;
+    state.escala.e2          = parsearPlantao(r.e2);
+    state.escala.ar2         = parsearPlantao(r.ar2);
+    state.escala.data        = new Date().toLocaleDateString('pt-BR');
+    state.escala.importadoEm = new Date().toISOString();
+
+    // 2. Adiciona presos sem duplicar (state.presos é array de objetos {frota, motivo, hora})
+    const horaAgora = new Date().toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'});
+    r.presos.forEach(carro => {
+      const c = String(carro);
+      const jaExiste = state.presos.find(p => String(p.frota || p) === c);
+      if (!jaExiste) {
+        state.presos.push({ frota: c, motivo: 'Importado da escala', hora: horaAgora });
+      }
+    });
+
+    // 2b. Adiciona amostral (revisoes) sem duplicar
+    (r.amostral || []).forEach(carro => {
+      const c = String(carro);
+      const jaExiste = state.revisoes.find(p => String(p.frota || p) === c);
+      if (!jaExiste) {
+        state.revisoes.push({ frota: c, tipo: 'AMOSTRAL', desc: 'Importado da escala' });
+      }
+    });
+
+    // 3. Atualiza frota: hora, linha, e adiciona novos veículos
+    // Monta lista plana de todos os veículos com seus dados
+    const todosDados = [
+      ...r.e2.map(d => ({ frota: String(d.carro), hora: d.hora, linha: d.linha || '' })),
+      ...r.ar2.map(d => ({ frota: String(d.carro), hora: d.hora, linha: d.linha || '' })),
+      ...r.manobra.map(d => ({ frota: String(d.carro), hora: d.hora, linha: '' })),
+      ...r.presos.map(c =>   ({ frota: String(c), hora: '', linha: '' })),
+      ...(r.amostral||[]).map(c => ({ frota: String(c), hora: '', linha: '' }))
+    ];
+
+    let carrosNovos = 0;
+    const linhasNaoCadastradas = new Set(); // Opção B: coleta linhas ausentes no catálogo
+    todosDados.forEach(d => {
+      if (!d.frota || !/^\d{3,4}$/.test(d.frota)) return;
+      const existente = state.frota.find(o => String(o.frota) === d.frota);
+      if (!existente) {
+        state.frota.push({ frota: d.frota, linha: d.linha, hora: d.hora, status: '' });
+        carrosNovos++;
+      } else {
+        // Atualiza hora sempre; atualiza linha só se tiver valor
+        existente.hora = d.hora;
+        if (d.linha) existente.linha = d.linha;
+      }
+      // Atualiza linha nos chips das filas onde o carro já está alocado
+      if (d.linha) {
+        FILAS_NUM.forEach(f => {
+          const item = (state.filas[f]||[]).find(x => String(x.frota) === d.frota);
+          if (item) item.linha = d.linha;
+        });
+        ESPECIAIS.forEach(e => {
+          const item = (state.especiais[e.key]||[]).find(x => String(x.frota) === d.frota);
+          if (item) item.linha = d.linha;
+        });
+        // Opção B: linha não cadastrada → coleta para aviso, NÃO adiciona ao catálogo
+        if (!state.linhas.find(l => l.codigo === d.linha)) {
+          linhasNaoCadastradas.add(d.linha);
+        }
+      }
+    });
+    state.frota.sort((a,b) => Number(a.frota) - Number(b.frota));
+
+    _escalaCompletaTemp = null;
+    closeModal('modal-preview-completo');
+    save();
+    renderAll();
+    let msgFinal = `✔ Escala importada!\nE2: ${r.e2.length} veículos\nAR2: ${r.ar2.length} veículos\nManobra: ${r.manobra.length} veículos\nPresos: ${r.presos.length}\nAmostral: ${(r.amostral||[]).length}\nAdicionados à frota: ${carrosNovos}`;
+    if (linhasNaoCadastradas.size > 0) {
+      msgFinal += `\n\n⚠️ Linhas não cadastradas (chips sem linha):\n${[...linhasNaoCadastradas].join(', ')}\nCadastre-as em Frota → Linhas.`;
+    }
+    alert(msgFinal);
+  } catch(err) {
+    alert('Erro ao confirmar importação: ' + err.message + '\n\nAbra o console (F12) para mais detalhes.');
+    console.error('confirmarEscalaCompleta erro:', err);
+  }
+}
+
+function cancelarEscalaCompleta() {
+  _escalaCompletaTemp = null;
+  closeModal('modal-preview-completo');
+}
+
+// ─── IMPORTAR / EXPORTAR ALOCAÇÕES EXCEL ────────────────────────
+
+let _alocacaoTemp = null;
+
+function exportarAlocacao() {
+  const linhas = ['"FILA";"CARRO"'];
+  FILAS_NUM.forEach(f => {
+    (state.filas[f]||[]).sort((a,b)=>(a.pos||0)-(b.pos||0)).forEach(o => {
+      linhas.push(`"Fila ${f}";"${o.frota}"`);
+    });
+  });
+  ESPECIAIS.forEach(e => {
+    (state.especiais[e.key]||[]).sort((a,b)=>(a.pos||0)-(b.pos||0)).forEach(o => {
+      linhas.push(`"${e.label}";"${o.frota}"`);
+    });
+  });
+  const bom = '\uFEFF';
+  const csv = bom + linhas.join('\r\n');
+  const blob = new Blob([csv], {type:'text/csv;charset=utf-8'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'Alocacao_' + new Date().toLocaleDateString('pt-BR').replace(/\//g,'-') + '.csv';
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+function _parsearFilaAlocacao(valor) {
+  if (!valor && valor !== 0) return null;
+  const v = String(valor).trim()
+    .normalize('NFD').replace(/[\u0300-\u036f]/g,'')
+    .toLowerCase();
+  // "fila X" ou só número (ex: "fila 3", "Fila 3", "3")
+  const mFila = v.match(/^(?:fila\s*)?(\d+)$/);
+  if (mFila) {
+    const num = mFila[1];
+    if (FILAS_NUM.includes(num)) return { tipo:'fila', key:num };
+    return null;
+  }
+  // Posições especiais — aceita label ou key, com ou sem acento
+  const espMap = {
+    'coqueiro':'coqueiro', 'laje':'laje', 'lavador':'lavador',
+    'bomba':'bomba', 'eletricos':'eletricos', 'electricos':'eletricos',
+    'fundao':'fundao'
+  };
+  if (espMap[v]) return { tipo:'especial', key:espMap[v] };
+  return null;
+}
+
+function previewAlocacaoExcel(input) {
+  const file = input.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = function(e) {
+    try {
+      const data = new Uint8Array(e.target.result);
+      const wb = XLSX.read(data, {type:'array'});
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      const rows = XLSX.utils.sheet_to_json(ws, {header:1, defval:''});
+      if (!rows.length) { alert('Planilha vazia.'); input.value=''; return; }
+
+      const dados = rows.slice(1).filter(r => r[0]!=='' || r[1]!=='');
+      const resultado = { moves:[], filasInvalidas:[], carrosNovos:[], porFila:{} };
+      let filaAtual = null;
+      const vistos = new Set();
+
+      dados.forEach(row => {
+        const filaCell = String(row[0]||'').trim();
+        const carroRaw = row[1];
+        // SheetJS lê frotas numéricas como number — converte para string
+        const frota = String(carroRaw||'').trim().replace(/\.0$/, '');
+        if (filaCell) filaAtual = filaCell; // carry-forward p/ células mescladas
+        if (!filaAtual || !frota) return;
+
+        const parsed = _parsearFilaAlocacao(filaAtual);
+        if (!parsed) {
+          if (!resultado.filasInvalidas.includes(filaAtual)) resultado.filasInvalidas.push(filaAtual);
+          return;
+        }
+        if (vistos.has(frota)) return; // primeira ocorrência vence
+        vistos.add(frota);
+
+        resultado.moves.push({...parsed, frota});
+        resultado.porFila[parsed.key] = (resultado.porFila[parsed.key]||0) + 1;
+        if (!state.frota.find(o => String(o.frota)===frota)) resultado.carrosNovos.push(frota);
+      });
+
+      // Filas inválidas → bloqueia com lista de nomes válidos
+      if (resultado.filasInvalidas.length) {
+        const validas = FILAS_NUM.map(f=>'Fila '+f).concat(ESPECIAIS.map(e=>e.label)).join(', ');
+        alert('Importação bloqueada. Filas não reconhecidas:\n' +
+          resultado.filasInvalidas.join(', ') +
+          '\n\nNomes válidos:\n' + validas);
+        input.value=''; return;
+      }
+      if (!resultado.moves.length) { alert('Nenhuma alocação encontrada na planilha.'); input.value=''; return; }
+
+      _alocacaoTemp = resultado;
+
+      // Monta preview
+      const statsHtml = `
+        <div class="preview-stat"><div class="preview-num">${resultado.moves.length}</div><div class="preview-lbl">Carros</div></div>
+        <div class="preview-stat"><div class="preview-num">${Object.keys(resultado.porFila).length}</div><div class="preview-lbl">Filas</div></div>
+        <div class="preview-stat"><div class="preview-num">${resultado.carrosNovos.length}</div><div class="preview-lbl">Novos</div></div>`;
+
+      const filaLinhas = Object.entries(resultado.porFila).map(([key,cnt]) => {
+        const esp = ESPECIAIS.find(e=>e.key===key);
+        return (esp ? esp.label : 'Fila '+key) + ': ' + cnt;
+      });
+      let detalhesHtml = `<div style="font-size:12px;color:var(--muted);margin-bottom:8px">${filaLinhas.join(' · ')}</div>`;
+      if (resultado.carrosNovos.length) {
+        detalhesHtml += `<div style="font-size:12px;color:#f59e0b">⚠️ Serão adicionados à frota: ${resultado.carrosNovos.join(', ')}</div>`;
+      }
+
+      document.getElementById('preview-alocacao-stats').innerHTML = statsHtml;
+      document.getElementById('preview-alocacao-detalhes').innerHTML = detalhesHtml;
+      openModal('modal-preview-alocacao');
+
+    } catch(err) {
+      alert('Erro ao ler o arquivo: ' + err.message);
+    }
+    input.value = '';
+  };
+  reader.readAsArrayBuffer(file);
+}
+
+function confirmarAlocacaoExcel() {
+  if (!_alocacaoTemp) { alert('Dados não encontrados. Tente importar novamente.'); return; }
+  try {
+    const r = _alocacaoTemp;
+    const filasAfetadas = new Set();
+
+    // 1. Adiciona carros novos à frota
+    r.carrosNovos.forEach(frota => {
+      if (!state.frota.find(o => String(o.frota)===frota))
+        state.frota.push({frota});
+    });
+    state.frota.sort((a,b) => Number(a.frota)-Number(b.frota));
+
+    // 2. Remove todos os carros do import de suas posições atuais
+    r.moves.forEach(({frota}) => {
+      FILAS_NUM.forEach(f => { state.filas[f]=state.filas[f].filter(x=>String(x.frota)!==frota); });
+      ESPECIAIS.forEach(e => { state.especiais[e.key]=state.especiais[e.key].filter(x=>String(x.frota)!==frota); });
+    });
+
+    // 3. Agrupa por fila mantendo ordem do Excel
+    const porFila = {};
+    r.moves.forEach(({tipo,key,frota}) => {
+      if (!porFila[key]) porFila[key] = {tipo, carros:[]};
+      porFila[key].carros.push(frota);
+      filasAfetadas.add(key);
+    });
+
+    // 4. Para cada fila: carros do import em ordem → append dos que já estavam
+    Object.entries(porFila).forEach(([key,{tipo,carros}]) => {
+      const esp = ESPECIAIS.find(e=>e.key===key);
+      // Snapshot dos carros que sobraram (não estavam no import)
+      const restantes = esp
+        ? [...(state.especiais[key]||[])]
+        : [...(state.filas[key]||[])];
+
+      const novaLista = [];
+      carros.forEach((frota,i) => {
+        const cad = state.frota.find(o=>String(o.frota)===frota);
+        novaLista.push({frota, linha:(cad&&cad.linha)||'', pos:i+1});
+      });
+      restantes.forEach((item,i) => {
+        novaLista.push({...item, pos:carros.length+i+1});
+      });
+
+      if (esp) state.especiais[key] = novaLista;
+      else state.filas[key] = novaLista;
+    });
+
+    _alocacaoTemp = null;
+    closeModal('modal-preview-alocacao');
+    save(); renderAll();
+    alert(`✔ Alocação importada!\n${r.moves.length} carros posicionados.${r.carrosNovos.length ? '\n'+r.carrosNovos.length+' carros adicionados à frota.' : ''}`);
+
+  } catch(err) {
+    alert('Erro ao confirmar alocação: ' + err.message);
+    console.error('confirmarAlocacaoExcel erro:', err);
+  }
+}
+
+function cancelarAlocacaoExcel() {
+  _alocacaoTemp = null;
+  closeModal('modal-preview-alocacao');
+}
+
+initState();renderAll();
