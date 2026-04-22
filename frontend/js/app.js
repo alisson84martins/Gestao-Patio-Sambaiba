@@ -2177,7 +2177,10 @@ function imprimirPatio(setor) {
     const colsHTML = cols.map(col => {
       const rows = col.map(v => {
         const cls   = v.tipo === 'preso' ? 'pt-r-preso' : (v.tipo === 'amostral' ? 'pt-r-amostral' : '');
-        const fila  = v.fila || (v.tipo === 'preso' ? 'PRESO' : v.tipo === 'amostral' ? 'AMOSTRAL' : '—');
+        // PRESO e AMOSTRAL sempre mostram o status — nunca a posição alocada
+        const fila  = v.tipo === 'preso'    ? 'PRESO' :
+                      v.tipo === 'amostral' ? 'AMOSTRAL' :
+                      (v.fila || '—');
         // PRESO e AMOSTRAL: sem linha e hora
         const linha = v.tipo === 'normal' ? (v.linha || '—') : '';
         const hora  = v.tipo === 'normal' ? (v.hora  || '') : '';
