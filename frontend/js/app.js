@@ -2369,35 +2369,39 @@ function previewEscalaCompleta(input) {
       function lerPlantao(ws) {
         const rows = XLSX.utils.sheet_to_json(ws, {header:1, defval:'', cellDates:true});
         const grupos = [[0,1,2],[6,7,8],[12,13,14]];
-        const resultado = [];
+        const dados = [], presos = [], amostral = [];
         rows.slice(3).forEach(row => {
           grupos.forEach(([ci,hi,li]) => {
             const carro = valCarro(row[ci]);
             if (!carro) return;
             const hora = fmtHora(row[hi]);
+            // Status especiais — nunca tratados como hora/linha
+            if (hora === 'PRESO')    { presos.push(carro);   return; }
+            if (hora === 'AMOSTRAL') { amostral.push(carro); return; }
             if (!hora || hora === 'TABELAS' || hora === 'EVENTO') return;
             const linha = String(row[li] || '').trim();
-            resultado.push({carro, hora, linha});
+            dados.push({carro, hora, linha});
           });
         });
-        return resultado;
+        return {dados, presos, amostral};
       }
 
       // Lê aba de manobra/preso: 6 grupos de (carro, hora) — cols 0,1 / 3,4 / 6,7 / 9,10 / 12,13 / 15,16
       function lerManobra(ws) {
         const rows = XLSX.utils.sheet_to_json(ws, {header:1, defval:'', cellDates:true});
         const grupos = [[0,1],[3,4],[6,7],[9,10],[12,13],[15,16]];
-        const manobra = [], presos = [];
+        const manobra = [], presos = [], amostral = [];
         rows.slice(1).forEach(row => {
           grupos.forEach(([ci,hi]) => {
             const carro = valCarro(row[ci]);
             if (!carro) return;
             const hora = fmtHora(row[hi]);
-            if (hora === 'PRESO') { presos.push(carro); return; }
+            if (hora === 'PRESO')    { presos.push(carro);   return; }
+            if (hora === 'AMOSTRAL') { amostral.push(carro); return; }
             if (hora && hora !== 'EVENTO') manobra.push({carro, hora, linha:''});
           });
         });
-        return {manobra, presos};
+        return {manobra, presos, amostral};
       }
 
       // Lê aba de configuração: 4 grupos de (carro, hora, linha) — cols 0,1,2 / 4,5,6 / ...
@@ -2413,13 +2417,14 @@ function previewEscalaCompleta(input) {
           }
         });
         if (!grupos.length) grupos.push([0,1,2],[4,5,6],[8,9,10],[12,13,14]);
-        const e2=[], ar2=[], manobra=[], presos=[];
+        const e2=[], ar2=[], manobra=[], presos=[], amostral=[];
         rows.slice(1).forEach(row => {
           grupos.forEach(([ci,hi,li]) => {
             const carro = valCarro(row[ci]);
             if (!carro) return;
             const hora = fmtHora(row[hi]);
-            if (hora === 'PRESO') { presos.push(carro); return; }
+            if (hora === 'PRESO')    { presos.push(carro);   return; }
+            if (hora === 'AMOSTRAL') { amostral.push(carro); return; }
             if (!hora || hora === 'EVENTO') return;
             const linha = String(row[li] || '').trim();
             const item = {carro, hora, linha};
@@ -2427,11 +2432,11 @@ function previewEscalaCompleta(input) {
             else if (carro.startsWith('2')) ar2.push(item);
           });
         });
-        return {e2, ar2, manobra, presos};
+        return {e2, ar2, manobra, presos, amostral};
       }
 
       // Processa todas as abas
-      const resultado = {e2:[], ar2:[], manobra:[], presos:[], abas:[], avisos:[]};
+      const resultado = {e2:[], ar2:[], manobra:[], presos:[], amostral:[], abas:[], avisos:[]};
 
       wb.SheetNames.forEach(nome => {
         const ws = wb.Sheets[nome];
@@ -2439,20 +2444,28 @@ function previewEscalaCompleta(input) {
         resultado.abas.push({nome, tipo});
 
         if (tipo === 'e2') {
-          resultado.e2 = resultado.e2.concat(lerPlantao(ws));
-        } else if (tipo === 'ar2') {
-          resultado.ar2 = resultado.ar2.concat(lerPlantao(ws));
-        } else if (tipo === 'manobra') {
-          const {manobra, presos} = lerManobra(ws);
-          resultado.manobra = resultado.manobra.concat(manobra);
+          const {dados, presos, amostral} = lerPlantao(ws);
+          resultado.e2      = resultado.e2.concat(dados);
           resultado.presos  = resultado.presos.concat(presos);
+          resultado.amostral = resultado.amostral.concat(amostral);
+        } else if (tipo === 'ar2') {
+          const {dados, presos, amostral} = lerPlantao(ws);
+          resultado.ar2     = resultado.ar2.concat(dados);
+          resultado.presos  = resultado.presos.concat(presos);
+          resultado.amostral = resultado.amostral.concat(amostral);
+        } else if (tipo === 'manobra') {
+          const {manobra, presos, amostral} = lerManobra(ws);
+          resultado.manobra  = resultado.manobra.concat(manobra);
+          resultado.presos   = resultado.presos.concat(presos);
+          resultado.amostral = resultado.amostral.concat(amostral);
         } else if (tipo === 'configuracao') {
           const conf = lerConfiguracao(ws);
           // Configuração só usa se não tiver E2/AR2 separados
           resultado._confE2  = conf.e2;
           resultado._confAR2 = conf.ar2;
-          if (!resultado.manobra.length) resultado.manobra = conf.manobra;
-          if (!resultado.presos.length)  resultado.presos  = conf.presos;
+          if (!resultado.manobra.length)  resultado.manobra  = conf.manobra;
+          if (!resultado.presos.length)   resultado.presos   = conf.presos;
+          if (!resultado.amostral.length) resultado.amostral = conf.amostral || [];
         } else {
           resultado.avisos.push(`Aba "${nome}" não reconhecida — ignorada`);
         }
@@ -2462,8 +2475,9 @@ function previewEscalaCompleta(input) {
       if (!resultado.e2.length && resultado._confE2)  resultado.e2  = resultado._confE2;
       if (!resultado.ar2.length && resultado._confAR2) resultado.ar2 = resultado._confAR2;
 
-      // Remove duplicatas de presos
-      resultado.presos = [...new Set(resultado.presos)];
+      // Remove duplicatas de presos e amostral
+      resultado.presos   = [...new Set(resultado.presos)];
+      resultado.amostral = [...new Set(resultado.amostral)];
 
       if (!resultado.e2.length && !resultado.ar2.length && !resultado.manobra.length) {
         alert('Nenhum dado reconhecido no arquivo. Verifique se as abas têm os cabeçalhos corretos (E2, AR2, Manobra).');
@@ -2564,13 +2578,23 @@ function confirmarEscalaCompleta() {
       }
     });
 
+    // 2b. Adiciona amostral (revisoes) sem duplicar
+    (r.amostral || []).forEach(carro => {
+      const c = String(carro);
+      const jaExiste = state.revisoes.find(p => String(p.frota || p) === c);
+      if (!jaExiste) {
+        state.revisoes.push({ frota: c, tipo: 'AMOSTRAL', desc: 'Importado da escala' });
+      }
+    });
+
     // 3. Atualiza frota: hora, linha, e adiciona novos veículos
     // Monta lista plana de todos os veículos com seus dados
     const todosDados = [
       ...r.e2.map(d => ({ frota: String(d.carro), hora: d.hora, linha: d.linha || '' })),
       ...r.ar2.map(d => ({ frota: String(d.carro), hora: d.hora, linha: d.linha || '' })),
       ...r.manobra.map(d => ({ frota: String(d.carro), hora: d.hora, linha: '' })),
-      ...r.presos.map(c => ({ frota: String(c), hora: '', linha: '' }))
+      ...r.presos.map(c =>   ({ frota: String(c), hora: '', linha: '' })),
+      ...(r.amostral||[]).map(c => ({ frota: String(c), hora: '', linha: '' }))
     ];
 
     let carrosNovos = 0;
@@ -2608,7 +2632,7 @@ function confirmarEscalaCompleta() {
     closeModal('modal-preview-completo');
     save();
     renderAll();
-    let msgFinal = `✔ Escala importada!\nE2: ${r.e2.length} veículos\nAR2: ${r.ar2.length} veículos\nManobra: ${r.manobra.length} veículos\nPresos: ${r.presos.length}\nAdicionados à frota: ${carrosNovos}`;
+    let msgFinal = `✔ Escala importada!\nE2: ${r.e2.length} veículos\nAR2: ${r.ar2.length} veículos\nManobra: ${r.manobra.length} veículos\nPresos: ${r.presos.length}\nAmostral: ${(r.amostral||[]).length}\nAdicionados à frota: ${carrosNovos}`;
     if (linhasNaoCadastradas.size > 0) {
       msgFinal += `\n\n⚠️ Linhas não cadastradas (chips sem linha):\n${[...linhasNaoCadastradas].join(', ')}\nCadastre-as em Frota → Linhas.`;
     }
