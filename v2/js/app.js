@@ -2152,19 +2152,19 @@ function imprimirPatio(setor) {
       else   { veics.push({frota: p.frota, fila: '', linha: '', hora: '', tipo: 'preso'}); }
     });
 
-    // 5. Amostral — sobrepõe tipo; se não está em nenhuma posição, adiciona
+    // 5. Amostral — sobrepõe tipo, mas nunca derruba PRESO (PRESO tem prioridade)
     state.revisoes.forEach(r => {
       if(!String(r.frota).startsWith(prefixo)) return;
       const ex = veics.find(x => String(x.frota) === String(r.frota));
-      if(ex) { ex.tipo = 'amostral'; }
+      if(ex) { if(ex.tipo !== 'preso') ex.tipo = 'amostral'; }
       else   { veics.push({frota: r.frota, fila: '', linha: '', hora: '', tipo: 'amostral'}); }
     });
 
     return veics.sort((a, b) => Number(a.frota) - Number(b.frota));
   }
 
-  // Monta o HTML de uma folha A4
-  function buildSheetHTML(veics, titulo, cor, comQuebraPagina) {
+  // Monta o HTML de uma folha A4 — 100% inline styles, HTML table para 4 colunas
+  function buildSheetHTML(veics, titulo, corHex, comQuebraPagina) {
     const now  = new Date();
     const dthr = now.toLocaleDateString('pt-BR') + ' às ' +
                  now.toLocaleTimeString('pt-BR', {hour:'2-digit', minute:'2-digit'});
@@ -2174,46 +2174,75 @@ function imprimirPatio(setor) {
     const POR     = Math.ceil(veics.length / NCOLS) || 1;
     const cols    = Array.from({length: NCOLS}, (_, i) => veics.slice(i * POR, (i + 1) * POR));
 
+    // Tamanho dinâmico: ajusta fonte/padding para caber exatamente na folha A4
+    // A4 útil ~1076px | header ~54px | th ~19px | footer ~25px => ~978px para linhas
+    var rowsPerCol = POR;
+    var rh = Math.max(12, Math.min(20, Math.floor(978 / rowsPerCol)));
+    var fontTd    = Math.round(Math.min(12,   Math.max(8,   rh * 0.68)) * 10) / 10;
+    var fontFrota = Math.round(Math.min(13.5, Math.max(9,   rh * 0.78)) * 10) / 10;
+    var fontTh    = Math.round(Math.min(9,    Math.max(7,   rh * 0.52)) * 10) / 10;
+    var padTd     = Math.max(1, Math.floor((rh - fontTd * 1.2) / 2));
+    var padTh     = Math.max(1, padTd + 1);
+
+    var S = {
+      th:    'font-size:' + fontTh + 'px;font-weight:900;padding:' + padTh + 'px 2px ' + padTd + 'px;border-bottom:1.5px solid #222;text-align:left;background:#f1f5f9;color:#222;white-space:nowrap;font-family:Courier New,monospace;',
+      tdBase:'font-size:' + fontTd + 'px;padding:' + padTd + 'px 2px;white-space:nowrap;overflow:hidden;font-family:Courier New,monospace;',
+      trEven:'background:#f8fafc;',
+      trPreso:  'background:#fff1f2;',
+      trAmostral:'background:#fffbeb;',
+      tdFrota: 'width:26%;font-weight:900;font-size:' + fontFrota + 'px;',
+      tdFila:  'width:34%;color:#334155;',
+      tdLinha: 'width:22%;color:#475569;',
+      tdHora:  'width:18%;color:#475569;'
+    };
+
     const colsHTML = cols.map(col => {
-      const rows = col.map(v => {
-        const cls   = v.tipo === 'preso' ? 'pt-r-preso' : (v.tipo === 'amostral' ? 'pt-r-amostral' : '');
-        // PRESO e AMOSTRAL sempre mostram o status — nunca a posição alocada
+      const rows = col.map((v, i) => {
+        // PRESO e AMOSTRAL: status no campo fila, sem linha/hora
         const fila  = v.tipo === 'preso'    ? 'PRESO' :
                       v.tipo === 'amostral' ? 'AMOSTRAL' :
                       (v.fila || '—');
-        // PRESO e AMOSTRAL: sem linha e hora
         const linha = v.tipo === 'normal' ? (v.linha || '—') : '';
         const hora  = v.tipo === 'normal' ? (v.hora  || '') : '';
-        return '<tr class="' + cls + '">' +
-          '<td class="pt-col-frota">' + v.frota + '</td>' +
-          '<td class="pt-col-fila">'  + fila    + '</td>' +
-          '<td class="pt-col-linha">' + linha   + '</td>' +
-          '<td class="pt-col-hora">'  + hora    + '</td></tr>';
+
+        let trBg = i % 2 === 0 ? '' : S.trEven;
+        let tdColor = '', tdWeight = '';
+        if(v.tipo === 'preso')    { trBg = S.trPreso;    tdColor = 'color:#b91c1c;'; tdWeight = 'font-weight:800;'; }
+        if(v.tipo === 'amostral') { trBg = S.trAmostral; tdColor = 'color:#b45309;'; tdWeight = 'font-weight:700;'; }
+
+        return '<tr style="border-bottom:.5px solid #e2e8f0;' + trBg + '">' +
+          '<td style="' + S.tdBase + S.tdFrota + tdColor + tdWeight + '">' + v.frota + '</td>' +
+          '<td style="' + S.tdBase + S.tdFila  + tdColor + tdWeight + '">' + fila    + '</td>' +
+          '<td style="' + S.tdBase + S.tdLinha + tdColor            + '">' + linha   + '</td>' +
+          '<td style="' + S.tdBase + S.tdHora  + tdColor            + '">' + hora    + '</td></tr>';
       }).join('');
-      return '<table class="pt-tbl">' +
-        '<thead><tr>' +
-          '<th class="pt-col-frota">Veíc.</th>' +
-          '<th class="pt-col-fila">Fila/Pos.</th>' +
-          '<th class="pt-col-linha">Linha</th>' +
-          '<th class="pt-col-hora">Hora</th>' +
-        '</tr></thead>' +
-        '<tbody>' + rows + '</tbody></table>';
+
+      return '<td style="width:25%;vertical-align:top;padding:0 2px;">' +
+        '<table style="width:100%;border-collapse:collapse;">' +
+          '<thead><tr>' +
+            '<th style="' + S.th + S.tdFrota + '">Veíc.</th>' +
+            '<th style="' + S.th + S.tdFila  + '">Fila/Pos.</th>' +
+            '<th style="' + S.th + S.tdLinha + '">Linha</th>' +
+            '<th style="' + S.th + S.tdHora  + '">Hora</th>' +
+          '</tr></thead>' +
+          '<tbody>' + rows + '</tbody>' +
+        '</table></td>';
     }).join('');
 
     const pbStyle = comQuebraPagina ? 'page-break-after:always;' : '';
-    return '<div class="pt-sheet" style="' + pbStyle + '">' +
-      '<div class="pt-sheet-header">' +
-        '<div class="pt-sheet-empresa">Sambaíba Transportes Urbanos — Gestão de Pátio</div>' +
-        '<div class="pt-sheet-titulo ' + cor + '">' + titulo + '</div>' +
-        '<div class="pt-sheet-meta">Gerado em ' + dthr +
+    return '<div style="font-family:Courier New,monospace;' + pbStyle + '">' +
+      '<div style="text-align:center;padding-bottom:5px;border-bottom:2.5px solid #000;margin-bottom:5px;">' +
+        '<div style="font-size:7.5px;color:#888;letter-spacing:1.5px;text-transform:uppercase;margin-bottom:1px;">Sambaíba Transportes Urbanos — Gestão de Pátio</div>' +
+        '<div style="font-size:15px;font-weight:900;letter-spacing:.5px;color:' + corHex + ';">' + titulo + '</div>' +
+        '<div style="font-size:7.5px;color:#666;margin-top:2px;">Gerado em ' + dthr +
           ' &nbsp;·&nbsp; Total: ' + veics.length + ' veículos' +
           ' &nbsp;·&nbsp; Alocados: ' + normais +
-          ' &nbsp;·&nbsp; <span class="pt-presos-badge">Presos: ' + presos + '</span></div>' +
+          ' &nbsp;·&nbsp; <span style=\'color:#b91c1c;font-weight:700;\'>Presos: ' + presos + '</span></div>' +
       '</div>' +
-      '<div class="pt-grid">' + colsHTML + '</div>' +
-      '<div class="pt-sheet-footer">' +
-        '<span class="pt-leg-preso">&#9632; PRESO — não sai</span>' +
-        '<span class="pt-leg-amostral">&#9632; Amostral SPTRANS</span>' +
+      '<table style="width:100%;border-collapse:collapse;table-layout:fixed;"><tr>' + colsHTML + '</tr></table>' +
+      '<div style="margin-top:6px;padding-top:4px;border-top:1px solid #e2e8f0;display:flex;gap:10px;flex-wrap:wrap;font-size:7.5px;color:#94a3b8;">' +
+        '<span style=\'color:#b91c1c;font-weight:700;\'>&#9632; PRESO — não sai</span>' +
+        '<span style=\'color:#b45309;font-weight:700;\'>&#9632; Amostral SPTRANS</span>' +
         '<span>Coq=Coqueiro &middot; Laj=Laje &middot; Lav=Lavador &middot; Bmb=Bomba &middot; Ele=Elétricos &middot; Fun=Fundão &middot; Manut=Manutenção</span>' +
       '</div>' +
     '</div>';
@@ -2221,21 +2250,21 @@ function imprimirPatio(setor) {
 
   let html = '';
   if(setor === 'e2') {
-    html = buildSheetHTML(buildSetorData('1'), 'PLANTÃO E2 — CENTRO',  'pt-titulo-e2',  false);
+    html = buildSheetHTML(buildSetorData('1'), 'PLANTÃO E2 — CENTRO',  '#1e3a8a', false);
   } else if(setor === 'ar2') {
-    html = buildSheetHTML(buildSetorData('2'), 'PLANTÃO AR2 — BAIRRO', 'pt-titulo-ar2', false);
+    html = buildSheetHTML(buildSetorData('2'), 'PLANTÃO AR2 — BAIRRO', '#7f1d1d', false);
   } else {
-    // ambos: E2 com quebra de página, AR2 sem
-    html = buildSheetHTML(buildSetorData('1'), 'PLANTÃO E2 — CENTRO',  'pt-titulo-e2',  true) +
-           buildSheetHTML(buildSetorData('2'), 'PLANTÃO AR2 — BAIRRO', 'pt-titulo-ar2', false);
+    html = buildSheetHTML(buildSetorData('1'), 'PLANTÃO E2 — CENTRO',  '#1e3a8a', true) +
+           buildSheetHTML(buildSetorData('2'), 'PLANTÃO AR2 — BAIRRO', '#7f1d1d', false);
   }
 
+  // Injeta HTML e oculta cabeçalho genérico via DOM direto (não depende de @media CSS)
   document.getElementById('print-content').innerHTML = html;
+  const printHeader = document.querySelector('#print-area .print-header');
+  if(printHeader) printHeader.style.display = 'none';
 
-  // Adiciona classe para ocultar o cabeçalho genérico do print-area
-  document.body.classList.add('printing-patio');
   window.addEventListener('afterprint', function() {
-    document.body.classList.remove('printing-patio');
+    if(printHeader) printHeader.style.display = '';
   }, {once: true});
 
   window.print();
