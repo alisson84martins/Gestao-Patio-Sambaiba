@@ -58,7 +58,7 @@
       <span>🖨️ Imprimir</span><span class="menu-dots-arrow" id="arrow-sub-imprimir">›</span>
     </div>
     <div class="menu-dots-submenu" id="sub-imprimir">
-      <div class="menu-dots-subitem" onclick="imprimirRelatorio('patio');toggleMenuDots()">🅿️ Pátio</div>
+      <div class="menu-dots-subitem" onclick="abrirModalImpressao();toggleMenuDots()">🅿️ Pátio</div>
       <div class="menu-dots-subitem" onclick="imprimirRelatorio('escala');toggleMenuDots()">📅 Escala do dia</div>
       <div class="menu-dots-subitem" onclick="imprimirRelatorio('alertas');toggleMenuDots()">⚠️ Alertas</div>
       <div class="menu-dots-subitem" onclick="imprimirRelatorio('frota');toggleMenuDots()">🚌 Frota completa</div>
@@ -451,6 +451,19 @@
     <div id="preview-alocacao-detalhes" style="margin-bottom:16px"></div>
     <button class="btn btn-primary btn-full" onclick="confirmarAlocacaoExcel()">✔ Confirmar</button>
     <button class="btn btn-ghost btn-full" onclick="cancelarAlocacaoExcel()" style="margin-top:6px">✕ Cancelar</button>
+  </div>
+</div>
+
+<!-- MODAL: SELEÇÃO DE IMPRESSÃO DO PÁTIO -->
+<div class="modal-overlay" id="modal-print-patio">
+  <div class="modal" style="max-width:300px;text-align:center">
+    <button class="modal-close" onclick="closeModal('modal-print-patio')">✕</button>
+    <div class="modal-title">🖨️ Imprimir Pátio</div>
+    <div style="display:flex;flex-direction:column;gap:8px;margin-top:14px">
+      <button class="btn btn-primary btn-full" onclick="imprimirPatio('e2')">🚍 E2 — Centro</button>
+      <button class="btn btn-primary btn-full" onclick="imprimirPatio('ar2')" style="background:#7f1d1d;border-color:#7f1d1d">🚌 AR2 — Bairro</button>
+      <button class="btn btn-ghost btn-full" onclick="imprimirPatio('ambos')" style="margin-top:4px">📄 Ambos (E2 + AR2)</button>
+    </div>
   </div>
 </div>
 

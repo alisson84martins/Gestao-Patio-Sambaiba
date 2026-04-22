@@ -189,6 +189,32 @@
     .print-alerta-item { border-left: 2px solid #cc1f1f; padding: 2px 5px; font-size: 8px; }
     .print-alerta-item b { font-size: 9px; }
     .print-secao { font-size: 10px; font-weight: 800; margin: 6px 0 3px; border-left: 3px solid #000; padding-left: 5px; }
+
+    /* ── Impressão Pátio por Setor (E2 / AR2 / Ambos) ── */
+    body.printing-patio .print-header { display: none !important; }
+    .pt-sheet { font-family: 'Courier New', monospace; }
+    .pt-sheet-header { text-align:center; padding-bottom:5px; border-bottom:2.5px solid #000; margin-bottom:5px; }
+    .pt-sheet-empresa { font-size:7.5px; color:#888; letter-spacing:1.5px; text-transform:uppercase; margin-bottom:1px; }
+    .pt-sheet-titulo { font-size:15px; font-weight:900; letter-spacing:.5px; margin:2px 0; }
+    .pt-titulo-e2 { color:#1e3a8a; }
+    .pt-titulo-ar2 { color:#7f1d1d; }
+    .pt-sheet-meta { font-size:7.5px; color:#666; margin-top:2px; }
+    .pt-presos-badge { color:#b91c1c; font-weight:700; }
+    .pt-grid { display:grid; grid-template-columns:repeat(4,1fr); gap:3px; }
+    .pt-tbl { width:100%; border-collapse:collapse; font-family:'Courier New',monospace; }
+    .pt-tbl thead th { font-size:8.5px; font-weight:900; padding:3px 2px 2px; border-bottom:1.5px solid #222; text-align:left; background:#f1f5f9; color:#222; white-space:nowrap; }
+    .pt-tbl tbody tr { border-bottom:.5px solid #e2e8f0; }
+    .pt-tbl tbody tr:nth-child(even) { background:#f8fafc; }
+    .pt-tbl td { font-size:11px; padding:2px 2px; white-space:nowrap; overflow:hidden; }
+    .pt-col-frota { width:24%; font-weight:900; font-size:12.5px; }
+    .pt-col-fila  { width:35%; color:#334155; }
+    .pt-col-linha { width:23%; color:#475569; }
+    .pt-col-hora  { width:18%; color:#475569; }
+    .pt-r-preso td    { background:#fff1f2 !important; color:#b91c1c !important; font-weight:800; }
+    .pt-r-amostral td { background:#fffbeb !important; color:#b45309 !important; font-weight:700; }
+    .pt-sheet-footer { margin-top:6px; padding-top:4px; border-top:1px solid #e2e8f0; display:flex; gap:10px; flex-wrap:wrap; font-size:7.5px; color:#94a3b8; align-items:center; }
+    .pt-leg-preso   { color:#b91c1c; font-weight:700; }
+    .pt-leg-amostral { color:#b45309; font-weight:700; }
   }
   #print-area { display: none; }
 

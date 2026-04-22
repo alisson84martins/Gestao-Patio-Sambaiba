@@ -2093,10 +2093,155 @@ function exportarExcel(tipo) {
   a.click(); URL.revokeObjectURL(url);
 }
 
+// ─── IMPRIMIR PÁTIO POR SETOR ────────────────────────────────────
+function abrirModalImpressao() {
+  openModal('modal-print-patio');
+}
+
+function imprimirPatio(setor) {
+  closeModal('modal-print-patio');
+
+  const ESPECIAIS_ABR = {
+    coqueiro:'Coq', laje:'Laj', lavador:'Lav',
+    bomba:'Bmb', eletricos:'Ele', fundao:'Fun'
+  };
+
+  // Monta lista de veículos de um setor ('1' = E2, '2' = AR2)
+  function buildSetorData(prefixo) {
+    const veics   = [];
+    const vistos  = new Set(); // evita duplicatas
+
+    // 1. Filas numéricas
+    FILAS_NUM.forEach(f => {
+      (state.filas[f] || []).forEach(o => {
+        if(!String(o.frota).startsWith(prefixo)) return;
+        const cad  = state.frota.find(x => String(x.frota) === String(o.frota));
+        const linha = o.linha || (cad && cad.linha) || '';
+        const hora  = (cad && cad.hora) || '';
+        veics.push({frota: o.frota, fila: 'F' + f + (o.pos ? ' P.' + o.pos : ''), linha, hora, tipo: 'normal'});
+        vistos.add(String(o.frota));
+      });
+    });
+
+    // 2. Posições especiais
+    ESPECIAIS.forEach(e => {
+      (state.especiais[e.key] || []).forEach(o => {
+        if(!String(o.frota).startsWith(prefixo)) return;
+        if(vistos.has(String(o.frota))) return;
+        const cad  = state.frota.find(x => String(x.frota) === String(o.frota));
+        const linha = o.linha || (cad && cad.linha) || '';
+        const hora  = (cad && cad.hora) || '';
+        veics.push({frota: o.frota, fila: ESPECIAIS_ABR[e.key] || e.label, linha, hora, tipo: 'normal'});
+        vistos.add(String(o.frota));
+      });
+    });
+
+    // 3. Manutenção (não aparece em filas/especiais normalmente)
+    (state.manutencao || []).forEach(m => {
+      if(!String(m.frota).startsWith(prefixo)) return;
+      if(vistos.has(String(m.frota))) return;
+      veics.push({frota: m.frota, fila: 'Manut', linha: '', hora: '', tipo: 'normal'});
+      vistos.add(String(m.frota));
+    });
+
+    // 4. Presos — sobrepõe tipo; se não está em nenhuma posição, adiciona
+    state.presos.forEach(p => {
+      if(!String(p.frota).startsWith(prefixo)) return;
+      const ex = veics.find(x => String(x.frota) === String(p.frota));
+      if(ex) { ex.tipo = 'preso'; }
+      else   { veics.push({frota: p.frota, fila: '', linha: '', hora: '', tipo: 'preso'}); }
+    });
+
+    // 5. Amostral — sobrepõe tipo; se não está em nenhuma posição, adiciona
+    state.revisoes.forEach(r => {
+      if(!String(r.frota).startsWith(prefixo)) return;
+      const ex = veics.find(x => String(x.frota) === String(r.frota));
+      if(ex) { ex.tipo = 'amostral'; }
+      else   { veics.push({frota: r.frota, fila: '', linha: '', hora: '', tipo: 'amostral'}); }
+    });
+
+    return veics.sort((a, b) => Number(a.frota) - Number(b.frota));
+  }
+
+  // Monta o HTML de uma folha A4
+  function buildSheetHTML(veics, titulo, cor, comQuebraPagina) {
+    const now  = new Date();
+    const dthr = now.toLocaleDateString('pt-BR') + ' às ' +
+                 now.toLocaleTimeString('pt-BR', {hour:'2-digit', minute:'2-digit'});
+    const presos  = veics.filter(v => v.tipo === 'preso').length;
+    const normais = veics.length - presos;
+    const NCOLS   = 4;
+    const POR     = Math.ceil(veics.length / NCOLS) || 1;
+    const cols    = Array.from({length: NCOLS}, (_, i) => veics.slice(i * POR, (i + 1) * POR));
+
+    const colsHTML = cols.map(col => {
+      const rows = col.map(v => {
+        const cls   = v.tipo === 'preso' ? 'pt-r-preso' : (v.tipo === 'amostral' ? 'pt-r-amostral' : '');
+        const fila  = v.fila || (v.tipo === 'preso' ? 'PRESO' : v.tipo === 'amostral' ? 'AMOSTRAL' : '—');
+        // PRESO e AMOSTRAL: sem linha e hora
+        const linha = v.tipo === 'normal' ? (v.linha || '—') : '';
+        const hora  = v.tipo === 'normal' ? (v.hora  || '') : '';
+        return '<tr class="' + cls + '">' +
+          '<td class="pt-col-frota">' + v.frota + '</td>' +
+          '<td class="pt-col-fila">'  + fila    + '</td>' +
+          '<td class="pt-col-linha">' + linha   + '</td>' +
+          '<td class="pt-col-hora">'  + hora    + '</td></tr>';
+      }).join('');
+      return '<table class="pt-tbl">' +
+        '<thead><tr>' +
+          '<th class="pt-col-frota">Veíc.</th>' +
+          '<th class="pt-col-fila">Fila/Pos.</th>' +
+          '<th class="pt-col-linha">Linha</th>' +
+          '<th class="pt-col-hora">Hora</th>' +
+        '</tr></thead>' +
+        '<tbody>' + rows + '</tbody></table>';
+    }).join('');
+
+    const pbStyle = comQuebraPagina ? 'page-break-after:always;' : '';
+    return '<div class="pt-sheet" style="' + pbStyle + '">' +
+      '<div class="pt-sheet-header">' +
+        '<div class="pt-sheet-empresa">Sambaíba Transportes Urbanos — Gestão de Pátio</div>' +
+        '<div class="pt-sheet-titulo ' + cor + '">' + titulo + '</div>' +
+        '<div class="pt-sheet-meta">Gerado em ' + dthr +
+          ' &nbsp;·&nbsp; Total: ' + veics.length + ' veículos' +
+          ' &nbsp;·&nbsp; Alocados: ' + normais +
+          ' &nbsp;·&nbsp; <span class="pt-presos-badge">Presos: ' + presos + '</span></div>' +
+      '</div>' +
+      '<div class="pt-grid">' + colsHTML + '</div>' +
+      '<div class="pt-sheet-footer">' +
+        '<span class="pt-leg-preso">&#9632; PRESO — não sai</span>' +
+        '<span class="pt-leg-amostral">&#9632; Amostral SPTRANS</span>' +
+        '<span>Coq=Coqueiro &middot; Laj=Laje &middot; Lav=Lavador &middot; Bmb=Bomba &middot; Ele=Elétricos &middot; Fun=Fundão &middot; Manut=Manutenção</span>' +
+      '</div>' +
+    '</div>';
+  }
+
+  let html = '';
+  if(setor === 'e2') {
+    html = buildSheetHTML(buildSetorData('1'), 'PLANTÃO E2 — CENTRO',  'pt-titulo-e2',  false);
+  } else if(setor === 'ar2') {
+    html = buildSheetHTML(buildSetorData('2'), 'PLANTÃO AR2 — BAIRRO', 'pt-titulo-ar2', false);
+  } else {
+    // ambos: E2 com quebra de página, AR2 sem
+    html = buildSheetHTML(buildSetorData('1'), 'PLANTÃO E2 — CENTRO',  'pt-titulo-e2',  true) +
+           buildSheetHTML(buildSetorData('2'), 'PLANTÃO AR2 — BAIRRO', 'pt-titulo-ar2', false);
+  }
+
+  document.getElementById('print-content').innerHTML = html;
+
+  // Adiciona classe para ocultar o cabeçalho genérico do print-area
+  document.body.classList.add('printing-patio');
+  window.addEventListener('afterprint', function() {
+    document.body.classList.remove('printing-patio');
+  }, {once: true});
+
+  window.print();
+}
+
 // ─── IMPRIMIR POR MÓDULO ─────────────────────────────────────────
 function imprimirRelatorio(tipo) {
-  // Reutiliza imprimirLista para pátio, gera HTML para os outros
-  if(tipo === 'patio') { imprimirLista(); return; }
+  // Pátio agora usa modal de seleção de setor
+  if(tipo === 'patio') { abrirModalImpressao(); return; }
 
   const now = new Date();
   const meta = 'Gerado em ' + now.toLocaleDateString('pt-BR') + ' às ' + now.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'});
