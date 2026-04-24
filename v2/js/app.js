@@ -2191,7 +2191,7 @@ function imprimirPatio(setor) {
       trPreso:  'background:#fff1f2;',
       trAmostral:'background:#fffbeb;',
       tdFrota: 'width:26%;font-weight:900;font-size:' + fontFrota + 'px;',
-      tdFila:  'width:34%;color:#334155;',
+      tdFila:  'width:34%;color:#334155;font-weight:900;font-size:' + fontFrota + 'px;',
       tdLinha: 'width:22%;color:#475569;',
       tdHora:  'width:18%;color:#475569;'
     };
