@@ -980,6 +980,10 @@ function _executarAlocarBloco(frota, filaVal, filaInput, linha, naFrota) {
   // Remove de qualquer posição anterior (garante sem duplicata)
   FILAS_NUM.forEach(f => { state.filas[f] = state.filas[f].filter(x => String(x.frota) !== frota); });
   ESPECIAIS.forEach(e => { state.especiais[e.key] = state.especiais[e.key].filter(x => String(x.frota) !== frota); });
+  // Se destino é fila ou especial (não manutenção), remove também da manutenção
+  if (!filaVal.startsWith('manut:')) {
+    state.manutencao = (state.manutencao || []).filter(m => String(m.frota) !== frota);
+  }
 
   const lista = getListaBloco(filaVal);
 
@@ -1028,8 +1032,18 @@ function desfazerBloco() {
   if(!confirm('Remover o último carro marcado (' + lista[lista.length-1].frota + ')?')) return;
   lista.pop();
   lista.forEach((o, i) => o.pos = i + 1);
-  if(filaVal.startsWith('esp:')) state.especiais[filaVal.replace('esp:','')] = lista;
-  else state.filas[filaVal.replace('fila:','')] = lista;
+  if(filaVal.startsWith('manut:')) {
+    const tipo = filaVal.replace('manut:', '');
+    state.manutencao = (state.manutencao || []).filter(m => m.tipo !== tipo);
+    lista.forEach(m => {
+      if(!state.manutencao.find(x => String(x.frota) === String(m.frota) && x.tipo === tipo))
+        state.manutencao.push({frota: m.frota, tipo, hora: m.hora || ''});
+    });
+  } else if(filaVal.startsWith('esp:')) {
+    state.especiais[filaVal.replace('esp:', '')] = lista;
+  } else {
+    state.filas[filaVal.replace('fila:', '')] = lista;
+  }
   save(); renderAll();
   atualizarStatusBloco();
   renderHistoricoBloco(filaVal);
@@ -2111,10 +2125,21 @@ function imprimirPatio(setor) {
     const veics   = [];
     const vistos  = new Set(); // evita duplicatas
 
-    // 1. Filas numéricas
+    // 1. MANUTENÇÃO PRIMEIRO — prioridade máxima na folha de impressão
+    // Veículos em manutenção aparecem sempre como "Manut", mesmo que estejam
+    // cadastrados em alguma fila (o que seria inconsistência de dados).
+    (state.manutencao || []).forEach(m => {
+      if(!String(m.frota).startsWith(prefixo)) return;
+      if(vistos.has(String(m.frota))) return;
+      veics.push({frota: m.frota, fila: 'Manut', linha: '', hora: '', tipo: 'normal'});
+      vistos.add(String(m.frota));
+    });
+
+    // 2. Filas numéricas (pula veículos já marcados como manutenção)
     FILAS_NUM.forEach(f => {
       (state.filas[f] || []).forEach(o => {
         if(!String(o.frota).startsWith(prefixo)) return;
+        if(vistos.has(String(o.frota))) return;
         const cad  = state.frota.find(x => String(x.frota) === String(o.frota));
         const linha = o.linha || (cad && cad.linha) || '';
         const hora  = (cad && cad.hora) || '';
@@ -2123,7 +2148,7 @@ function imprimirPatio(setor) {
       });
     });
 
-    // 2. Posições especiais
+    // 3. Posições especiais (pula veículos já marcados como manutenção)
     ESPECIAIS.forEach(e => {
       (state.especiais[e.key] || []).forEach(o => {
         if(!String(o.frota).startsWith(prefixo)) return;
@@ -2134,14 +2159,6 @@ function imprimirPatio(setor) {
         veics.push({frota: o.frota, fila: ESPECIAIS_ABR[e.key] || e.label, linha, hora, tipo: 'normal'});
         vistos.add(String(o.frota));
       });
-    });
-
-    // 3. Manutenção (não aparece em filas/especiais normalmente)
-    (state.manutencao || []).forEach(m => {
-      if(!String(m.frota).startsWith(prefixo)) return;
-      if(vistos.has(String(m.frota))) return;
-      veics.push({frota: m.frota, fila: 'Manut', linha: '', hora: '', tipo: 'normal'});
-      vistos.add(String(m.frota));
     });
 
     // 4. Presos — sobrepõe tipo; se não está em nenhuma posição, adiciona
