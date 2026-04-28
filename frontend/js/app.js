@@ -103,6 +103,12 @@ function openModal(id,filaKey){
       document.getElementById('input-linha-alocar').value='';
     },100);
   }
+  if(id==='modal-preso'){
+    setTimeout(()=>{const el=document.getElementById('input-frota-preso');if(el){el.value='';el.focus();}},100);
+  }
+  if(id==='modal-revisao'){
+    setTimeout(()=>{const el=document.getElementById('input-frota-revisao');if(el){el.value='';el.focus();}},100);
+  }
 }
 function closeModal(id){document.getElementById(id).classList.remove('open');modalFilaAtual=null;}
 document.querySelectorAll('.modal-overlay').forEach(m=>{m.addEventListener('click',e=>{if(e.target===m)m.classList.remove('open');});});
@@ -124,10 +130,8 @@ function _confirmaResolve(resp) {
 }
 
 function populateSelects(){
-  const opts=state.frota.length
-    ?state.frota.map(o=>`<option value="${o.frota}">${o.frota}</option>`).join('')
-    :'<option value="">Nenhum ônibus cadastrado</option>';
-  ['select-preso','select-revisao'].forEach(id=>{const el=document.getElementById(id);if(el)el.innerHTML=opts;});
+  // select-preso e select-revisao foram substituídos por inputs com autocomplete
+  // (nada a popular para eles)
   // Atualiza datalist de linhas (suporta objetos e strings legadas)
   const linhaOpts = state.linhas
     .map(l => typeof l === 'object' ? l.codigo : l)
@@ -183,19 +187,55 @@ function removerDaFila(frota,filaKey,isEspecial){
 }
 
 function registrarPreso(){
-  const frota=document.getElementById('select-preso').value;
-  if(!frota)return;
+  const frota=String(document.getElementById('input-frota-preso').value).trim();
+  if(!frota){document.getElementById('input-frota-preso').focus();return;}
+  if(state.presos.find(p=>String(p.frota)===frota)){alert('Veículo '+frota+' já está marcado como PRESO.');return;}
+  if(!state.frota.find(o=>String(o.frota)===frota)){state.frota.push({frota});state.frota.sort((a,b)=>Number(a.frota)-Number(b.frota));}
   state.presos.push({frota,motivo:document.getElementById('input-motivo-preso').value.trim(),hora:new Date().toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'})});
+  document.getElementById('input-frota-preso').value='';
   document.getElementById('input-motivo-preso').value='';
+  document.getElementById('ac-preso-list').classList.remove('open');
   save();renderAll();closeModal('modal-preso');
 }
 
 function registrarRevisao(){
-  const frota=document.getElementById('select-revisao').value;
-  if(!frota)return;
+  const frota=String(document.getElementById('input-frota-revisao').value).trim();
+  if(!frota){document.getElementById('input-frota-revisao').focus();return;}
+  if(!state.frota.find(o=>String(o.frota)===frota)){state.frota.push({frota});state.frota.sort((a,b)=>Number(a.frota)-Number(b.frota));}
   state.revisoes.push({frota,tipo:document.getElementById('select-tipo-revisao').value,desc:document.getElementById('input-desc-revisao').value.trim(),hora:new Date().toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'})});
+  document.getElementById('input-frota-revisao').value='';
   document.getElementById('input-desc-revisao').value='';
+  document.getElementById('ac-revisao-list').classList.remove('open');
   save();renderAll();closeModal('modal-revisao');
+}
+
+// ─── AUTOCOMPLETE GENÉRICO PARA MODAIS DE ALERTA ─────────────────
+let _acAlertaIdx = {};
+function acAlertaFiltrar(val, inputId, listId) {
+  const list = document.getElementById(listId);
+  _acAlertaIdx[listId] = -1;
+  if(!val || String(val).length < 1) { list.classList.remove('open'); return; }
+  const filtradas = state.frota.filter(o => String(o.frota).startsWith(String(val))).slice(0, 8);
+  if(!filtradas.length) { list.classList.remove('open'); return; }
+  list.innerHTML = filtradas.map(o =>
+    `<div class="autocomplete-item" data-value="${o.frota}" onmousedown="acAlertaSelecionar('${o.frota}','${inputId}','${listId}')">
+      <span style="font-weight:800">${o.frota}</span>
+    </div>`
+  ).join('');
+  list.classList.add('open');
+}
+function acAlertaSelecionar(frota, inputId, listId) {
+  document.getElementById(inputId).value = frota;
+  document.getElementById(listId).classList.remove('open');
+  _acAlertaIdx[listId] = -1;
+}
+function acAlertaKeydown(e, inputId, listId) {
+  const list = document.getElementById(listId);
+  const items = list.querySelectorAll('.autocomplete-item');
+  if(e.key === 'ArrowDown') { e.preventDefault(); _acAlertaIdx[listId] = Math.min((_acAlertaIdx[listId]||0)+1, items.length-1); items.forEach((el,i)=>el.classList.toggle('selected',i===_acAlertaIdx[listId])); }
+  else if(e.key === 'ArrowUp') { e.preventDefault(); _acAlertaIdx[listId] = Math.max((_acAlertaIdx[listId]||0)-1, 0); items.forEach((el,i)=>el.classList.toggle('selected',i===_acAlertaIdx[listId])); }
+  else if(e.key === 'Enter') { if(_acAlertaIdx[listId] >= 0 && items[_acAlertaIdx[listId]]) { e.preventDefault(); acAlertaSelecionar(items[_acAlertaIdx[listId]].dataset.value, inputId, listId); } else { list.classList.remove('open'); } }
+  else if(e.key === 'Escape') { list.classList.remove('open'); }
 }
 
 function removerAlerta(tipo,idx){
