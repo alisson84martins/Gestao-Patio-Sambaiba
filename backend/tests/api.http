@@ -1,0 +1,319 @@
+### Sistema de Gestão de Pátio Sambaíba — API v3.0
+### Arquivo de testes para a extensão REST Client (VS Code)
+###
+### Como usar:
+### 1. Instale a extensão "REST Client" (Huachao Mao) no VS Code
+### 2. Suba a API: fastapi dev app/main.py
+### 3. Clique em "Send Request" acima de cada bloco
+###
+### O VS Code automaticamente captura @authToken da resposta do login
+### e usa nas próximas chamadas.
+
+@host = http://127.0.0.1:8000
+@re = ADMIN001
+@senha = 57402232
+
+
+###############################################################################
+# 1. SISTEMA — health e raiz (sem autenticação)
+###############################################################################
+
+### GET / — raiz da API
+GET {{host}}/
+
+### GET /health — verifica banco e conta tabelas
+GET {{host}}/health
+
+
+###############################################################################
+# 2. AUTENTICAÇÃO — fazer login e capturar o token
+###############################################################################
+
+### Login via JSON (frontend)
+# @name login
+POST {{host}}/auth/login
+Content-Type: application/json
+
+{
+  "re": "{{re}}",
+  "senha": "{{senha}}"
+}
+
+### Captura automática do token da resposta acima
+@authToken = {{login.response.body.access_token}}
+
+### Quem sou eu?
+GET {{host}}/auth/me
+Authorization: Bearer {{authToken}}
+
+
+###############################################################################
+# 3. ÔNIBUS — CRUD
+###############################################################################
+
+### Listar ônibus
+GET {{host}}/onibus
+Authorization: Bearer {{authToken}}
+
+### Listar só E2
+GET {{host}}/onibus?setor=E2
+Authorization: Bearer {{authToken}}
+
+### Buscar ônibus pelo número da frota
+GET {{host}}/onibus/frota/1234
+Authorization: Bearer {{authToken}}
+
+### Cadastrar ônibus (E2 — frota 1xxx)
+# @name novoOnibus
+POST {{host}}/onibus
+Authorization: Bearer {{authToken}}
+Content-Type: application/json
+
+{
+  "numero_frota": 1234,
+  "placa": "ABC1D23",
+  "status": "ATIVO"
+}
+
+@onibusId = {{novoOnibus.response.body.id}}
+
+### Cadastrar ônibus (AR2 — frota 2xxx)
+POST {{host}}/onibus
+Authorization: Bearer {{authToken}}
+Content-Type: application/json
+
+{
+  "numero_frota": 2345,
+  "placa": "DEF2E34",
+  "status": "ATIVO"
+}
+
+### Atualizar status do ônibus
+PATCH {{host}}/onibus/{{onibusId}}
+Authorization: Bearer {{authToken}}
+Content-Type: application/json
+
+{
+  "status": "MANUTENCAO"
+}
+
+
+###############################################################################
+# 4. MOTORISTAS
+###############################################################################
+
+### Listar
+GET {{host}}/motoristas
+Authorization: Bearer {{authToken}}
+
+### Cadastrar
+POST {{host}}/motoristas
+Authorization: Bearer {{authToken}}
+Content-Type: application/json
+
+{
+  "re": "MOT001",
+  "nome": "João da Silva",
+  "status": "ATIVO"
+}
+
+
+###############################################################################
+# 5. LINHAS / FILAS / TIPOS DE DEFEITO (catálogos)
+###############################################################################
+
+### Linhas E2
+GET {{host}}/linhas?setor=E2
+Authorization: Bearer {{authToken}}
+
+### Linhas AR2
+GET {{host}}/linhas?setor=AR2
+Authorization: Bearer {{authToken}}
+
+### Filas numéricas
+GET {{host}}/filas?tipo=NUMERICA
+Authorization: Bearer {{authToken}}
+
+### Filas especiais
+GET {{host}}/filas?tipo=ESPECIAL
+Authorization: Bearer {{authToken}}
+
+### Filas de manutenção
+GET {{host}}/filas?tipo=MANUTENCAO
+Authorization: Bearer {{authToken}}
+
+### Tipos de defeito (categoria mecânica)
+GET {{host}}/tipos-defeito?categoria=mecanica
+Authorization: Bearer {{authToken}}
+
+
+###############################################################################
+# 6. ALOCAÇÕES — mover ônibus
+###############################################################################
+
+### Listar alocações ativas
+GET {{host}}/alocacoes?ativa=true
+Authorization: Bearer {{authToken}}
+
+### Alocar ônibus em uma fila
+### IMPORTANTE: substitua os IDs pelos reais (use os GETs acima pra pegar)
+POST {{host}}/alocacoes
+Authorization: Bearer {{authToken}}
+Content-Type: application/json
+
+{
+  "onibus_id": "COLE_AQUI_O_UUID_DO_ONIBUS",
+  "fila_id": "COLE_AQUI_O_UUID_DA_FILA",
+  "posicao": 1,
+  "ativa": true
+}
+
+
+###############################################################################
+# 7. ESCALA — diária
+###############################################################################
+
+### Escala de hoje
+GET {{host}}/escalas?data=2026-05-06
+Authorization: Bearer {{authToken}}
+
+### Cadastrar escala manual (substitua os UUIDs)
+POST {{host}}/escalas
+Authorization: Bearer {{authToken}}
+Content-Type: application/json
+
+{
+  "data": "2026-05-06",
+  "onibus_id": "UUID_ONIBUS",
+  "linha_id": "UUID_LINHA",
+  "horario_saida": "04:30",
+  "tipo": "PLANTAO_E2",
+  "origem": "MANUAL"
+}
+
+
+###############################################################################
+# 8. ALERTAS
+###############################################################################
+
+### Alertas ativos
+GET {{host}}/alertas?resolvido=false
+Authorization: Bearer {{authToken}}
+
+### Registrar PRESO
+POST {{host}}/alertas
+Authorization: Bearer {{authToken}}
+Content-Type: application/json
+
+{
+  "onibus_id": "UUID_ONIBUS",
+  "tipo": "PRESO",
+  "motivo": "Acidente na via"
+}
+
+### Resolver alerta (substitua o ID)
+PATCH {{host}}/alertas/UUID_ALERTA/resolver
+Authorization: Bearer {{authToken}}
+Content-Type: application/json
+
+{
+  "motivo": "Liberado pela autoridade"
+}
+
+
+###############################################################################
+# 9. MANUTENÇÃO
+###############################################################################
+
+### Fichas abertas
+GET {{host}}/manutencao?status=ABERTA
+Authorization: Bearer {{authToken}}
+
+### Abrir ficha
+POST {{host}}/manutencao
+Authorization: Bearer {{authToken}}
+Content-Type: application/json
+
+{
+  "onibus_id": "UUID_ONIBUS",
+  "tipo_defeito_id": "UUID_TIPO_DEFEITO",
+  "descricao": "Vazamento freio dianteiro",
+  "status": "ABERTA"
+}
+
+
+###############################################################################
+# 10. PÁTIO (visão consolidada — alimenta a UI)
+###############################################################################
+
+### Estado completo do pátio (data padrão: hoje)
+GET {{host}}/patio
+Authorization: Bearer {{authToken}}
+
+### Estado do pátio em uma data específica
+GET {{host}}/patio?data_escala=2026-05-06
+Authorization: Bearer {{authToken}}
+
+### Onde está o ônibus 1234?
+GET {{host}}/patio/onibus/1234
+Authorization: Bearer {{authToken}}
+
+### Lista de remanejamento (manutenção + escala hoje)
+GET {{host}}/patio/remanejamento
+Authorization: Bearer {{authToken}}
+
+
+###############################################################################
+# 11. IMPORTAÇÃO EXCEL
+###############################################################################
+
+### Listar importações
+GET {{host}}/importacoes
+Authorization: Bearer {{authToken}}
+
+### Upload de planilha
+### Substitua o caminho pelo arquivo real .xlsx
+POST {{host}}/importacoes/escala
+Authorization: Bearer {{authToken}}
+Content-Type: multipart/form-data; boundary=----boundary
+
+------boundary
+Content-Disposition: form-data; name="data_escala"
+
+2026-05-06
+------boundary
+Content-Disposition: form-data; name="tipo_default"
+
+PLANTAO_E2
+------boundary
+Content-Disposition: form-data; name="substituir_existentes"
+
+true
+------boundary
+Content-Disposition: form-data; name="arquivo"; filename="escala.xlsx"
+Content-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet
+
+< ./escala.xlsx
+------boundary--
+
+
+###############################################################################
+# 12. USUÁRIOS (apenas ADMIN)
+###############################################################################
+
+### Listar usuários
+GET {{host}}/usuarios
+Authorization: Bearer {{authToken}}
+
+### Criar coordenador
+POST {{host}}/usuarios
+Authorization: Bearer {{authToken}}
+Content-Type: application/json
+
+{
+  "re": "COORD001",
+  "nome": "Coordenador Teste",
+  "perfil": "COORDENADOR",
+  "senha": "senha123",
+  "ativo": true
+}

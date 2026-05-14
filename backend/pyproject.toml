@@ -1,0 +1,49 @@
+[project]
+name = "gestao-patio-sambaiba-api"
+version = "0.1.0"
+description = "API REST do Sistema de Gestão de Pátio Sambaíba — v3.0"
+authors = [
+    { name = "Alisson Martins", email = "alisson84martins@gmail.com" }
+]
+license = { text = "Proprietary" }
+readme = "README.md"
+requires-python = ">=3.11"
+
+dependencies = [
+    # API
+    "fastapi[standard]>=0.115.0",
+    "uvicorn[standard]>=0.32.0",
+
+    # Banco
+    "sqlalchemy>=2.0.36",
+    "psycopg[binary]>=3.2.3",
+    "alembic>=1.14.0",
+
+    # Configuração / validação
+    "pydantic>=2.9.0",
+    "pydantic-settings>=2.6.0",
+
+    # Autenticação
+    "python-jose[cryptography]>=3.3.0",
+    "passlib[bcrypt]>=1.7.4",
+    "bcrypt==4.0.1",  # versão fixa pelo conflito conhecido com passlib
+
+    # Utilitários
+    "python-multipart>=0.0.20",  # upload de arquivos
+    "openpyxl>=3.1.5",            # leitura de Excel
+]
+
+[project.optional-dependencies]
+dev = [
+    "ruff>=0.7.0",
+    "pytest>=8.3.0",
+    "httpx>=0.27.0",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "W", "UP"]
+ignore = ["E501"]

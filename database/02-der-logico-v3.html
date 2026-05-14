@@ -1,0 +1,495 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<title>DER Lógico v3.0 — Gestão de Pátio Sambaíba</title>
+<style>
+  @page { size: A3 landscape; margin: 12mm; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Segoe UI', Arial, sans-serif; background: #f5f5f5; color: #111; padding: 16px; }
+
+  .page { width: 100%; max-width: 1500px; margin: 0 auto; background: #fff; padding: 18px 22px; box-shadow: 0 2px 8px rgba(0,0,0,0.05); }
+
+  /* HEADER */
+  .doc-header { text-align: center; margin-bottom: 18px; border-bottom: 3px solid #CC0000; padding-bottom: 10px; }
+  .doc-header h1 { font-size: 22px; color: #CC0000; font-weight: 900; letter-spacing: 0.5px; }
+  .doc-header h2 { font-size: 13px; color: #444; font-weight: 500; margin-top: 4px; }
+  .doc-header .meta { font-size: 11px; color: #888; margin-top: 4px; }
+
+  .section-title {
+    font-size: 14px; font-weight: 800; color: #CC0000; text-transform: uppercase;
+    letter-spacing: 1px; border-left: 4px solid #CC0000; padding-left: 8px;
+    margin: 18px 0 10px;
+  }
+
+  /* ENUMS */
+  .enums { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; margin-bottom: 8px; }
+  .enum-card { border: 1px solid #ccc; border-radius: 4px; background: #fafafa; padding: 6px 8px; }
+  .enum-name { font-size: 10px; font-weight: 800; color: #CC0000; margin-bottom: 3px; }
+  .enum-values { font-size: 9.5px; color: #555; line-height: 1.3; }
+
+  /* TABELAS */
+  .tables-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 10px;
+    margin-bottom: 10px;
+  }
+  .tabela {
+    border: 2px solid #CC0000;
+    border-radius: 5px;
+    overflow: hidden;
+    background: #fff;
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+  .tabela.catalogo { border-color: #d97706; }
+  .tabela.sistema  { border-color: #1a56cc; }
+
+  .tabela-header {
+    background: #CC0000;
+    color: #fff;
+    padding: 5px 8px;
+    font-size: 11.5px;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  .tabela.catalogo .tabela-header { background: #d97706; }
+  .tabela.sistema  .tabela-header { background: #1a56cc; }
+  .tabela-numero { font-size: 9px; opacity: 0.85; }
+
+  .tabela-body { padding: 4px 8px 6px; background: #fff; }
+  .col {
+    font-size: 10px;
+    color: #333;
+    padding: 2.5px 0;
+    border-bottom: 1px solid #f0f0f0;
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    gap: 6px;
+    align-items: center;
+  }
+  .col:last-child { border-bottom: none; }
+  .col-name { font-weight: 600; color: #222; }
+  .col-type { font-size: 9px; color: #888; font-style: italic; }
+  .tag {
+    font-size: 8.5px;
+    padding: 1px 5px;
+    border-radius: 2px;
+    font-weight: 800;
+    line-height: 1.2;
+    letter-spacing: 0.3px;
+  }
+  .tag-pk { background: #ffecec; color: #CC0000; border: 1px solid #CC0000; }
+  .tag-fk { background: #ecf0ff; color: #1a56cc; border: 1px solid #1a56cc; }
+  .tag-uq { background: #fff5e6; color: #d97706; border: 1px solid #d97706; }
+  .tag-en { background: #ecffec; color: #16a34a; border: 1px solid #16a34a; }
+
+  .col-pk .col-name { color: #CC0000; font-weight: 800; }
+  .col-fk .col-name { color: #1a56cc; }
+
+  /* SECAO AUDITORIA */
+  .audit-section { background: #f9f9f9; padding: 3px 6px; font-size: 9px; color: #666; border-top: 1px dashed #ddd; font-style: italic; }
+
+  /* RELACIONAMENTOS */
+  .rels-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 6px;
+    margin-bottom: 12px;
+  }
+  .rel-item {
+    font-size: 10px;
+    background: #fafafa;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    padding: 5px 8px;
+    line-height: 1.4;
+  }
+  .rel-item b { color: #CC0000; }
+  .rel-item .card { color: #888; font-size: 9px; margin-left: 4px; }
+
+  /* LEGENDA */
+  .legend {
+    display: flex;
+    gap: 14px;
+    flex-wrap: wrap;
+    font-size: 10px;
+    margin-top: 10px;
+    color: #555;
+    padding: 8px 12px;
+    background: #fafafa;
+    border-radius: 4px;
+  }
+  .legend-item { display: flex; align-items: center; gap: 4px; }
+  .legend-dot { width: 11px; height: 11px; border-radius: 2px; }
+
+  /* GRUPO */
+  .group-label {
+    font-size: 11px;
+    font-weight: 700;
+    color: #555;
+    text-transform: uppercase;
+    margin: 8px 0 4px;
+    letter-spacing: 0.5px;
+  }
+
+  .footer {
+    text-align: center;
+    font-size: 10px;
+    color: #aaa;
+    margin-top: 16px;
+    border-top: 1px solid #eee;
+    padding-top: 8px;
+  }
+
+  @media print {
+    body { background: #fff; padding: 0; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    .page { box-shadow: none; padding: 6px; max-width: 100%; }
+  }
+</style>
+</head>
+<body>
+
+<div class="page">
+
+  <!-- HEADER -->
+  <div class="doc-header">
+    <h1>Sistema de Gestão de Pátio Sambaíba — DER Lógico v3.0</h1>
+    <h2>Modelagem física PostgreSQL · 12 tabelas · UUID · Offline-first híbrido</h2>
+    <div class="meta">Garagem 3 · Branch v3.0-dev · Banco: <b>gestao_patio_sambaiba</b> · 02 de maio de 2026 · Alisson Martins · ADS Anhanguera</div>
+  </div>
+
+  <!-- ENUMS -->
+  <div class="section-title">Tipos Enumerados (ENUMs)</div>
+  <div class="enums">
+    <div class="enum-card">
+      <div class="enum-name">setor_enum</div>
+      <div class="enum-values">E2 · AR2</div>
+    </div>
+    <div class="enum-card">
+      <div class="enum-name">status_onibus_enum</div>
+      <div class="enum-values">ATIVO · MANUTENCAO · INATIVO · RESERVA</div>
+    </div>
+    <div class="enum-card">
+      <div class="enum-name">status_motorista_enum</div>
+      <div class="enum-values">ATIVO · AFASTADO · FERIAS · DESLIGADO</div>
+    </div>
+    <div class="enum-card">
+      <div class="enum-name">perfil_usuario_enum</div>
+      <div class="enum-values">ADMIN · COORDENADOR · OPERADOR_PATIO · MOTORISTA · MECANICO</div>
+    </div>
+    <div class="enum-card">
+      <div class="enum-name">tipo_fila_enum</div>
+      <div class="enum-values">NUMERICA · ESPECIAL · MANUTENCAO</div>
+    </div>
+    <div class="enum-card">
+      <div class="enum-name">tipo_alerta_enum</div>
+      <div class="enum-values">PRESO · AMOSTRAL</div>
+    </div>
+    <div class="enum-card">
+      <div class="enum-name">status_ficha_enum</div>
+      <div class="enum-values">ABERTA · EM_ANDAMENTO · CONCLUIDA · CANCELADA</div>
+    </div>
+    <div class="enum-card">
+      <div class="enum-name">tipo_escala_enum</div>
+      <div class="enum-values">MANOBRA · PLANTAO_E2 · PLANTAO_AR2</div>
+    </div>
+    <div class="enum-card">
+      <div class="enum-name">origem_escala_enum</div>
+      <div class="enum-values">IMPORTACAO_EXCEL · MANUAL</div>
+    </div>
+    <div class="enum-card">
+      <div class="enum-name">status_importacao_enum</div>
+      <div class="enum-values">SUCESSO · ERRO · PARCIAL</div>
+    </div>
+  </div>
+
+  <!-- NUCLEO OPERACIONAL -->
+  <div class="group-label">🟥 Núcleo Operacional (8 tabelas)</div>
+  <div class="tables-grid">
+
+    <!-- 1. USUARIO -->
+    <div class="tabela">
+      <div class="tabela-header">
+        <span>👤 usuario</span>
+        <span class="tabela-numero">#1</span>
+      </div>
+      <div class="tabela-body">
+        <div class="col col-pk"><span class="tag tag-pk">PK</span><span class="col-name">id</span><span class="col-type">UUID</span></div>
+        <div class="col"><span class="tag tag-uq">UQ</span><span class="col-name">re</span><span class="col-type">VARCHAR(20)</span></div>
+        <div class="col"><span></span><span class="col-name">nome</span><span class="col-type">VARCHAR(120)</span></div>
+        <div class="col"><span></span><span class="col-name">senha_hash</span><span class="col-type">VARCHAR(255)</span></div>
+        <div class="col"><span class="tag tag-en">EN</span><span class="col-name">perfil</span><span class="col-type">perfil_usuario_enum</span></div>
+        <div class="col"><span></span><span class="col-name">ativo</span><span class="col-type">BOOLEAN</span></div>
+        <div class="col col-fk"><span class="tag tag-fk">FK</span><span class="col-name">motorista_id</span><span class="col-type">UUID NULL</span></div>
+        <div class="col"><span></span><span class="col-name">ultimo_acesso</span><span class="col-type">TIMESTAMP</span></div>
+      </div>
+      <div class="audit-section">+ auditoria padrão</div>
+    </div>
+
+    <!-- 2. MOTORISTA -->
+    <div class="tabela">
+      <div class="tabela-header">
+        <span>🚍 motorista</span>
+        <span class="tabela-numero">#2</span>
+      </div>
+      <div class="tabela-body">
+        <div class="col col-pk"><span class="tag tag-pk">PK</span><span class="col-name">id</span><span class="col-type">UUID</span></div>
+        <div class="col"><span class="tag tag-uq">UQ</span><span class="col-name">re</span><span class="col-type">VARCHAR(20)</span></div>
+        <div class="col"><span></span><span class="col-name">nome</span><span class="col-type">VARCHAR(120)</span></div>
+        <div class="col"><span></span><span class="col-name">cpf</span><span class="col-type">VARCHAR(14)</span></div>
+        <div class="col"><span class="tag tag-en">EN</span><span class="col-name">status</span><span class="col-type">status_motorista_enum</span></div>
+        <div class="col"><span></span><span class="col-name">codigo_externo</span><span class="col-type">VARCHAR(50) NULL</span></div>
+      </div>
+      <div class="audit-section">+ auditoria padrão</div>
+    </div>
+
+    <!-- 3. ONIBUS -->
+    <div class="tabela">
+      <div class="tabela-header">
+        <span>🚌 onibus</span>
+        <span class="tabela-numero">#3</span>
+      </div>
+      <div class="tabela-body">
+        <div class="col col-pk"><span class="tag tag-pk">PK</span><span class="col-name">id</span><span class="col-type">UUID</span></div>
+        <div class="col"><span class="tag tag-uq">UQ</span><span class="col-name">numero_frota</span><span class="col-type">INT (4 dígitos)</span></div>
+        <div class="col"><span></span><span class="col-name">placa</span><span class="col-type">VARCHAR(10) NULL</span></div>
+        <div class="col"><span class="tag tag-en">EN</span><span class="col-name">setor</span><span class="col-type">setor_enum (gerado)</span></div>
+        <div class="col"><span class="tag tag-en">EN</span><span class="col-name">status</span><span class="col-type">status_onibus_enum</span></div>
+        <div class="col"><span></span><span class="col-name">codigo_externo</span><span class="col-type">VARCHAR(50) NULL</span></div>
+      </div>
+      <div class="audit-section">+ auditoria padrão · setor derivado do prefixo da frota</div>
+    </div>
+
+    <!-- 4. FILA -->
+    <div class="tabela">
+      <div class="tabela-header">
+        <span>📍 fila</span>
+        <span class="tabela-numero">#4</span>
+      </div>
+      <div class="tabela-body">
+        <div class="col col-pk"><span class="tag tag-pk">PK</span><span class="col-name">id</span><span class="col-type">UUID</span></div>
+        <div class="col"><span class="tag tag-en">EN</span><span class="col-name">tipo</span><span class="col-type">tipo_fila_enum</span></div>
+        <div class="col"><span></span><span class="col-name">numero</span><span class="col-type">INT NULL (1–33)</span></div>
+        <div class="col"><span></span><span class="col-name">nome</span><span class="col-type">VARCHAR(50)</span></div>
+        <div class="col"><span></span><span class="col-name">ordem_exibicao</span><span class="col-type">INT</span></div>
+        <div class="col"><span></span><span class="col-name">ativa</span><span class="col-type">BOOLEAN</span></div>
+      </div>
+      <div class="audit-section">+ criado_em · 33 numéricas + especiais + manutenção</div>
+    </div>
+
+    <!-- 5. ALOCACAO PATIO -->
+    <div class="tabela">
+      <div class="tabela-header">
+        <span>🅿️ alocacao_patio</span>
+        <span class="tabela-numero">#5</span>
+      </div>
+      <div class="tabela-body">
+        <div class="col col-pk"><span class="tag tag-pk">PK</span><span class="col-name">id</span><span class="col-type">UUID</span></div>
+        <div class="col col-fk"><span class="tag tag-fk">FK</span><span class="col-name">onibus_id</span><span class="col-type">UUID</span></div>
+        <div class="col col-fk"><span class="tag tag-fk">FK</span><span class="col-name">fila_id</span><span class="col-type">UUID</span></div>
+        <div class="col"><span></span><span class="col-name">posicao</span><span class="col-type">INT</span></div>
+        <div class="col col-fk"><span class="tag tag-fk">FK</span><span class="col-name">alocado_por</span><span class="col-type">UUID → usuario</span></div>
+        <div class="col"><span></span><span class="col-name">alocado_em</span><span class="col-type">TIMESTAMP</span></div>
+        <div class="col"><span></span><span class="col-name">ativa</span><span class="col-type">BOOLEAN</span></div>
+        <div class="col"><span></span><span class="col-name">sincronizado_em</span><span class="col-type">TIMESTAMP NULL</span></div>
+        <div class="col"><span></span><span class="col-name">versao</span><span class="col-type">INT</span></div>
+      </div>
+      <div class="audit-section">+ auditoria · UNIQUE (onibus_id) WHERE ativa=true</div>
+    </div>
+
+    <!-- 6. ESCALA -->
+    <div class="tabela">
+      <div class="tabela-header">
+        <span>📅 escala</span>
+        <span class="tabela-numero">#6</span>
+      </div>
+      <div class="tabela-body">
+        <div class="col col-pk"><span class="tag tag-pk">PK</span><span class="col-name">id</span><span class="col-type">UUID</span></div>
+        <div class="col"><span></span><span class="col-name">data</span><span class="col-type">DATE</span></div>
+        <div class="col col-fk"><span class="tag tag-fk">FK</span><span class="col-name">onibus_id</span><span class="col-type">UUID</span></div>
+        <div class="col col-fk"><span class="tag tag-fk">FK</span><span class="col-name">motorista_id</span><span class="col-type">UUID NULL</span></div>
+        <div class="col col-fk"><span class="tag tag-fk">FK</span><span class="col-name">linha_id</span><span class="col-type">UUID</span></div>
+        <div class="col"><span></span><span class="col-name">horario_saida</span><span class="col-type">TIME</span></div>
+        <div class="col"><span class="tag tag-en">EN</span><span class="col-name">tipo</span><span class="col-type">tipo_escala_enum</span></div>
+        <div class="col"><span class="tag tag-en">EN</span><span class="col-name">origem</span><span class="col-type">origem_escala_enum</span></div>
+        <div class="col col-fk"><span class="tag tag-fk">FK</span><span class="col-name">importacao_id</span><span class="col-type">UUID NULL</span></div>
+        <div class="col"><span></span><span class="col-name">deletado_em</span><span class="col-type">TIMESTAMP NULL</span></div>
+        <div class="col"><span></span><span class="col-name">sincronizado_em</span><span class="col-type">TIMESTAMP NULL</span></div>
+        <div class="col"><span></span><span class="col-name">versao</span><span class="col-type">INT</span></div>
+      </div>
+      <div class="audit-section">+ auditoria · soft delete · INDEX (data, onibus_id)</div>
+    </div>
+
+    <!-- 7. ALERTA -->
+    <div class="tabela">
+      <div class="tabela-header">
+        <span>⚠️ alerta</span>
+        <span class="tabela-numero">#7</span>
+      </div>
+      <div class="tabela-body">
+        <div class="col col-pk"><span class="tag tag-pk">PK</span><span class="col-name">id</span><span class="col-type">UUID</span></div>
+        <div class="col col-fk"><span class="tag tag-fk">FK</span><span class="col-name">onibus_id</span><span class="col-type">UUID</span></div>
+        <div class="col"><span class="tag tag-en">EN</span><span class="col-name">tipo</span><span class="col-type">tipo_alerta_enum</span></div>
+        <div class="col"><span></span><span class="col-name">motivo</span><span class="col-type">TEXT</span></div>
+        <div class="col col-fk"><span class="tag tag-fk">FK</span><span class="col-name">registrado_por</span><span class="col-type">UUID → usuario</span></div>
+        <div class="col"><span></span><span class="col-name">resolvido</span><span class="col-type">BOOLEAN</span></div>
+        <div class="col"><span></span><span class="col-name">resolvido_em</span><span class="col-type">TIMESTAMP NULL</span></div>
+        <div class="col col-fk"><span class="tag tag-fk">FK</span><span class="col-name">resolvido_por</span><span class="col-type">UUID NULL → usuario</span></div>
+        <div class="col"><span></span><span class="col-name">deletado_em</span><span class="col-type">TIMESTAMP NULL</span></div>
+        <div class="col"><span></span><span class="col-name">sincronizado_em</span><span class="col-type">TIMESTAMP NULL</span></div>
+        <div class="col"><span></span><span class="col-name">versao</span><span class="col-type">INT</span></div>
+      </div>
+      <div class="audit-section">+ auditoria · UNIQUE (onibus_id, tipo) WHERE resolvido=false</div>
+    </div>
+
+    <!-- 8. FICHA MANUTENCAO -->
+    <div class="tabela">
+      <div class="tabela-header">
+        <span>🔧 ficha_manutencao</span>
+        <span class="tabela-numero">#8</span>
+      </div>
+      <div class="tabela-body">
+        <div class="col col-pk"><span class="tag tag-pk">PK</span><span class="col-name">id</span><span class="col-type">UUID</span></div>
+        <div class="col col-fk"><span class="tag tag-fk">FK</span><span class="col-name">onibus_id</span><span class="col-type">UUID</span></div>
+        <div class="col col-fk"><span class="tag tag-fk">FK</span><span class="col-name">motorista_id</span><span class="col-type">UUID NULL</span></div>
+        <div class="col col-fk"><span class="tag tag-fk">FK</span><span class="col-name">mecanico_id</span><span class="col-type">UUID NULL → usuario</span></div>
+        <div class="col col-fk"><span class="tag tag-fk">FK</span><span class="col-name">tipo_defeito_id</span><span class="col-type">UUID</span></div>
+        <div class="col"><span></span><span class="col-name">descricao</span><span class="col-type">TEXT</span></div>
+        <div class="col"><span class="tag tag-en">EN</span><span class="col-name">status</span><span class="col-type">status_ficha_enum</span></div>
+        <div class="col"><span></span><span class="col-name">aberta_em</span><span class="col-type">TIMESTAMP</span></div>
+        <div class="col"><span></span><span class="col-name">concluida_em</span><span class="col-type">TIMESTAMP NULL</span></div>
+        <div class="col"><span></span><span class="col-name">deletado_em</span><span class="col-type">TIMESTAMP NULL</span></div>
+        <div class="col"><span></span><span class="col-name">sincronizado_em</span><span class="col-type">TIMESTAMP NULL</span></div>
+        <div class="col"><span></span><span class="col-name">versao</span><span class="col-type">INT</span></div>
+      </div>
+      <div class="audit-section">+ auditoria · soft delete · INDEX (onibus_id, status)</div>
+    </div>
+
+  </div>
+
+  <!-- CATALOGOS -->
+  <div class="group-label" style="color: #d97706;">🟨 Catálogos Fechados (3 tabelas)</div>
+  <div class="tables-grid">
+
+    <!-- 9. LINHA -->
+    <div class="tabela catalogo">
+      <div class="tabela-header">
+        <span>🛣️ linha</span>
+        <span class="tabela-numero">#9</span>
+      </div>
+      <div class="tabela-body">
+        <div class="col col-pk"><span class="tag tag-pk">PK</span><span class="col-name">id</span><span class="col-type">UUID</span></div>
+        <div class="col"><span class="tag tag-uq">UQ</span><span class="col-name">codigo</span><span class="col-type">VARCHAR(20)</span></div>
+        <div class="col"><span></span><span class="col-name">nome</span><span class="col-type">VARCHAR(120)</span></div>
+        <div class="col"><span class="tag tag-en">EN</span><span class="col-name">setor</span><span class="col-type">setor_enum</span></div>
+        <div class="col"><span></span><span class="col-name">ativa</span><span class="col-type">BOOLEAN</span></div>
+      </div>
+      <div class="audit-section">+ criado_em · catálogo fechado · valida cruzamento E2/AR2</div>
+    </div>
+
+    <!-- 10. TIPO DEFEITO -->
+    <div class="tabela catalogo">
+      <div class="tabela-header">
+        <span>🛠️ tipo_defeito</span>
+        <span class="tabela-numero">#10</span>
+      </div>
+      <div class="tabela-body">
+        <div class="col col-pk"><span class="tag tag-pk">PK</span><span class="col-name">id</span><span class="col-type">UUID</span></div>
+        <div class="col"><span class="tag tag-uq">UQ</span><span class="col-name">codigo</span><span class="col-type">VARCHAR(20)</span></div>
+        <div class="col"><span></span><span class="col-name">nome</span><span class="col-type">VARCHAR(120)</span></div>
+        <div class="col"><span></span><span class="col-name">categoria</span><span class="col-type">VARCHAR(50)</span></div>
+        <div class="col"><span></span><span class="col-name">ativo</span><span class="col-type">BOOLEAN</span></div>
+      </div>
+      <div class="audit-section">+ criado_em · ex.: mecânica, elétrica, freios, ar, lataria</div>
+    </div>
+
+    <!-- 11. PERMISSAO -->
+    <div class="tabela catalogo">
+      <div class="tabela-header">
+        <span>🔐 permissao</span>
+        <span class="tabela-numero">#11</span>
+      </div>
+      <div class="tabela-body">
+        <div class="col col-pk"><span class="tag tag-pk">PK</span><span class="col-name">id</span><span class="col-type">UUID</span></div>
+        <div class="col col-fk"><span class="tag tag-fk">FK</span><span class="col-name">usuario_id</span><span class="col-type">UUID</span></div>
+        <div class="col"><span></span><span class="col-name">recurso</span><span class="col-type">VARCHAR(50)</span></div>
+        <div class="col"><span></span><span class="col-name">pode_ler</span><span class="col-type">BOOLEAN</span></div>
+        <div class="col"><span></span><span class="col-name">pode_escrever</span><span class="col-type">BOOLEAN</span></div>
+        <div class="col col-fk"><span class="tag tag-fk">FK</span><span class="col-name">concedido_por</span><span class="col-type">UUID → usuario</span></div>
+      </div>
+      <div class="audit-section">+ criado_em · UNIQUE (usuario_id, recurso)</div>
+    </div>
+
+    <!-- 12. IMPORTACAO ESCALA -->
+    <div class="tabela sistema">
+      <div class="tabela-header">
+        <span>📥 importacao_escala</span>
+        <span class="tabela-numero">#12</span>
+      </div>
+      <div class="tabela-body">
+        <div class="col col-pk"><span class="tag tag-pk">PK</span><span class="col-name">id</span><span class="col-type">UUID</span></div>
+        <div class="col"><span></span><span class="col-name">arquivo_nome</span><span class="col-type">VARCHAR(255)</span></div>
+        <div class="col"><span></span><span class="col-name">arquivo_hash</span><span class="col-type">VARCHAR(64)</span></div>
+        <div class="col"><span></span><span class="col-name">data_escala</span><span class="col-type">DATE</span></div>
+        <div class="col"><span></span><span class="col-name">total_registros</span><span class="col-type">INT</span></div>
+        <div class="col"><span></span><span class="col-name">registros_sucesso</span><span class="col-type">INT</span></div>
+        <div class="col"><span></span><span class="col-name">registros_erro</span><span class="col-type">INT</span></div>
+        <div class="col"><span class="tag tag-en">EN</span><span class="col-name">status</span><span class="col-type">status_importacao_enum</span></div>
+        <div class="col"><span></span><span class="col-name">erro_detalhe</span><span class="col-type">TEXT NULL</span></div>
+        <div class="col col-fk"><span class="tag tag-fk">FK</span><span class="col-name">importado_por</span><span class="col-type">UUID → usuario</span></div>
+        <div class="col"><span></span><span class="col-name">importado_em</span><span class="col-type">TIMESTAMP</span></div>
+      </div>
+      <div class="audit-section">tabela de sistema · permite reverter import</div>
+    </div>
+
+  </div>
+
+  <!-- RELACIONAMENTOS -->
+  <div class="section-title">Relacionamentos (Cardinalidades)</div>
+  <div class="rels-grid">
+    <div class="rel-item"><b>usuario</b> → <b>motorista</b><span class="card">N:1 · opcional</span><br><small>Usuário pode (ou não) estar vinculado a um motorista</small></div>
+    <div class="rel-item"><b>usuario</b> → <b>permissao</b><span class="card">1:N</span><br><small>Cada usuário tem várias permissões por recurso</small></div>
+    <div class="rel-item"><b>usuario</b> → <b>alocacao_patio</b><span class="card">1:N · alocado_por</span><br><small>Operador realiza muitas alocações</small></div>
+    <div class="rel-item"><b>usuario</b> → <b>alerta</b><span class="card">1:N · registrado_por / resolvido_por</span><br><small>Coordenador registra e resolve alertas</small></div>
+    <div class="rel-item"><b>usuario</b> → <b>ficha_manutencao</b><span class="card">1:N · mecanico_id</span><br><small>Mecânico executa muitas fichas</small></div>
+    <div class="rel-item"><b>usuario</b> → <b>importacao_escala</b><span class="card">1:N</span><br><small>Coordenador faz vários uploads</small></div>
+    <div class="rel-item"><b>onibus</b> → <b>alocacao_patio</b><span class="card">1:N · só 1 ativa</span><br><small>Histórico de movimentações; constraint UNIQUE em ativa=true</small></div>
+    <div class="rel-item"><b>onibus</b> → <b>escala</b><span class="card">1:N</span><br><small>Um ônibus aparece em várias escalas (datas)</small></div>
+    <div class="rel-item"><b>onibus</b> → <b>alerta</b><span class="card">1:N</span><br><small>Múltiplos alertas históricos por ônibus</small></div>
+    <div class="rel-item"><b>onibus</b> → <b>ficha_manutencao</b><span class="card">1:N</span><br><small>Várias fichas de defeito ao longo do tempo</small></div>
+    <div class="rel-item"><b>motorista</b> → <b>escala</b><span class="card">1:N</span><br><small>Motorista escalado em vários dias</small></div>
+    <div class="rel-item"><b>motorista</b> → <b>ficha_manutencao</b><span class="card">1:N · reportou</span><br><small>Motorista reportou defeito na ficha</small></div>
+    <div class="rel-item"><b>fila</b> → <b>alocacao_patio</b><span class="card">1:N</span><br><small>Mesma fila recebe muitos ônibus ao longo do tempo</small></div>
+    <div class="rel-item"><b>linha</b> → <b>escala</b><span class="card">1:N</span><br><small>Mesma linha aparece em várias escalas</small></div>
+    <div class="rel-item"><b>tipo_defeito</b> → <b>ficha_manutencao</b><span class="card">1:N</span><br><small>Categoria de defeito reutilizada em fichas</small></div>
+    <div class="rel-item"><b>importacao_escala</b> → <b>escala</b><span class="card">1:N</span><br><small>Cada upload gera várias linhas de escala</small></div>
+  </div>
+
+  <!-- LEGENDA -->
+  <div class="section-title">Legenda</div>
+  <div class="legend">
+    <div class="legend-item"><div class="legend-dot" style="background:#CC0000;"></div> Núcleo operacional</div>
+    <div class="legend-item"><div class="legend-dot" style="background:#d97706;"></div> Catálogo fechado</div>
+    <div class="legend-item"><div class="legend-dot" style="background:#1a56cc;"></div> Tabela de sistema</div>
+    <div class="legend-item"><span class="tag tag-pk">PK</span> Chave primária (UUID)</div>
+    <div class="legend-item"><span class="tag tag-fk">FK</span> Chave estrangeira</div>
+    <div class="legend-item"><span class="tag tag-uq">UQ</span> Único</div>
+    <div class="legend-item"><span class="tag tag-en">EN</span> Tipo enumerado</div>
+    <div class="legend-item"><span style="font-style:italic;color:#888;">+ auditoria padrão</span> = criado_em, criado_por, atualizado_em, atualizado_por</div>
+  </div>
+
+  <div class="footer">
+    Sistema de Gestão de Pátio Sambaíba · DER Lógico v3.0 · PostgreSQL 15+ · Banco: <b>gestao_patio_sambaiba</b><br>
+    Garagem 3 · Alisson Martins · ADS Anhanguera · © 2026
+  </div>
+
+</div>
+
+</body>
+</html>

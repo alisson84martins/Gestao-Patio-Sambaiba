@@ -1,0 +1,194 @@
+### ============================================================
+### Gestão de Pátio Sambaíba — Coleção REST Client para VS Code
+### Extensão: "REST Client" (Huachao Mao)
+### ============================================================
+### Como usar:
+###   1. Suba a API:   fastapi dev app/main.py
+###   2. Garanta que o admin tem senha:  python scripts/set_password.py ADMIN001 57402232
+###   3. Clique em "Send Request" acima do bloco "### 3. Login JSON".
+###      O token é capturado automaticamente e usado pelas requisições seguintes.
+###   4. Daí em diante, qualquer endpoint protegido funciona — basta clicar Send Request.
+### ============================================================
+
+@baseUrl = http://127.0.0.1:8000
+@re      = ADMIN001
+@senha   = 57402232
+
+
+### ------------------------------------------------------------
+### 1. Raiz da API (não exige token)
+### ------------------------------------------------------------
+GET {{baseUrl}}/
+Accept: application/json
+
+
+### ------------------------------------------------------------
+### 2. Health check (não exige token)
+### Espere: status="ok", database="connected", tabelas_publicas=12
+### ------------------------------------------------------------
+GET {{baseUrl}}/health
+Accept: application/json
+
+
+### ------------------------------------------------------------
+### 3. Login JSON  (CAPTURA O TOKEN — RODE ESTE PRIMEIRO)
+### ------------------------------------------------------------
+# @name login
+POST {{baseUrl}}/auth/login
+Content-Type: application/json
+
+{
+  "re": "{{re}}",
+  "senha": "{{senha}}"
+}
+
+###
+@token = {{login.response.body.access_token}}
+
+
+### ------------------------------------------------------------
+### 3b. Login OAuth2 (form) — alternativa usada pelo Swagger Authorize
+### ------------------------------------------------------------
+# @name loginForm
+POST {{baseUrl}}/auth/token
+Content-Type: application/x-www-form-urlencoded
+
+username={{re}}&password={{senha}}
+
+
+### ------------------------------------------------------------
+### 4. Quem sou eu (valida que o token funciona)
+### Espere: status 200 com seus dados (perfil=ADMIN)
+### ------------------------------------------------------------
+GET {{baseUrl}}/auth/me
+Authorization: Bearer {{token}}
+
+
+### ============================================================
+### CATÁLOGOS
+### ============================================================
+
+### 5. Listar filas (33 numéricas + 6 especiais + 1 manutenção)
+GET {{baseUrl}}/filas
+Authorization: Bearer {{token}}
+
+
+### 6. Listar linhas
+GET {{baseUrl}}/linhas
+Authorization: Bearer {{token}}
+
+
+### 7. Listar tipos de defeito (29 esperados)
+GET {{baseUrl}}/tipos-defeito
+Authorization: Bearer {{token}}
+
+
+### 8. Listar usuários (só ADMIN)
+GET {{baseUrl}}/usuarios
+Authorization: Bearer {{token}}
+
+
+### 9. Listar ônibus
+GET {{baseUrl}}/onibus
+Authorization: Bearer {{token}}
+
+
+### 10. Listar motoristas
+GET {{baseUrl}}/motoristas
+Authorization: Bearer {{token}}
+
+
+### ============================================================
+### EXEMPLO DE CADASTRO — ÔNIBUS
+### ============================================================
+
+### 11. Criar ônibus de teste (frota começa com 1 → setor E2)
+# @name novoOnibus
+POST {{baseUrl}}/onibus
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "numero_frota": 1234,
+  "placa": "ABC1D23",
+  "status": "ATIVO"
+}
+
+###
+@onibusId = {{novoOnibus.response.body.id}}
+
+
+### 12. Buscar ônibus pelo número da frota
+GET {{baseUrl}}/onibus/frota/1234
+Authorization: Bearer {{token}}
+
+
+### 13. Atualizar status do ônibus (manutenção)
+PATCH {{baseUrl}}/onibus/{{onibusId}}
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "status": "MANUTENCAO"
+}
+
+
+### ============================================================
+### PÁTIO — VISÃO CONSOLIDADA
+### ============================================================
+
+### 14. Visão completa do pátio (todas as filas + ônibus + linha + horário)
+GET {{baseUrl}}/patio
+Authorization: Bearer {{token}}
+
+
+### 15. Onde está o ônibus 1234?
+GET {{baseUrl}}/patio/onibus/1234
+Authorization: Bearer {{token}}
+
+
+### 16. Remanejamento — ônibus em manutenção COM escala hoje
+GET {{baseUrl}}/patio/remanejamento
+Authorization: Bearer {{token}}
+
+
+### ============================================================
+### OPERACIONAIS — escala, alocação, alerta, manutenção
+### (use os IDs reais retornados pelas listagens acima)
+### ============================================================
+
+### 17. Listar escalas
+GET {{baseUrl}}/escalas
+Authorization: Bearer {{token}}
+
+
+### 18. Listar alocações
+GET {{baseUrl}}/alocacoes
+Authorization: Bearer {{token}}
+
+
+### 19. Listar alertas
+GET {{baseUrl}}/alertas
+Authorization: Bearer {{token}}
+
+
+### 20. Listar fichas de manutenção
+GET {{baseUrl}}/manutencao
+Authorization: Bearer {{token}}
+
+
+### ============================================================
+### IMPORTAÇÃO DE ESCALA
+### ============================================================
+
+### 21. Listar importações já realizadas
+GET {{baseUrl}}/importacoes
+Authorization: Bearer {{token}}
+
+
+### ============================================================
+### Bônus: erro proposital (401) — se rodar SEM ter feito o login antes
+### ------------------------------------------------------------
+### GET {{baseUrl}}/auth/me
+### Authorization: Bearer token-invalido
+### ============================================================

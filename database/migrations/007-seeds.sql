@@ -1,0 +1,35 @@
+-- =====================================================================
+-- Migration 007 — Carga inicial (Seeds)
+-- Sistema de Gestão de Pátio Sambaíba v3.0
+-- =====================================================================
+-- Carrega os dados base do sistema:
+--   1. 33 filas numéricas
+--   2. 6 posições especiais
+--   3. Setor de manutenção
+--   4. Tipos de defeito
+--   5. Linhas (exemplo — ajustar antes de produção)
+--   6. Usuário admin + permissões
+-- =====================================================================
+-- IMPORTANTE: Os arquivos de seed estão em ../seeds/
+-- Para rodar via psql, use \i com o caminho:
+--
+--   psql -h localhost -U postgres -d gestao_patio_sambaiba <<EOF
+--   \i seeds/01-filas-numericas.sql
+--   \i seeds/02-posicoes-especiais.sql
+--   \i seeds/03-manutencao.sql
+--   \i seeds/04-tipos-defeito.sql
+--   \i seeds/05-linhas-exemplo.sql
+--   \i seeds/06-usuario-admin.sql
+--   EOF
+--
+-- Alternativa: rode cada arquivo individualmente.
+-- =====================================================================
+
+-- Validação rápida pós-seeds (rode após carregar todos os arquivos):
+--
+-- SELECT COUNT(*) AS filas_numericas FROM fila WHERE tipo = 'NUMERICA';      -- esperado: 33
+-- SELECT COUNT(*) AS especiais       FROM fila WHERE tipo = 'ESPECIAL';      -- esperado: 6
+-- SELECT COUNT(*) AS manutencao      FROM fila WHERE tipo = 'MANUTENCAO';    -- esperado: 1
+-- SELECT COUNT(*) AS tipos_defeito   FROM tipo_defeito WHERE ativo = TRUE;   -- esperado: ~28
+-- SELECT COUNT(*) AS admin           FROM usuario WHERE perfil = 'ADMIN';    -- esperado: 1
+-- SELECT COUNT(*) AS permissoes      FROM permissao;                         -- esperado: 11
