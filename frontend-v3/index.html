@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<!--
+  Sistema de Gestão de Pátio Sambaíba — V3
+  Tela de login
+  Desenvolvido por Alisson Martins
+  © 2026 — Todos os direitos reservados
+-->
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="theme-color" content="#0a0a0a">
+    <meta name="author" content="Alisson Martins">
+    <title>Login — Pátio Sambaíba</title>
+
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700;800&family=Barlow+Condensed:wght@400;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="assets/css/style.css">
+</head>
+<body>
+
+<main class="login-shell">
+
+    <div class="login-brand">
+        <img class="login-logo" src="assets/img/sambaiba-logo.jpg" alt="Eu amo Sambaíba">
+        <div class="login-empresa">Sambaíba Transportes</div>
+        <div class="login-title">GESTÃO DE PÁTIO</div>
+        <div class="login-sub">Sistema Operacional · Garagem 3</div>
+    </div>
+
+    <form class="login-card" id="login-form" autocomplete="on" novalidate>
+        <div class="login-card-title">Acesso ao sistema</div>
+        <div class="login-card-hint">Use seu RE de funcionário e senha</div>
+
+        <div class="form-group">
+            <label class="form-label" for="input-re">RE (Registro)</label>
+            <input
+                type="text"
+                id="input-re"
+                name="re"
+                class="form-input"
+                placeholder="Ex: ADMIN001"
+                autocomplete="username"
+                inputmode="text"
+                maxlength="20"
+                required
+                autofocus
+            >
+        </div>
+
+        <div class="form-group">
+            <label class="form-label" for="input-senha">Senha</label>
+            <div class="password-wrap">
+                <input
+                    type="password"
+                    id="input-senha"
+                    name="senha"
+                    class="form-input"
+                    placeholder="••••••••"
+                    autocomplete="current-password"
+                    required
+                >
+                <button
+                    type="button"
+                    class="password-toggle"
+                    id="toggle-senha"
+                    title="Mostrar/esconder senha"
+                    aria-label="Mostrar ou esconder senha"
+                >👁</button>
+            </div>
+        </div>
+
+        <button type="submit" class="btn btn-primary btn-full" id="btn-entrar">
+            Entrar
+        </button>
+
+        <div class="login-alert" id="login-alert" role="alert" aria-live="polite"></div>
+    </form>
+
+    <div class="login-footer">
+        <div>
+            <span class="status-dot" id="api-status-dot"></span>
+            <span id="api-status-text">Verificando servidor...</span>
+        </div>
+        <div id="api-env-text">—</div>
+        <div>V3 · Desenvolvido por Alisson Martins · © 2026</div>
+    </div>
+
+</main>
+
+<script type="module" src="assets/js/login.page.js"></script>
+</body>
+</html>

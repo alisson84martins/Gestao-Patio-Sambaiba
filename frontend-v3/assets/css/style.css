@@ -1,0 +1,458 @@
+/*
+ * Frontend V3 — Sambaíba Transportes
+ * Tema visual idêntico à V2 (em produção)
+ * --------------------------------------------------------
+ */
+
+:root {
+    --bg: #0a0a0a;
+    --surface: #141414;
+    --surface2: #1c1c1c;
+    --border: #2a2a2a;
+    --accent: #cc1f1f;
+    --accent2: #ef4444;
+    --accent3: #10b981;
+    --accent4: #3b82f6;
+    --text: #f0f0f0;
+    --muted: #666;
+    --mono: 'JetBrains Mono', monospace;
+    --display: 'Barlow Condensed', sans-serif;
+}
+
+* {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+    -webkit-tap-highlight-color: transparent;
+}
+
+body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--display);
+    min-height: 100vh;
+    overflow-x: hidden;
+}
+
+/* ============================================================
+   TELA DE LOGIN
+   ============================================================ */
+.login-shell {
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 24px 16px;
+    background:
+        radial-gradient(circle at 20% 10%, rgba(204, 31, 31, 0.08), transparent 50%),
+        radial-gradient(circle at 80% 90%, rgba(204, 31, 31, 0.05), transparent 50%),
+        var(--bg);
+}
+
+.login-brand {
+    text-align: center;
+    margin-bottom: 28px;
+}
+
+.login-logo {
+    /* Imagem original 1280x720 (16:9) — container respeita o aspecto pra
+       não cortar e nem distorcer */
+    width: 240px;
+    height: 135px;
+    border-radius: 14px;
+    object-fit: contain;
+    display: block;
+    margin: 0 auto 14px;
+    box-shadow: 0 6px 24px rgba(204, 31, 31, 0.35);
+    border: 2px solid var(--accent);
+    background: #000;
+}
+
+.login-empresa {
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--accent);
+    letter-spacing: 3px;
+    text-transform: uppercase;
+    font-family: var(--mono);
+    margin-bottom: 4px;
+}
+
+.login-title {
+    font-size: 30px;
+    font-weight: 800;
+    letter-spacing: 1px;
+    color: var(--text);
+    line-height: 1;
+}
+
+.login-sub {
+    font-size: 11px;
+    color: var(--muted);
+    font-family: var(--mono);
+    letter-spacing: 1.5px;
+    margin-top: 6px;
+    text-transform: uppercase;
+}
+
+.login-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-top: 3px solid var(--accent);
+    border-radius: 14px;
+    padding: 28px 24px;
+    width: 100%;
+    max-width: 380px;
+    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
+}
+
+.login-card-title {
+    font-size: 18px;
+    font-weight: 800;
+    margin-bottom: 4px;
+    letter-spacing: 0.5px;
+}
+
+.login-card-hint {
+    font-size: 12px;
+    color: var(--muted);
+    font-family: var(--mono);
+    margin-bottom: 20px;
+}
+
+.form-group {
+    margin-bottom: 14px;
+}
+
+.form-label {
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--muted);
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    font-family: var(--mono);
+    margin-bottom: 6px;
+    display: block;
+}
+
+.form-input {
+    width: 100%;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 12px 14px;
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 15px;
+    outline: none;
+    transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.form-input:focus {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px rgba(204, 31, 31, 0.15);
+}
+
+.form-input::placeholder {
+    color: var(--muted);
+}
+
+.form-input:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+}
+
+/* Bloco da senha com botão "olho" pra mostrar/esconder */
+.password-wrap {
+    position: relative;
+}
+
+.password-wrap .form-input {
+    padding-right: 44px;
+}
+
+.password-toggle {
+    position: absolute;
+    right: 8px;
+    top: 50%;
+    transform: translateY(-50%);
+    background: none;
+    border: none;
+    color: var(--muted);
+    cursor: pointer;
+    padding: 6px 10px;
+    font-size: 16px;
+    line-height: 1;
+}
+
+.password-toggle:hover {
+    color: var(--text);
+}
+
+.btn {
+    padding: 10px 16px;
+    border-radius: 8px;
+    border: none;
+    font-family: var(--display);
+    font-size: 14px;
+    font-weight: 700;
+    cursor: pointer;
+    transition: all 0.15s;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+}
+
+.btn-primary {
+    background: var(--accent);
+    color: #fff;
+}
+
+.btn-primary:hover {
+    background: #b51b1b;
+}
+
+.btn-primary:active {
+    transform: scale(0.98);
+}
+
+.btn-primary:disabled {
+    background: var(--surface2);
+    color: var(--muted);
+    cursor: not-allowed;
+    transform: none;
+}
+
+.btn-full {
+    width: 100%;
+    margin-top: 10px;
+    padding: 14px;
+    font-size: 16px;
+}
+
+/* Mensagem de erro / alerta */
+.login-alert {
+    display: none;
+    padding: 10px 12px;
+    border-radius: 8px;
+    font-size: 13px;
+    margin-top: 14px;
+    font-family: var(--mono);
+    line-height: 1.4;
+}
+
+.login-alert.show {
+    display: block;
+}
+
+.login-alert.error {
+    background: rgba(239, 68, 68, 0.12);
+    border: 1px solid var(--accent2);
+    color: #fca5a5;
+}
+
+.login-alert.warning {
+    background: rgba(245, 158, 11, 0.12);
+    border: 1px solid #f59e0b;
+    color: #fcd34d;
+}
+
+.login-alert.success {
+    background: rgba(16, 185, 129, 0.12);
+    border: 1px solid var(--accent3);
+    color: #6ee7b7;
+}
+
+/* Rodapé com status da API + versão */
+.login-footer {
+    margin-top: 22px;
+    text-align: center;
+    font-size: 10px;
+    color: var(--muted);
+    font-family: var(--mono);
+    letter-spacing: 1px;
+    line-height: 1.7;
+}
+
+.login-footer .status-dot {
+    display: inline-block;
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--muted);
+    margin-right: 5px;
+    vertical-align: middle;
+}
+
+.login-footer .status-dot.online {
+    background: var(--accent3);
+    box-shadow: 0 0 6px rgba(16, 185, 129, 0.6);
+}
+
+.login-footer .status-dot.offline {
+    background: var(--accent2);
+}
+
+/* Spinner do botão durante o login */
+.spinner {
+    display: inline-block;
+    width: 14px;
+    height: 14px;
+    border: 2px solid rgba(255, 255, 255, 0.3);
+    border-top-color: #fff;
+    border-radius: 50%;
+    animation: spin 0.7s linear infinite;
+    vertical-align: middle;
+    margin-right: 8px;
+}
+
+@keyframes spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+/* ============================================================
+   PATIO.HTML (placeholder)
+   ============================================================ */
+.app-header {
+    background: var(--surface);
+    border-bottom: 3px solid var(--accent);
+    padding: 12px 16px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+
+.app-header-brand {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.app-header-logo {
+    /* Mesmo aspecto 16:9 da imagem original — texto "Eu ❤ Sambaíba" inteiro visível */
+    width: 80px;
+    height: 45px;
+    border-radius: 6px;
+    object-fit: contain;
+    display: block;
+    flex-shrink: 0;
+    border: 1px solid var(--border);
+    background: #000;
+}
+
+.app-header-titles {
+    line-height: 1.15;
+}
+
+.app-header-empresa {
+    font-size: 10px;
+    color: var(--accent);
+    letter-spacing: 2px;
+    font-family: var(--mono);
+    text-transform: uppercase;
+    font-weight: 700;
+}
+
+.app-header-title {
+    font-size: 18px;
+    font-weight: 800;
+    color: var(--text);
+}
+
+.app-header-user {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.app-user-info {
+    text-align: right;
+    line-height: 1.2;
+}
+
+.app-user-name {
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--text);
+}
+
+.app-user-meta {
+    font-size: 10px;
+    color: var(--muted);
+    font-family: var(--mono);
+    letter-spacing: 0.5px;
+}
+
+.btn-logout {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 8px 14px;
+    border-radius: 8px;
+    cursor: pointer;
+    font-family: var(--display);
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+}
+
+.btn-logout:hover {
+    background: var(--accent);
+    color: #fff;
+    border-color: var(--accent);
+}
+
+.placeholder-msg {
+    padding: 60px 20px;
+    text-align: center;
+    color: var(--muted);
+    font-family: var(--mono);
+}
+
+.placeholder-msg .icon {
+    font-size: 48px;
+    margin-bottom: 16px;
+}
+
+.placeholder-msg .title {
+    font-size: 16px;
+    font-weight: 700;
+    color: var(--text);
+    margin-bottom: 6px;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+}
+
+.placeholder-msg .sub {
+    font-size: 13px;
+    line-height: 1.6;
+}
+
+/* ============================================================
+   MOBILE
+   ============================================================ */
+@media (max-width: 480px) {
+    .login-card {
+        padding: 22px 18px;
+    }
+
+    .login-title {
+        font-size: 24px;
+    }
+
+    .login-logo {
+        width: 200px;
+        height: 113px;
+    }
+
+    .app-header-title {
+        font-size: 15px;
+    }
+
+    .app-user-info {
+        display: none;
+    }
+}
