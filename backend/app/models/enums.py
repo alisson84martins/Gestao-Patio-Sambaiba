@@ -32,6 +32,7 @@ class PerfilUsuarioEnum(str, Enum):
 class TipoFilaEnum(str, Enum):
     NUMERICA = "NUMERICA"
     ESPECIAL = "ESPECIAL"
+    ESPECIAL_REMOTA = "ESPECIAL_REMOTA"
     MANUTENCAO = "MANUTENCAO"
 
 
