@@ -35,3 +35,6 @@ logs/
 *.tmp
 *.bak
 *.old
+
+# Pasta de contexto privado entre sessoes do Claude (Cowork + Claude Code) - fora do versionamento
+_handoff-claude/
