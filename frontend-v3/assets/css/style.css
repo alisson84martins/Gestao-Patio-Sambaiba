@@ -456,3 +456,347 @@ body {
         display: none;
     }
 }
+
+/* ============================================================
+   FASE 5.2 — TELA DO PATIO
+   ============================================================ */
+
+.patio-main {
+    padding: 16px;
+    padding-bottom: 60px; /* espaco pro update-footer fixo */
+}
+
+/* ------------------------------------------------------------
+   Stats bar — 4 KPIs grandes no topo
+   ------------------------------------------------------------ */
+.stats-bar {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 10px;
+    margin-bottom: 18px;
+}
+
+.stat-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 12px 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.stat-card-warn {
+    border-left: 3px solid var(--accent);
+}
+
+.stat-label {
+    font-size: 10px;
+    font-weight: 700;
+    color: var(--muted);
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+    font-family: var(--mono);
+}
+
+.stat-value {
+    font-size: 28px;
+    font-weight: 800;
+    color: var(--text);
+    font-family: var(--display);
+    line-height: 1;
+}
+
+.stat-card-warn .stat-value {
+    color: var(--accent);
+}
+
+/* ------------------------------------------------------------
+   Patio content e secoes
+   ------------------------------------------------------------ */
+.patio-content {
+    display: flex;
+    flex-direction: column;
+    gap: 22px;
+}
+
+.patio-loading {
+    text-align: center;
+    color: var(--muted);
+    font-family: var(--mono);
+    font-size: 13px;
+    padding: 40px 20px;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+}
+
+.patio-section {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.patio-section-title {
+    font-size: 12px;
+    font-weight: 800;
+    color: var(--muted);
+    letter-spacing: 3px;
+    text-transform: uppercase;
+    font-family: var(--mono);
+    padding-bottom: 6px;
+    border-bottom: 1px solid var(--border);
+}
+
+.patio-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+    gap: 10px;
+}
+
+/* ------------------------------------------------------------
+   Card de fila individual
+   ------------------------------------------------------------ */
+.fila-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+}
+
+.fila-header {
+    background: var(--surface2);
+    padding: 8px 12px;
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    border-bottom: 1px solid var(--border);
+}
+
+.fila-numero {
+    font-size: 18px;
+    font-weight: 800;
+    color: var(--text);
+    font-family: var(--display);
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+}
+
+.fila-contador {
+    font-size: 10px;
+    font-weight: 700;
+    color: var(--muted);
+    font-family: var(--mono);
+    letter-spacing: 1px;
+}
+
+.fila-body {
+    padding: 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    min-height: 60px;
+}
+
+.fila-vazia {
+    color: var(--muted);
+    font-family: var(--mono);
+    font-size: 11px;
+    text-align: center;
+    letter-spacing: 1px;
+    padding: 14px 0;
+    opacity: 0.55;
+    text-transform: uppercase;
+}
+
+/* ------------------------------------------------------------
+   Chip do onibus
+   ------------------------------------------------------------ */
+.onibus-chip {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 6px 8px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-family: var(--mono);
+    font-size: 13px;
+    line-height: 1.2;
+    transition: border-color 0.15s, transform 0.1s;
+}
+
+.onibus-chip:hover {
+    border-color: var(--muted);
+    transform: translateY(-1px);
+}
+
+.chip-frota {
+    font-weight: 800;
+    color: var(--text);
+    font-size: 14px;
+    flex-shrink: 0;
+}
+
+.chip-setor {
+    display: inline-block;
+    padding: 1px 6px;
+    border-radius: 4px;
+    font-size: 9px;
+    font-weight: 800;
+    letter-spacing: 1px;
+    color: #fff;
+    flex-shrink: 0;
+}
+
+.chip-setor.setor-e2 {
+    background: var(--accent); /* vermelho — centro */
+}
+
+.chip-setor.setor-ar2 {
+    background: var(--accent4); /* azul — bairro */
+}
+
+.chip-meta {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    color: var(--muted);
+    font-size: 10px;
+    min-width: 0;
+}
+
+.chip-linha {
+    color: var(--text);
+    font-weight: 600;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.chip-horario {
+    font-size: 9px;
+    letter-spacing: 0.5px;
+}
+
+.chip-horario.noturno {
+    color: var(--accent4); /* azul-noite pra horarios >= 16h */
+    font-weight: 700;
+}
+
+.chip-icons {
+    display: flex;
+    gap: 3px;
+    flex-shrink: 0;
+}
+
+.chip-icon {
+    width: 18px;
+    height: 18px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: 800;
+}
+
+.chip-icon.icon-preso {
+    background: rgba(204, 31, 31, 0.18);
+    color: #fca5a5;
+    border: 1px solid var(--accent);
+}
+
+.chip-icon.icon-ficha {
+    background: rgba(245, 158, 11, 0.15);
+    color: #fcd34d;
+    border: 1px solid #f59e0b;
+}
+
+.chip-icon.icon-pegadinha {
+    background: rgba(16, 185, 129, 0.15);
+    color: #6ee7b7;
+    border: 1px solid var(--accent3);
+    display: none; /* fica oculto ate o dado existir */
+}
+
+.onibus-chip.status-reserva {
+    border-color: #f59e0b;
+    background: rgba(245, 158, 11, 0.06);
+}
+
+/* ------------------------------------------------------------
+   Rodape de status do polling
+   ------------------------------------------------------------ */
+.update-footer {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    background: var(--surface);
+    border-top: 1px solid var(--border);
+    padding: 8px 16px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 11px;
+    font-family: var(--mono);
+    color: var(--muted);
+    letter-spacing: 0.5px;
+    z-index: 50;
+}
+
+.update-footer .status-dot {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--muted);
+}
+
+.update-footer .status-dot.online {
+    background: var(--accent3);
+    box-shadow: 0 0 6px rgba(16, 185, 129, 0.6);
+}
+
+.update-footer .status-dot.offline {
+    background: var(--accent2);
+    box-shadow: 0 0 6px rgba(239, 68, 68, 0.6);
+}
+
+.update-sep {
+    color: var(--border);
+}
+
+/* ------------------------------------------------------------
+   Mobile — stats em 2 colunas, grid mais apertado
+   ------------------------------------------------------------ */
+@media (max-width: 640px) {
+    .stats-bar {
+        grid-template-columns: repeat(2, 1fr);
+    }
+
+    .stat-value {
+        font-size: 22px;
+    }
+
+    .patio-grid {
+        grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+    }
+}
+
+@media (max-width: 380px) {
+    .patio-main {
+        padding: 10px;
+    }
+
+    .stats-bar {
+        gap: 6px;
+    }
+
+    .stat-card {
+        padding: 10px;
+    }
+}

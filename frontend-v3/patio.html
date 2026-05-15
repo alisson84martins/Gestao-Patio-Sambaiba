@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!--
   Sistema de Gestão de Pátio Sambaíba — V3
-  Tela do pátio (PLACEHOLDER — Fase 5.1)
+  Tela do pátio — Fase 5.2 — visualização das filas em tempo real
   Desenvolvido por Alisson Martins
   © 2026 — Todos os direitos reservados
 -->
@@ -35,36 +35,41 @@
     </div>
 </header>
 
-<main>
-    <div class="placeholder-msg">
-        <div class="icon">🚧</div>
-        <div class="title">Tela do pátio em construção</div>
-        <div class="sub">
-            Fase 5.1 — Login concluído.<br>
-            Próxima sessão: 5.2 (visualização das filas em tempo real).
+<main class="patio-main">
+    <!-- Barra de stats: 4 KPIs grandes -->
+    <section class="stats-bar" aria-label="Indicadores do pátio">
+        <div class="stat-card">
+            <div class="stat-label">Frota no pátio</div>
+            <div class="stat-value" id="stat-frota">0</div>
         </div>
-    </div>
+        <div class="stat-card">
+            <div class="stat-label">Alocados</div>
+            <div class="stat-value" id="stat-alocados">0</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-label">Manutenção</div>
+            <div class="stat-value" id="stat-manutencao">0</div>
+        </div>
+        <div class="stat-card stat-card-warn">
+            <div class="stat-label">Presos</div>
+            <div class="stat-value" id="stat-presos">0</div>
+        </div>
+    </section>
+
+    <!-- Container que será preenchido dinamicamente pelo JS -->
+    <section id="patio-grid" class="patio-content" aria-live="polite">
+        <div class="patio-loading">Carregando filas…</div>
+    </section>
 </main>
 
-<script type="module">
-    import { requireAuth, getCurrentUser, logout } from './assets/js/auth.js';
+<!-- Rodapé fixo: status do polling + última atualização -->
+<footer class="update-footer">
+    <span class="status-dot" id="poll-dot"></span>
+    <span id="poll-status">Aguardando…</span>
+    <span class="update-sep">·</span>
+    <span>Atualizado <span id="poll-time">--:--:--</span></span>
+</footer>
 
-    // Proteção de rota — se não tá logado, redireciona pro login
-    if (!requireAuth()) {
-        // requireAuth já redireciona; nada mais a fazer
-    } else {
-        const user = getCurrentUser();
-        if (user) {
-            document.getElementById('user-name').textContent = user.nome || '—';
-            document.getElementById('user-meta').textContent =
-                `${user.re || ''} · ${user.perfil || ''}`.toUpperCase();
-        }
-
-        document.getElementById('btn-logout').addEventListener('click', () => {
-            logout();
-            window.location.replace('index.html');
-        });
-    }
-</script>
+<script type="module" src="./assets/js/patio.page.js"></script>
 </body>
 </html>
