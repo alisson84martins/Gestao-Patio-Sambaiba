@@ -16,6 +16,7 @@ from app.models.enums import (
 class PatioOnibusInfo(BaseModel):
     """Info de um ônibus no pátio com escala/alerta/ficha."""
     onibus_id: UUID
+    alocacao_id: UUID           # usado pelo DELETE /alocacoes/{id}
     numero_frota: int
     setor: Optional[str] = None
     posicao: int

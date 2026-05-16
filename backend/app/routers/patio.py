@@ -49,13 +49,14 @@ def patio_completo(
 
     stmt = (
         select(
-            Fila.id, Fila.nome, Fila.tipo, Fila.numero,
-            Onibus.id, Onibus.numero_frota, Onibus.setor, Onibus.status,
-            AlocacaoPatio.posicao, AlocacaoPatio.alocado_em,
-            Linha.codigo, Linha.nome,
-            Escala.horario_saida,
-            Alerta.tipo,
-            FichaManutencao.status,
+            Fila.id, Fila.nome, Fila.tipo, Fila.numero,                  # 0-3
+            Onibus.id, Onibus.numero_frota, Onibus.setor, Onibus.status, # 4-7
+            AlocacaoPatio.posicao, AlocacaoPatio.alocado_em,             # 8-9
+            Linha.codigo, Linha.nome,                                    # 10-11
+            Escala.horario_saida,                                        # 12
+            Alerta.tipo,                                                 # 13
+            FichaManutencao.status,                                      # 14
+            AlocacaoPatio.id,                                            # 15
         )
         .select_from(Fila)
         .outerjoin(AlocacaoPatio, and_(
@@ -100,6 +101,7 @@ def patio_completo(
         if r[4] is not None:  # tem ônibus alocado
             grupos[fila_id].onibus.append(PatioOnibusInfo(
                 onibus_id=r[4],
+                alocacao_id=r[15],
                 numero_frota=r[5],
                 setor=r[6].value if r[6] else None,
                 status_onibus=r[7],
