@@ -56,6 +56,23 @@
         </div>
     </section>
 
+    <!-- Painel Registrar Filas — modo bloco Fase 5.3 -->
+    <div class="alocar-rapido">
+        <div class="alocar-rapido-title">Registrar Filas</div>
+        <div class="bloco-input-row">
+            <input type="number" id="bloco-carro" placeholder="Carro" class="bloco-input bloco-input-carro">
+            <input type="text" id="bloco-fila-input" placeholder="Fila ou posição" class="bloco-input bloco-input-fila" autocomplete="off">
+            <input type="text" id="bloco-linha" placeholder="Linha" list="lista-linhas-bloco" class="bloco-input bloco-input-linha">
+            <datalist id="lista-linhas-bloco"></datalist>
+            <button type="button" class="sentido-btn active" id="btn-ida" title="Frente → Fundo">↑</button>
+            <button type="button" class="sentido-btn" id="btn-volta" title="Fundo → Frente">↓</button>
+            <button type="button" class="btn btn-primary btn-bloco-acao" id="btn-marcar">✔</button>
+            <button type="button" class="btn btn-ghost btn-bloco-acao" id="btn-desfazer" title="Desfazer último">↩</button>
+        </div>
+        <div id="bloco-status" class="bloco-status"></div>
+        <div class="bloco-historico" id="bloco-historico"></div>
+    </div>
+
     <!-- Container que será preenchido dinamicamente pelo JS -->
     <section id="patio-grid" class="patio-content" aria-live="polite">
         <div class="patio-loading">Carregando filas…</div>
@@ -69,6 +86,27 @@
     <span class="update-sep">·</span>
     <span>Atualizado <span id="poll-time">--:--:--</span></span>
 </footer>
+
+<!-- Modal mover/remover ônibus — Fase 5.3 -->
+<div class="modal-overlay" id="modal-mover-chip">
+    <div class="modal">
+        <button type="button" class="modal-close" id="modal-mover-fechar">✕</button>
+        <div class="modal-title" id="modal-mover-titulo">Veículo —</div>
+        <div class="form-group">
+            <label class="form-label" for="mover-nova-posicao">Mover para outra posição (opcional)</label>
+            <select class="form-select" id="mover-nova-posicao">
+                <option value="">— Manter posição atual —</option>
+            </select>
+        </div>
+        <div class="form-group">
+            <label class="form-label" for="mover-linha">Linha que irá operar</label>
+            <input type="text" class="form-input" id="mover-linha" placeholder="Ex: 917H-10" list="lista-linhas-bloco" autocomplete="off">
+        </div>
+        <button type="button" class="btn btn-primary btn-full" id="btn-mover-salvar">Salvar</button>
+        <button type="button" class="btn btn-danger btn-full btn-modal-stack" id="btn-mover-remover">Remover desta posição</button>
+        <button type="button" class="btn btn-ghost btn-full btn-modal-stack" id="btn-mover-cancelar">Cancelar</button>
+    </div>
+</div>
 
 <script type="module" src="./assets/js/patio.page.js"></script>
 </body>

@@ -16,6 +16,8 @@
 import { requireAuth, getCurrentUser, logout } from './auth.js';
 import { apiGet, ApiError } from './api.js';
 import { POLLING_INTERVAL_MS } from './config.js';
+import { init as initAlocacaoBloco } from './alocacao.bloco.js';
+import { init as initMoverChipModal, abrirModalMoverChip } from './mover.chip.modal.js';
 
 // --- Protege a rota antes de qualquer coisa ---
 if (!requireAuth()) {
@@ -38,6 +40,7 @@ const elPollTime   = document.getElementById('poll-time');
 
 // --- Estado interno ---
 let pollHandle = null;
+let lastFilas = [];
 
 // ============================================================
 // HEADER E LOGOUT
@@ -107,13 +110,18 @@ function tituloSecao(tipo) {
 // ============================================================
 // RENDER — CHIP DO ÔNIBUS
 // ============================================================
-function renderChip(onibus) {
+function renderChip(onibus, filaId) {
     const chip = document.createElement('div');
     chip.className = 'onibus-chip';
     if (onibus.status_onibus === 'RESERVA') {
         chip.classList.add('status-reserva');
     }
     chip.title = `Frota ${onibus.numero_frota} · pos ${onibus.posicao}`;
+
+    chip.dataset.alocacaoId = onibus.alocacao_id;
+    chip.dataset.frota      = onibus.numero_frota;
+    chip.dataset.filaId     = filaId;
+    chip.dataset.linha      = onibus.linha_codigo || '';
 
     // Número de frota
     const frota = document.createElement('span');
@@ -210,7 +218,7 @@ function renderFila(fila) {
         body.appendChild(vazia);
     } else {
         for (const onibus of fila.onibus) {
-            body.appendChild(renderChip(onibus));
+            body.appendChild(renderChip(onibus, fila.fila_id));
         }
     }
     card.appendChild(body);
@@ -323,6 +331,7 @@ function stampNow() {
 async function loadPatio() {
     try {
         const filas = await apiGet('/patio');
+        lastFilas = filas;
         renderPatio(filas);
         updateStats(filas);
         markOnline();
@@ -357,6 +366,24 @@ document.addEventListener('DOMContentLoaded', () => {
     setupHeader();
     loadPatio();
     startPolling();
+    initAlocacaoBloco({
+        onSuccess: () => loadPatio(),
+        getFilasSnapshot: () => lastFilas,
+    });
+
+    initMoverChipModal({ onSuccess: () => loadPatio() });
+
+    elGrid.addEventListener('click', (e) => {
+        const chip = e.target.closest('.onibus-chip');
+        if (!chip || !chip.dataset.alocacaoId) return;
+        abrirModalMoverChip({
+            alocacaoId:       chip.dataset.alocacaoId,
+            frota:            Number(chip.dataset.frota),
+            filaAtualId:      chip.dataset.filaId,
+            linhaAtual:       chip.dataset.linha || '',
+            filasDisponiveis: lastFilas,
+        });
+    });
 });
 
 // Para evitar polling fantasma se o usuário fechar a aba
