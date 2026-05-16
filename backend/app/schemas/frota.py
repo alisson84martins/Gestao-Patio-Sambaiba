@@ -1,6 +1,6 @@
 """Schemas de frota e pátio: onibus, fila, alocacao_patio."""
 from datetime import datetime
-from typing import Optional
+from typing import Literal, Optional
 from uuid import UUID
 
 from pydantic import BaseModel, Field
@@ -78,3 +78,15 @@ class AlocacaoPatioRead(AlocacaoPatioBase, ORMBase, AuditoriaSchema, SyncSchema)
     id: UUID
     alocado_por: Optional[UUID] = None
     alocado_em: datetime
+
+
+class AlocacaoBlocoCreate(BaseModel):
+    """Payload do modo bloco: aceita identificadores amigáveis."""
+    numero_frota: int = Field(..., ge=1000, le=9999,
+        description="Prefixo do ônibus (1xxx=E2, 2xxx=AR2)")
+    fila: str = Field(..., min_length=1, max_length=120,
+        description="Número da fila (ex: '5') ou nome da posição especial (ex: 'Lavador')")
+    linha_codigo: Optional[str] = Field(None, max_length=20,
+        description="Código da linha escalada (opcional, vai pra escala se preenchido)")
+    sentido: Literal["ida", "volta"] = Field(...,
+        description="Ida: insere na próxima posição livre. Volta: insere na posição 1 e empurra as outras.")

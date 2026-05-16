@@ -5,6 +5,7 @@ from app.schemas.catalogos import (
     TipoDefeitoCreate, TipoDefeitoRead, TipoDefeitoUpdate,
 )
 from app.schemas.frota import (
+    AlocacaoBlocoCreate,
     AlocacaoPatioCreate, AlocacaoPatioRead, AlocacaoPatioUpdate,
     FilaCreate, FilaRead, FilaUpdate,
     OnibusCreate, OnibusRead, OnibusUpdate,
