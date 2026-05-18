@@ -1,6 +1,6 @@
 # Status da v3.0 — Sistema de Gestão de Pátio Sambaíba
 
-> **Última atualização:** 06/05/2026
+> **Última atualização:** 16/05/2026
 > **Branch:** `v3.0-dev`
 > **Autor:** Alisson Martins · ADS Anhanguera
 
@@ -19,7 +19,7 @@ Gestao-Patio-Sambaiba/
 ├── database/        ← V3 — banco PostgreSQL (✅ concluído)
 ├── backend/         ← V3 — API FastAPI (✅ concluído)
 ├── docs/            ← documentação (este arquivo está aqui)
-└── frontend-v3/     ← V3 — frontend novo (⏭️ próxima fase)
+└── frontend-v3/     ← V3 — frontend novo (🔄 em desenvolvimento — Fases 5.1, 5.2, 5.3 concluídas)
 ```
 
 **Regra:** todo desenvolvimento novo da v3 fica em pastas separadas. A v2 não é tocada.
@@ -157,28 +157,57 @@ API: `http://127.0.0.1:8000` · Swagger: `http://127.0.0.1:8000/docs`
 
 ---
 
-## 4. Fase 5: Frontend v3 ⏭️ PRÓXIMA
+## 4. Fase 5: Frontend v3 🔄 EM DESENVOLVIMENTO
 
-**Local:** `frontend-v3/` (a criar)
+**Local:** `frontend-v3/`
 
-### Decisões pendentes
+### Decisões arquiteturais (fechadas)
 
-| # | Decisão | Opções |
+| # | Decisão | Escolha |
 |---|---|---|
-| 1 | Nome da pasta | `frontend-v3/` (sugestão) |
-| 2 | Stack | Vanilla JS + Web Components (recomendado) ou Vue 3 sem build / React |
-| 3 | Hospedagem dev | Local file:// ou servidor estático |
-| 4 | Hospedagem prod | GitHub Pages (subpath) ou outro |
+| 1 | Stack | Vanilla JS + ES Modules (sem build step) |
+| 2 | Estilização | CSS puro com variáveis (`--surface`, `--accent`, etc.) — porta literal dos tokens da V2 |
+| 3 | API client | `assets/js/api.js` centraliza fetch + JWT no localStorage + tratamento de 401 |
+| 4 | Auto-detect ambiente | `assets/js/config.js` resolve API_BASE_URL conforme hostname (local vs prod) |
+| 5 | Dev | Live Server no VS Code |
+| 6 | Prod | GitHub Pages subpath `/v3/` (deploy futuro) |
+| 7 | Princípio orientador | V3 é V2 fiel + backend — UX da V2 portada literal, mudanças anti-V2 só com decisão explícita |
 
-### Escopo planejado
+### Sub-fases concluídas
 
-1. Tela de login (consome `POST /auth/login`)
-2. API client com fetch + token JWT no localStorage/IndexedDB
-3. Tela do pátio (consome `GET /patio`)
-4. Tela de remanejamento (`GET /patio/remanejamento`)
-5. Modais de alocação, alerta, manutenção
-6. IndexedDB pra cache offline + Service Worker
-7. PWA (instalável no celular)
+| # | Status | Commit | Descrição |
+|---|---|---|---|
+| 5.1 | ✅ | `9c646ae` | Tela de login + fluxo JWT (login, validação de token, redirect, logout) |
+| 5.2 | ✅ | `f981b9c` | Visualização do pátio em tempo real com polling 5s (stats bar + grid de filas) |
+| 5.2.1 | ✅ | `f9395bc` | Tipo `ESPECIAL_REMOTA` no banco + 4 posições novas (Noturno, Reservados, Coqueirinho, Ilha) |
+| 5.3 | ✅ | `2b1747c`, `0a819cd`, `8accf55`, `43a6c4a` | Alocação rápida: GET /patio com `alocacao_id`, POST /alocacoes/bloco atômico, painel "Registrar Filas" com modo bloco Ida/Volta, modal de mover/remover ônibus alocado |
+
+### Detalhes da Fase 5.3 (concluída em 16/05/2026)
+
+**Backend:**
+- `GET /patio` passou a devolver `alocacao_id` em cada chip — habilita operações de mover/remover diretamente pela UI sem segundo round-trip.
+- Endpoint atômico `POST /alocacoes/bloco` com semântica de sentido `ida` (empilha no fim) ou `volta` (insere em pos.1 empurrando os demais), resolvendo o conflito com o índice `uq_alocacao_fila_posicao_ativa`.
+- Schema `AlocacaoBlocoCreate` aceita `numero_frota`, `fila` (resolve numérica ou nome especial), `linha_codigo` e `sentido`.
+
+**Frontend:**
+- Painel "Registrar Filas" portado da V2 para `patio.html`, posicionado entre stats e grid.
+- Modo bloco com botões `↑` (ida, padrão), `↓` (volta), `✔` (marcar) e `↩` (desfazer último), barra de status dinâmica e histórico inline da fila atual.
+- Modal de edição/remoção acionado por clique no chip do grid: dropdown com todas as filas + campo Linha + ações Salvar/Remover, consumindo `POST /alocacoes` e `DELETE /alocacoes/{id}`.
+- Concorrência multi-usuário tratada como last-write-wins via trigger do banco.
+
+**Exceções deliberadas à fidelidade V2** (documentadas em `docs/V2-vs-V3-funcionalidades.md`):
+- Sem autocomplete no input de fila do modo bloco — decidido em 16/05 por atrapalhar a digitação rápida.
+- Após cada Marcar bem-sucedido, limpa prefixo + linha mas mantém a fila preenchida.
+
+### Próximas sub-fases (a discutir)
+
+| # | Tema | Observação |
+|---|---|---|
+| 5.4 | Tela de remanejamento (`GET /patio/remanejamento`) | Listar ônibus em manutenção com escala hoje |
+| 5.5 | Telas de alerta (PRESO/AMOSTRAL) | Consome `/alertas` |
+| 5.6 | Tela de manutenção (fichas) | Consome `/manutencao` |
+| 5.7 | Importação Excel de escala | Consome `/importacoes/escala` |
+| 5.8 | Cadastros (ônibus, motoristas, linhas, usuários) | Apenas perfil ADMIN |
 
 ---
 
@@ -186,8 +215,8 @@ API: `http://127.0.0.1:8000` · Swagger: `http://127.0.0.1:8000/docs`
 
 | # | Fase | Status |
 |---|---|---|
-| 6 | Sincronização offline-first completa (IndexedDB ↔ API) | depois |
-| 7 | Deploy Railway (backend) + GitHub Pages/Cloudflare (frontend) | depois |
+| 6 | Sincronização offline-first (IndexedDB ↔ API) + PWA instalável | depois |
+| 7 | Deploy Railway/Render (backend) + GitHub Pages (frontend) | depois |
 
 ---
 
@@ -226,5 +255,5 @@ python scripts/set_password.py <RE> <nova_senha>
 
 ---
 
-*Documento gerado em 06/05/2026. Backend FastAPI 100% concluído (4.1 a 4.7).*
-*Próxima sessão começa pela fase 5 — frontend v3 em pasta nova, sem mexer na v2.*
+*Atualizado em 16/05/2026 — Fase 5.3 concluída (alocação rápida + modal mover/remover).*
+*Próxima sessão: discutir escopo da Fase 5.4 (remanejamento) ou seguir lista 5.5–5.8.*
