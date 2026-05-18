@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<!--
+  Sistema de Gestão de Pátio Sambaíba — V3
+  Tela de Importação de Escala
+  Desenvolvido por Alisson Martins
+  © 2026 — Todos os direitos reservados
+-->
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="theme-color" content="#0a0a0a">
+    <title>Importação de Escala — Sambaíba V3</title>
+
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700;800&family=Barlow+Condensed:wght@400;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="assets/css/style.css">
+</head>
+<body>
+
+<header class="app-header">
+    <div class="app-header-brand">
+        <img class="app-header-logo" src="assets/img/sambaiba-logo.jpg" alt="Eu amo Sambaíba">
+        <div class="app-header-titles">
+            <div class="app-header-empresa">Sambaíba</div>
+            <div class="app-header-title">GESTÃO DE PÁTIO</div>
+        </div>
+    </div>
+
+    <div class="app-header-user">
+        <div class="app-user-info">
+            <div class="app-user-name" id="user-name">—</div>
+            <div class="app-user-meta" id="user-meta">—</div>
+        </div>
+        <button class="btn-logout" id="btn-logout" title="Sair">Sair</button>
+    </div>
+</header>
+
+<!-- Navegação entre telas -->
+<nav class="app-nav">
+    <a href="patio.html" class="app-nav-link">Pátio</a>
+    <a href="remanejamento.html" class="app-nav-link">Remanejamento</a>
+    <a href="alertas.html" class="app-nav-link">Alertas</a>
+    <a href="manutencao.html" class="app-nav-link">Manutenção</a>
+    <a href="importacao.html" class="app-nav-link active">Importação</a>
+</nav>
+
+<main class="patio-main">
+
+    <!-- ===== Seção de Upload ===== -->
+    <section class="import-card" aria-label="Importar escala">
+        <div class="import-section-title">Importar Escala (.xlsx)</div>
+
+        <!-- Alerta de erro de upload -->
+        <div class="login-alert" id="upload-erro" role="alert"></div>
+
+        <form id="form-importacao" novalidate>
+            <div class="form-group">
+                <label class="form-label" for="input-arquivo">Arquivo de escala</label>
+                <input
+                    type="file"
+                    id="input-arquivo"
+                    class="form-input"
+                    accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                    required
+                >
+            </div>
+
+            <div class="form-group">
+                <label class="form-label" for="input-data-escala">Data da escala</label>
+                <input
+                    type="date"
+                    id="input-data-escala"
+                    class="form-input"
+                    required
+                >
+            </div>
+
+            <div class="form-group">
+                <label class="form-label" for="input-tipo-default">Tipo de serviço padrão</label>
+                <select id="input-tipo-default" class="form-select">
+                    <option value="MANOBRA" selected>Manobra</option>
+                    <option value="PLANTAO_E2">Plantão E2</option>
+                    <option value="PLANTAO_AR2">Plantão AR2</option>
+                </select>
+            </div>
+
+            <div class="form-group">
+                <label class="form-label" style="display:flex;align-items:center;gap:8px;cursor:pointer;">
+                    <input
+                        type="checkbox"
+                        id="input-substituir"
+                        checked
+                        style="width:16px;height:16px;cursor:pointer;"
+                    >
+                    Substituir registros existentes para a mesma data
+                </label>
+            </div>
+
+            <button type="submit" class="btn btn-primary" id="btn-importar">
+                <span id="btn-importar-texto">Importar Escala</span>
+                <span class="spinner" id="btn-importar-spinner" style="display:none;"></span>
+            </button>
+        </form>
+
+        <!-- Resultado do upload — aparece após envio -->
+        <div id="import-resultado" style="display:none;margin-top:16px;"></div>
+    </section>
+
+    <!-- ===== Seção de Histórico ===== -->
+    <section aria-label="Histórico de importações" style="margin-top:24px;">
+        <div class="import-section-title">Histórico de Importações</div>
+        <div id="historico-lista">
+            <div class="patio-loading">Carregando histórico…</div>
+        </div>
+    </section>
+
+</main>
+
+<!-- Rodapé com status da conexão -->
+<footer class="update-footer">
+    <span class="status-dot" id="poll-dot"></span>
+    <span id="poll-status">Aguardando…</span>
+    <span class="update-sep">·</span>
+    <span>Sambaíba V3</span>
+</footer>
+
+<script type="module" src="./assets/js/importacao.js"></script>
+</body>
+</html>

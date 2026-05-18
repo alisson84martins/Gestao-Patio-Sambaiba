@@ -1326,3 +1326,840 @@ body {
         font-size: 14px;
     }
 }
+
+/* ============================================================
+   FASE 5.5 — ALERTAS PRESO / AMOSTRAL
+   ============================================================ */
+
+/* Toggle de tipo no modal */
+.tipo-toggle {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 4px;
+}
+
+.tipo-toggle-btn {
+    flex: 1;
+    padding: 10px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: var(--surface2);
+    color: var(--muted);
+    font-family: var(--mono);
+    font-size: 12px;
+    font-weight: 800;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    cursor: pointer;
+    transition: all 0.15s;
+}
+
+.tipo-toggle-btn.active-preso {
+    background: rgba(204, 31, 31, 0.15);
+    border-color: var(--accent);
+    color: #fca5a5;
+}
+
+.tipo-toggle-btn.active-amostral {
+    background: rgba(59, 130, 246, 0.15);
+    border-color: var(--accent4);
+    color: #93c5fd;
+}
+
+/* Cards de alerta */
+.alerta-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-left: 4px solid var(--border);
+    border-radius: 10px;
+    padding: 14px 16px;
+    margin-bottom: 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.alerta-card-preso {
+    border-left-color: var(--accent);
+    background: rgba(204, 31, 31, 0.04);
+}
+
+.alerta-card-amostral {
+    border-left-color: var(--accent4);
+    background: rgba(59, 130, 246, 0.04);
+}
+
+.alerta-card-erro {
+    border-left-color: #f59e0b;
+}
+
+/* Header do card de alerta */
+.alerta-card-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.alerta-frota-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+}
+
+/* Badges de alerta */
+.alerta-badge-preso {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-family: var(--mono);
+    font-size: 9px;
+    font-weight: 800;
+    letter-spacing: 1px;
+    background: rgba(204, 31, 31, 0.18);
+    color: #fca5a5;
+    border: 1px solid var(--accent);
+}
+
+.alerta-badge-amostral {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-family: var(--mono);
+    font-size: 9px;
+    font-weight: 800;
+    letter-spacing: 1px;
+    background: rgba(59, 130, 246, 0.18);
+    color: #93c5fd;
+    border: 1px solid var(--accent4);
+}
+
+.alerta-motivo {
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--muted);
+    font-style: italic;
+}
+
+.alerta-hora {
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--muted);
+}
+
+.alerta-resolvido-info {
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--accent3);
+    letter-spacing: 0.5px;
+}
+
+.btn-resolver-alerta {
+    align-self: flex-start;
+    font-size: 11px;
+    padding: 6px 12px;
+    letter-spacing: 0.5px;
+}
+
+/* Barra de ações (filtros + botão novo) */
+.alerta-actions-bar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 16px;
+    flex-wrap: wrap;
+}
+
+.alerta-actions-bar .btn-novo {
+    margin-left: auto;
+    font-size: 12px;
+    padding: 7px 14px;
+}
+
+/* ============================================================
+   FASE 5.6 — FICHAS DE MANUTENÇÃO
+   ============================================================ */
+
+.form-textarea {
+    width: 100%;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 12px 14px;
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 14px;
+    outline: none;
+    resize: vertical;
+    min-height: 80px;
+    transition: border-color 0.2s;
+}
+
+.form-textarea:focus {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px rgba(204, 31, 31, 0.15);
+}
+
+.form-textarea::placeholder {
+    color: var(--muted);
+}
+
+/* Cards de ficha de manutenção */
+.manut-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-left: 4px solid var(--border);
+    border-radius: 10px;
+    padding: 14px 16px;
+    margin-bottom: 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    cursor: pointer;
+    transition: border-color 0.15s;
+}
+
+.manut-card:hover {
+    border-color: var(--muted);
+}
+
+.manut-card-aberta {
+    border-left-color: #f59e0b;
+    background: rgba(245, 158, 11, 0.03);
+}
+
+.manut-card-em_andamento {
+    border-left-color: var(--accent4);
+    background: rgba(59, 130, 246, 0.03);
+}
+
+.manut-card-concluida {
+    border-left-color: var(--accent3);
+    opacity: 0.65;
+}
+
+.manut-card-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+}
+
+.manut-frota-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+}
+
+.manut-badge-aberta {
+    display: inline-block;
+    padding: 2px 7px;
+    border-radius: 4px;
+    font-family: var(--mono);
+    font-size: 9px;
+    font-weight: 800;
+    letter-spacing: 1px;
+    background: rgba(245, 158, 11, 0.18);
+    color: #fcd34d;
+    border: 1px solid #f59e0b;
+}
+
+.manut-badge-em_andamento {
+    display: inline-block;
+    padding: 2px 7px;
+    border-radius: 4px;
+    font-family: var(--mono);
+    font-size: 9px;
+    font-weight: 800;
+    letter-spacing: 1px;
+    background: rgba(59, 130, 246, 0.18);
+    color: #93c5fd;
+    border: 1px solid var(--accent4);
+}
+
+.manut-badge-concluida {
+    display: inline-block;
+    padding: 2px 7px;
+    border-radius: 4px;
+    font-family: var(--mono);
+    font-size: 9px;
+    font-weight: 800;
+    letter-spacing: 1px;
+    background: rgba(16, 185, 129, 0.18);
+    color: #6ee7b7;
+    border: 1px solid var(--accent3);
+}
+
+.manut-defeito {
+    font-family: var(--mono);
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--text);
+}
+
+.manut-descricao {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--muted);
+    font-style: italic;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.manut-data {
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--muted);
+    letter-spacing: 0.5px;
+}
+
+.manut-acoes {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+}
+
+.manut-acoes .btn {
+    font-size: 11px;
+    padding: 5px 10px;
+}
+
+/* Barra de ações manutenção */
+.manut-actions-bar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 16px;
+    flex-wrap: wrap;
+}
+
+.manut-actions-bar .btn-nova {
+    margin-left: auto;
+    font-size: 12px;
+    padding: 7px 14px;
+}
+
+/* ============================================================
+   FASE 5.7 — IMPORTAÇÃO EXCEL DE ESCALA
+   ============================================================ */
+
+.import-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-top: 3px solid var(--accent);
+    border-radius: 10px;
+    padding: 20px;
+    margin-bottom: 24px;
+}
+
+.import-section-title {
+    font-size: 12px;
+    font-weight: 800;
+    color: var(--muted);
+    letter-spacing: 3px;
+    text-transform: uppercase;
+    font-family: var(--mono);
+    padding-bottom: 10px;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 16px;
+}
+
+/* Resultado do upload */
+.import-resultado {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 16px;
+    margin-top: 16px;
+}
+
+.import-resultado-ok {
+    border-left: 4px solid var(--accent3);
+}
+
+.import-resultado-parcial {
+    border-left: 4px solid #f59e0b;
+}
+
+.import-resultado-erro {
+    border-left: 4px solid var(--accent2);
+}
+
+.import-stats-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 10px;
+    margin-bottom: 14px;
+}
+
+.import-stat {
+    text-align: center;
+}
+
+.import-stat-valor {
+    font-size: 26px;
+    font-weight: 800;
+    color: var(--text);
+    font-family: var(--display);
+    line-height: 1;
+}
+
+.import-stat-label {
+    font-size: 10px;
+    font-weight: 700;
+    color: var(--muted);
+    font-family: var(--mono);
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    margin-top: 4px;
+}
+
+.import-stat-valor.cor-ok    { color: var(--accent3); }
+.import-stat-valor.cor-erro  { color: var(--accent2); }
+.import-stat-valor.cor-warn  { color: #fcd34d; }
+
+.import-erros-list {
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    overflow: hidden;
+    max-height: 200px;
+    overflow-y: auto;
+    margin-top: 10px;
+}
+
+.import-erro-item {
+    display: flex;
+    gap: 10px;
+    padding: 7px 12px;
+    border-bottom: 1px solid var(--border);
+    font-family: var(--mono);
+    font-size: 11px;
+}
+
+.import-erro-item:last-child { border-bottom: none; }
+
+.import-erro-linha {
+    color: var(--accent2);
+    font-weight: 800;
+    min-width: 50px;
+    flex-shrink: 0;
+}
+
+.import-erro-motivo {
+    color: var(--muted);
+}
+
+/* Histórico de importações */
+.historico-lista {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.historico-item {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 12px 14px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+
+.historico-item-info {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    flex: 1;
+    min-width: 0;
+}
+
+.historico-arquivo {
+    font-family: var(--mono);
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--text);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.historico-meta {
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--muted);
+    letter-spacing: 0.5px;
+}
+
+.historico-stats {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--accent3);
+    font-weight: 700;
+    flex-shrink: 0;
+}
+
+.btn-reverter {
+    font-size: 11px;
+    padding: 5px 10px;
+    flex-shrink: 0;
+}
+
+/* Checkbox estilizado */
+.form-check {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    cursor: pointer;
+}
+
+.form-check input[type="checkbox"] {
+    width: 16px;
+    height: 16px;
+    accent-color: var(--accent);
+    cursor: pointer;
+}
+
+.form-check-label {
+    font-family: var(--mono);
+    font-size: 13px;
+    color: var(--text);
+    cursor: pointer;
+}
+
+/* File input estilizado */
+.file-input-wrap {
+    position: relative;
+}
+
+.file-input-label {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    background: var(--surface2);
+    border: 1px dashed var(--border);
+    border-radius: 8px;
+    padding: 16px;
+    cursor: pointer;
+    transition: border-color 0.2s;
+    font-family: var(--mono);
+    font-size: 13px;
+    color: var(--muted);
+}
+
+.file-input-label:hover {
+    border-color: var(--accent);
+    color: var(--text);
+}
+
+.file-input-label.has-file {
+    border-color: var(--accent3);
+    color: var(--text);
+}
+
+.file-input-real {
+    position: absolute;
+    inset: 0;
+    opacity: 0;
+    cursor: pointer;
+}
+
+/* Mobile importação */
+@media (max-width: 640px) {
+    .import-stats-grid {
+        grid-template-columns: repeat(2, 1fr);
+    }
+}
+
+/* ============================================================
+   FASE 5.5 — ALERTAS PRESO / AMOSTRAL
+   ============================================================ */
+
+.tipo-toggle {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 4px;
+}
+
+.tipo-toggle-btn {
+    flex: 1;
+    padding: 10px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: var(--surface2);
+    color: var(--muted);
+    font-family: var(--mono);
+    font-size: 12px;
+    font-weight: 800;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    cursor: pointer;
+    transition: all 0.15s;
+}
+
+.tipo-toggle-btn.active-preso {
+    background: rgba(204, 31, 31, 0.15);
+    border-color: var(--accent);
+    color: #fca5a5;
+}
+
+.tipo-toggle-btn.active-amostral {
+    background: rgba(59, 130, 246, 0.15);
+    border-color: var(--accent4);
+    color: #93c5fd;
+}
+
+.alerta-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-left: 4px solid var(--border);
+    border-radius: 10px;
+    padding: 14px 16px;
+    margin-bottom: 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.alerta-card-preso    { border-left-color: var(--accent);  background: rgba(204,31,31,0.04); }
+.alerta-card-amostral { border-left-color: var(--accent4); background: rgba(59,130,246,0.04); }
+.alerta-card-erro     { border-left-color: #f59e0b; }
+
+.alerta-card-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.alerta-frota-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+}
+
+.alerta-badge-preso {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-family: var(--mono);
+    font-size: 9px;
+    font-weight: 800;
+    letter-spacing: 1px;
+    background: rgba(204,31,31,0.18);
+    color: #fca5a5;
+    border: 1px solid var(--accent);
+}
+
+.alerta-badge-amostral {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-family: var(--mono);
+    font-size: 9px;
+    font-weight: 800;
+    letter-spacing: 1px;
+    background: rgba(59,130,246,0.18);
+    color: #93c5fd;
+    border: 1px solid var(--accent4);
+}
+
+.alerta-motivo       { font-family: var(--mono); font-size: 12px; color: var(--muted); font-style: italic; }
+.alerta-hora         { font-family: var(--mono); font-size: 10px; color: var(--muted); }
+.alerta-resolvido-info { font-family: var(--mono); font-size: 10px; color: var(--accent3); }
+
+.btn-resolver-alerta { align-self: flex-start; font-size: 11px; padding: 6px 12px; letter-spacing: 0.5px; }
+
+.alerta-actions-bar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 16px;
+    flex-wrap: wrap;
+}
+
+.alerta-actions-bar .btn-novo { margin-left: auto; font-size: 12px; padding: 7px 14px; }
+
+/* ============================================================
+   FASE 5.6 — FICHAS DE MANUTENÇÃO
+   ============================================================ */
+
+.form-textarea {
+    width: 100%;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 12px 14px;
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 14px;
+    outline: none;
+    resize: vertical;
+    min-height: 80px;
+    transition: border-color 0.2s;
+}
+
+.form-textarea:focus       { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(204,31,31,0.15); }
+.form-textarea::placeholder { color: var(--muted); }
+
+.manut-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-left: 4px solid var(--border);
+    border-radius: 10px;
+    padding: 14px 16px;
+    margin-bottom: 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    cursor: pointer;
+    transition: border-color 0.15s;
+}
+
+.manut-card:hover { border-color: var(--muted); }
+
+.manut-card-aberta      { border-left-color: #f59e0b; background: rgba(245,158,11,0.03); }
+.manut-card-em_andamento { border-left-color: var(--accent4); background: rgba(59,130,246,0.03); }
+.manut-card-concluida   { border-left-color: var(--accent3); opacity: 0.65; }
+
+.manut-card-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+}
+
+.manut-frota-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+
+.manut-badge-aberta {
+    display: inline-block; padding: 2px 7px; border-radius: 4px;
+    font-family: var(--mono); font-size: 9px; font-weight: 800; letter-spacing: 1px;
+    background: rgba(245,158,11,0.18); color: #fcd34d; border: 1px solid #f59e0b;
+}
+
+.manut-badge-em_andamento {
+    display: inline-block; padding: 2px 7px; border-radius: 4px;
+    font-family: var(--mono); font-size: 9px; font-weight: 800; letter-spacing: 1px;
+    background: rgba(59,130,246,0.18); color: #93c5fd; border: 1px solid var(--accent4);
+}
+
+.manut-badge-concluida {
+    display: inline-block; padding: 2px 7px; border-radius: 4px;
+    font-family: var(--mono); font-size: 9px; font-weight: 800; letter-spacing: 1px;
+    background: rgba(16,185,129,0.18); color: #6ee7b7; border: 1px solid var(--accent3);
+}
+
+.manut-defeito   { font-family: var(--mono); font-size: 13px; font-weight: 700; color: var(--text); }
+.manut-descricao { font-family: var(--mono); font-size: 11px; color: var(--muted); font-style: italic; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.manut-data      { font-family: var(--mono); font-size: 10px; color: var(--muted); letter-spacing: 0.5px; }
+
+.manut-acoes { display: flex; gap: 6px; flex-wrap: wrap; }
+.manut-acoes .btn { font-size: 11px; padding: 5px 10px; }
+
+.manut-actions-bar { display: flex; align-items: center; gap: 8px; margin-bottom: 16px; flex-wrap: wrap; }
+.manut-actions-bar .btn-nova { margin-left: auto; font-size: 12px; padding: 7px 14px; }
+
+/* ============================================================
+   FASE 5.7 — IMPORTAÇÃO EXCEL DE ESCALA
+   ============================================================ */
+
+.import-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-top: 3px solid var(--accent);
+    border-radius: 10px;
+    padding: 20px;
+    margin-bottom: 24px;
+}
+
+.import-section-title {
+    font-size: 12px;
+    font-weight: 800;
+    color: var(--muted);
+    letter-spacing: 3px;
+    text-transform: uppercase;
+    font-family: var(--mono);
+    padding-bottom: 10px;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 16px;
+}
+
+.import-resultado         { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 16px; margin-top: 16px; }
+.import-resultado-ok      { border-left: 4px solid var(--accent3); }
+.import-resultado-parcial { border-left: 4px solid #f59e0b; }
+.import-resultado-erro    { border-left: 4px solid var(--accent2); }
+
+.import-stats-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 14px; }
+
+.import-stat       { text-align: center; }
+.import-stat-valor { font-size: 26px; font-weight: 800; color: var(--text); font-family: var(--display); line-height: 1; }
+.import-stat-label { font-size: 10px; font-weight: 700; color: var(--muted); font-family: var(--mono); letter-spacing: 1px; text-transform: uppercase; margin-top: 4px; }
+
+.import-stat-valor.cor-ok   { color: var(--accent3); }
+.import-stat-valor.cor-erro { color: var(--accent2); }
+.import-stat-valor.cor-warn { color: #fcd34d; }
+
+.import-erros-list { border: 1px solid var(--border); border-radius: 8px; overflow: hidden; max-height: 200px; overflow-y: auto; margin-top: 10px; }
+
+.import-erro-item { display: flex; gap: 10px; padding: 7px 12px; border-bottom: 1px solid var(--border); font-family: var(--mono); font-size: 11px; }
+.import-erro-item:last-child { border-bottom: none; }
+.import-erro-linha  { color: var(--accent2); font-weight: 800; min-width: 50px; flex-shrink: 0; }
+.import-erro-motivo { color: var(--muted); }
+
+.historico-lista { display: flex; flex-direction: column; gap: 8px; }
+
+.historico-item {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 12px 14px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+
+.historico-item-info { display: flex; flex-direction: column; gap: 3px; flex: 1; min-width: 0; }
+.historico-arquivo   { font-family: var(--mono); font-size: 13px; font-weight: 700; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.historico-meta      { font-family: var(--mono); font-size: 10px; color: var(--muted); letter-spacing: 0.5px; }
+.historico-stats     { font-family: var(--mono); font-size: 11px; color: var(--accent3); font-weight: 700; flex-shrink: 0; }
+
+.btn-reverter { font-size: 11px; padding: 5px 10px; flex-shrink: 0; }
+
+.form-check { display: flex; align-items: center; gap: 10px; cursor: pointer; }
+.form-check input[type="checkbox"] { width: 16px; height: 16px; accent-color: var(--accent); cursor: pointer; }
+.form-check-label { font-family: var(--mono); font-size: 13px; color: var(--text); cursor: pointer; }
+
+.file-input-wrap { position: relative; }
+
+.file-input-label {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    background: var(--surface2);
+    border: 1px dashed var(--border);
+    border-radius: 8px;
+    padding: 16px;
+    cursor: pointer;
+    transition: border-color 0.2s;
+    font-family: var(--mono);
+    font-size: 13px;
+    color: var(--muted);
+}
+
+.file-input-label:hover   { border-color: var(--accent); color: var(--text); }
+.file-input-label.has-file { border-color: var(--accent3); color: var(--text); }
+.file-input-real { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
+
+@media (max-width: 640px) {
+    .import-stats-grid { grid-template-columns: repeat(2, 1fr); }
+}
