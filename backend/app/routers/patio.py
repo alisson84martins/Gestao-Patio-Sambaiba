@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session, aliased
 
 from app.core.database import get_db
 from app.core.deps import CurrentUser
+from app.routers.alocacoes import get_data_servico
 from app.models import (
     Alerta,
     AlocacaoPatio,
@@ -62,6 +63,7 @@ def patio_completo(
         .outerjoin(AlocacaoPatio, and_(
             AlocacaoPatio.fila_id == Fila.id,
             AlocacaoPatio.ativa.is_(True),
+            AlocacaoPatio.data_referencia == get_data_servico(),
         ))
         .outerjoin(Onibus, Onibus.id == AlocacaoPatio.onibus_id)
         .outerjoin(Escala, and_(
@@ -129,6 +131,7 @@ def onde_esta(numero_frota: int, user: CurrentUser,
         .join(AlocacaoPatio, and_(
             AlocacaoPatio.onibus_id == Onibus.id,
             AlocacaoPatio.ativa.is_(True),
+            AlocacaoPatio.data_referencia == get_data_servico(),
         ))
         .join(Fila, Fila.id == AlocacaoPatio.fila_id)
         .where(Onibus.numero_frota == numero_frota)
@@ -172,6 +175,7 @@ def remanejamento(
         .join(AlocacaoPatio, and_(
             AlocacaoPatio.onibus_id == Onibus.id,
             AlocacaoPatio.ativa.is_(True),
+            AlocacaoPatio.data_referencia == get_data_servico(),
         ))
         .join(Fila, and_(
             Fila.id == AlocacaoPatio.fila_id,

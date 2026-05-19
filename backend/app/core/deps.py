@@ -1,5 +1,5 @@
 """Dependencies de autenticação para os endpoints."""
-from typing import Annotated
+from typing import Annotated, Callable
 from uuid import UUID
 
 from fastapi import Depends, HTTPException, status
@@ -51,5 +51,40 @@ def require_admin(
     return user
 
 
+def require_perfis(*perfis) -> Callable:
+    """Factory de dependency: exige que o usuário tenha um dos perfis informados.
+
+    Uso:
+        OperadorOuAdmin = Annotated[Usuario, Depends(require_perfis(
+            PerfilUsuarioEnum.OPERADOR_PATIO, PerfilUsuarioEnum.ADMIN
+        ))]
+    """
+    def checker(user: Annotated[Usuario, Depends(get_current_user)]) -> Usuario:
+        from app.models.enums import PerfilUsuarioEnum
+        if user.perfil not in perfis:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Perfil sem permissão para esta operação",
+            )
+        return user
+    return checker
+
+
 CurrentUser = Annotated[Usuario, Depends(get_current_user)]
 AdminUser = Annotated[Usuario, Depends(require_admin)]
+
+# Escrita no pátio: operadores e admins; motoristas só leem
+def _require_operador_ou_admin(
+    user: Annotated[Usuario, Depends(get_current_user)],
+) -> Usuario:
+    from app.models.enums import PerfilUsuarioEnum
+    permitidos = {PerfilUsuarioEnum.OPERADOR_PATIO, PerfilUsuarioEnum.ADMIN}
+    if user.perfil not in permitidos:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Apenas Operadores de Pátio e Administradores podem realizar esta operação",
+        )
+    return user
+
+
+OperadorOuAdmin = Annotated[Usuario, Depends(_require_operador_ou_admin)]

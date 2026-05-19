@@ -59,3 +59,4 @@ class UsuarioRead(UsuarioBase, ORMBase, AuditoriaSchema):
     """Saída segura: NUNCA inclui senha_hash."""
     id: UUID
     ultimo_acesso: Optional[datetime] = None
+    primeiro_acesso: bool = True

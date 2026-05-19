@@ -18,6 +18,14 @@
 
 </script>
 <link rel="stylesheet" href="css/style.css">
+<!-- Auth guard — síncrono: redireciona antes de qualquer render -->
+<script>
+(function(){
+  if (!localStorage.getItem('sambaiba_token')) {
+    window.location.replace('login.html');
+  }
+})();
+</script>
 </head>
 <body>
 
@@ -32,6 +40,11 @@
       </div>
     </div>
     <div style="display:flex;align-items:center;gap:12px">
+      <div id="header-user-info" style="display:none;flex-direction:column;align-items:flex-end;gap:2px;margin-right:8px">
+        <span id="header-nome" style="font-family:var(--mono);font-size:11px;color:var(--text);font-weight:700;max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"></span>
+        <span id="header-perfil" style="font-family:var(--mono);font-size:9px;color:var(--accent);letter-spacing:1px;text-transform:uppercase"></span>
+      </div>
+      <button id="btn-logout" style="display:none;background:transparent;border:1px solid var(--border);border-radius:6px;color:var(--muted);font-family:var(--mono);font-size:11px;padding:4px 10px;cursor:pointer;letter-spacing:1px;transition:border-color .2s" onmouseover="this.style.borderColor='var(--accent)'" onmouseout="this.style.borderColor='var(--border)'" onclick="sairDoSistema()">Sair</button>
       <div style="text-align:right;margin-right:48px">
         <div class="header-time" id="clock">--:--</div>
         <div class="header-date" id="dateline">---</div>
@@ -47,6 +60,9 @@
 <div class="menu-dots" id="menu-dots">
   <button class="menu-dots-btn" onclick="toggleMenuDots()">⋮</button>
   <div class="menu-dots-dropdown" id="menu-dots-dropdown">
+    <!-- Usuários (apenas ADMIN) -->
+    <div class="menu-dots-item" id="menu-admin-usuarios" style="display:none" onclick="window.location.href='admin/usuarios.html';toggleMenuDots()">👤 Usuários</div>
+
     <!-- Ver Escala -->
     <div class="menu-dots-item" onclick="abrirEscalaCompleta();toggleMenuDots()">📅 Ver Escala</div>
 
@@ -566,5 +582,79 @@
   <div id="print-content"></div>
 </div>
 <script src="js/app.js"></script>
+
+<!-- Módulo de sessão: auth UI + role guard + API dual-write -->
+<script type="module">
+import { NOME_KEY, PERFIL_KEY, limparSessao, apiFetch } from './js/config.js';
+
+// ── Exibir nome e perfil no header ───────────────────────────────
+const nome   = localStorage.getItem(NOME_KEY)  || '';
+const perfil = localStorage.getItem(PERFIL_KEY) || '';
+
+const nomeEl    = document.getElementById('header-nome');
+const perfilEl  = document.getElementById('header-perfil');
+const infoEl    = document.getElementById('header-user-info');
+const btnLogout = document.getElementById('btn-logout');
+
+if (nomeEl)    nomeEl.textContent  = nome;
+if (perfilEl)  perfilEl.textContent = perfil;
+if (infoEl)    infoEl.style.display = 'flex';
+if (btnLogout) btnLogout.style.display = 'block';
+
+// ── Logout ────────────────────────────────────────────────────────
+window.sairDoSistema = function () {
+  limparSessao();
+  window.location.replace('login.html');
+};
+
+// ── Menu Usuários (apenas ADMIN) ──────────────────────────────────
+if (perfil === 'ADMIN') {
+  const adminItem = document.getElementById('menu-admin-usuarios');
+  if (adminItem) adminItem.style.display = '';
+}
+
+// ── Role guard: MOTORISTA = somente leitura ───────────────────────
+if (perfil === 'MOTORISTA') {
+  // Oculta painel "Registrar Filas"
+  const alocarRapido = document.querySelector('.alocar-rapido');
+  if (alocarRapido) alocarRapido.style.display = 'none';
+
+  // Oculta itens de menu que escrevem dados
+  document.querySelectorAll('.menu-dots-item').forEach(el => {
+    const txt = el.textContent.trim();
+    if (txt.startsWith('🗑️') || txt.startsWith('💾')) el.style.display = 'none';
+  });
+}
+
+// ── API dual-write hook ───────────────────────────────────────────
+// Chamado por _executarAlocarBloco() em app.js após cada alocação local.
+// Falha silenciosa — o localStorage já garantiu a operação local.
+window._apiSyncBloco = async function (frota, filaVal, linha) {
+  try {
+    // Converte chave interna (fila:5 / esp:coqueiro / manut:corretiva) → string amigável
+    let fila;
+    if      (filaVal.startsWith('fila:'))  fila = filaVal.replace('fila:', '');
+    else if (filaVal.startsWith('esp:'))   fila = filaVal.replace('esp:', '');
+    else if (filaVal.startsWith('manut:')) fila = filaVal.replace('manut:', '');
+    else                                   fila = filaVal;
+
+    // Detecta sentido atual da UI
+    const sentido = document.getElementById('btn-ida')?.classList.contains('active')
+      ? 'ida' : 'volta';
+
+    await apiFetch('/alocacoes/bloco', {
+      method: 'POST',
+      body: JSON.stringify({
+        numero_frota : parseInt(frota, 10),
+        fila,
+        linha_codigo : linha || null,
+        sentido,
+      }),
+    });
+  } catch (err) {
+    console.warn('[API sync] falhou (dados locais preservados):', err.message);
+  }
+};
+</script>
 </body>
 </html>

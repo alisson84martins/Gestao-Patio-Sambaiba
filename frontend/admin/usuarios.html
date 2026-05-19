@@ -1,0 +1,405 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Usuários — Admin — Gestão de Pátio Sambaíba</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@700;800&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg:#0a0a0a; --surface:#141414; --surface2:#1c1c1c; --border:#2a2a2a;
+      --accent:#cc1f1f; --accent2:#ef4444; --accent3:#10b981; --accent4:#3b82f6;
+      --text:#f0f0f0; --muted:#666;
+      --mono:'JetBrains Mono',monospace; --display:'Barlow Condensed',sans-serif;
+    }
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: var(--bg); color: var(--text); font-family: var(--display); min-height: 100vh; }
+
+    /* ── Header ── */
+    .header { background: var(--surface); border-bottom: 3px solid var(--accent); position: sticky; top: 0; z-index: 100; }
+    .header-top { padding: 10px 16px; display: flex; align-items: center; justify-content: space-between; }
+    .header-brand { display: flex; align-items: center; gap: 12px; }
+    .header-logo { width: 42px; height: 42px; background: var(--accent); border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 22px; }
+    .header-empresa { font-size: 11px; font-weight: 700; color: var(--accent); letter-spacing: 3px; text-transform: uppercase; font-family: var(--mono); }
+    .header-title { font-size: 22px; font-weight: 800; }
+    .header-actions { display: flex; gap: 8px; align-items: center; }
+
+    /* ── Breadcrumb ── */
+    .breadcrumb { padding: 8px 16px; background: var(--surface2); border-bottom: 1px solid var(--border); font-family: var(--mono); font-size: 11px; color: var(--muted); }
+    .breadcrumb a { color: var(--accent); text-decoration: none; }
+    .breadcrumb a:hover { text-decoration: underline; }
+
+    /* ── Container ── */
+    .container { padding: 16px; max-width: 900px; }
+
+    /* ── Section title ── */
+    .section-title { font-size: 13px; font-weight: 700; color: var(--muted); letter-spacing: 2px; text-transform: uppercase; font-family: var(--mono); margin-bottom: 12px; display: flex; align-items: center; gap: 8px; }
+
+    /* ── Botão ── */
+    .btn { background: var(--accent); border: none; border-radius: 6px; color: #fff; font-family: var(--display); font-size: 14px; font-weight: 800; letter-spacing: 1.5px; text-transform: uppercase; padding: 8px 16px; cursor: pointer; transition: background .2s; white-space: nowrap; }
+    .btn:hover { background: var(--accent2); }
+    .btn:disabled { opacity: .5; cursor: not-allowed; }
+    .btn-sm { padding: 5px 10px; font-size: 11px; }
+    .btn-outline { background: transparent; border: 1px solid var(--border); color: var(--muted); }
+    .btn-outline:hover { border-color: var(--accent); color: var(--accent); background: transparent; }
+    .btn-verde { background: var(--accent3); }
+    .btn-verde:hover { background: #059669; }
+
+    /* ── Card Novo Usuário ── */
+    .card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 20px; margin-bottom: 20px; }
+    .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    @media (max-width: 600px) { .form-grid { grid-template-columns: 1fr; } }
+    label { display: block; font-size: 11px; font-weight: 700; color: var(--muted); letter-spacing: 1.5px; text-transform: uppercase; font-family: var(--mono); margin-bottom: 5px; }
+    input, select { width: 100%; background: var(--surface2); border: 1px solid var(--border); border-radius: 6px; color: var(--text); font-family: var(--mono); font-size: 14px; padding: 9px 12px; outline: none; transition: border-color .2s; }
+    input:focus, select:focus { border-color: var(--accent); }
+    select option { background: var(--surface2); }
+    .form-footer { margin-top: 14px; display: flex; gap: 8px; align-items: center; }
+    .hint { font-family: var(--mono); font-size: 10px; color: var(--muted); margin-top: 4px; }
+
+    /* ── Tabela de usuários ── */
+    .tabela-wrap { overflow-x: auto; }
+    table { width: 100%; border-collapse: collapse; }
+    thead th { background: var(--surface2); color: var(--muted); font-family: var(--mono); font-size: 11px; font-weight: 700; letter-spacing: 1.5px; text-transform: uppercase; padding: 10px 12px; text-align: left; border-bottom: 1px solid var(--border); }
+    tbody tr { border-bottom: 1px solid var(--border); transition: background .15s; }
+    tbody tr:hover { background: var(--surface2); }
+    tbody td { padding: 10px 12px; font-size: 14px; vertical-align: middle; }
+    .td-re { font-family: var(--mono); font-size: 13px; color: var(--accent); }
+    .td-nome { font-weight: 700; }
+    .td-perfil { font-family: var(--mono); font-size: 11px; }
+    .td-acoes { display: flex; gap: 6px; }
+
+    /* ── Badges ── */
+    .badge { display: inline-block; border-radius: 4px; padding: 2px 8px; font-family: var(--mono); font-size: 10px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; }
+    .badge-admin { background: rgba(204,31,31,.2); color: var(--accent); border: 1px solid var(--accent); }
+    .badge-operador { background: rgba(59,130,246,.15); color: #60a5fa; border: 1px solid #3b82f6; }
+    .badge-motorista { background: rgba(16,185,129,.15); color: #34d399; border: 1px solid var(--accent3); }
+    .badge-coordenador { background: rgba(245,158,11,.15); color: #fbbf24; border: 1px solid #f59e0b; }
+    .badge-mecanico { background: rgba(139,92,246,.15); color: #a78bfa; border: 1px solid #8b5cf6; }
+    .badge-ativo { background: rgba(16,185,129,.15); color: #34d399; }
+    .badge-inativo { background: rgba(100,100,100,.15); color: var(--muted); }
+
+    /* ── Status ── */
+    .status-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 5px; }
+    .status-dot.ativo { background: var(--accent3); }
+    .status-dot.inativo { background: var(--muted); }
+
+    /* ── Mensagens ── */
+    .msg { border-radius: 6px; padding: 10px 14px; font-family: var(--mono); font-size: 12px; margin-bottom: 14px; display: none; }
+    .msg.visivel { display: block; }
+    .msg-erro { background: rgba(204,31,31,.12); border: 1px solid var(--accent); color: var(--accent2); }
+    .msg-ok { background: rgba(16,185,129,.1); border: 1px solid var(--accent3); color: #34d399; }
+
+    /* ── Filtros ── */
+    .filtros { display: flex; gap: 8px; margin-bottom: 14px; flex-wrap: wrap; }
+    .filtros input, .filtros select { width: auto; font-size: 12px; padding: 7px 10px; }
+
+    /* ── Loading ── */
+    .loading { color: var(--muted); font-family: var(--mono); font-size: 12px; padding: 20px; text-align: center; }
+
+    /* ── Logout ── */
+    .btn-logout { background: transparent; border: 1px solid var(--border); color: var(--muted); font-family: var(--mono); font-size: 11px; padding: 6px 12px; border-radius: 6px; cursor: pointer; }
+    .btn-logout:hover { border-color: var(--accent); color: var(--accent); }
+  </style>
+</head>
+<body>
+
+<!-- Header -->
+<div class="header">
+  <div class="header-top">
+    <div class="header-brand">
+      <div class="header-logo">🚌</div>
+      <div>
+        <div class="header-empresa">Sambaíba — Admin</div>
+        <div class="header-title">Gestão de Usuários</div>
+      </div>
+    </div>
+    <div class="header-actions">
+      <span id="nome-admin" style="font-family:var(--mono);font-size:11px;color:var(--muted)"></span>
+      <button class="btn-logout" id="btn-logout">Sair</button>
+    </div>
+  </div>
+</div>
+
+<div class="breadcrumb">
+  <a href="/index.html">← Voltar ao Pátio</a> / Admin / Usuários
+</div>
+
+<div class="container">
+
+  <!-- Mensagens globais -->
+  <div class="msg msg-erro" id="msg-erro"></div>
+  <div class="msg msg-ok"   id="msg-ok"></div>
+
+  <!-- ── Novo usuário ── -->
+  <div class="section-title">➕ Novo Usuário</div>
+  <div class="card">
+    <form id="form-novo">
+      <div class="form-grid">
+        <div>
+          <label for="novo-re">RE — Registro de Funcionário</label>
+          <input id="novo-re" type="text" placeholder="Ex: 12345" required>
+        </div>
+        <div>
+          <label for="novo-nome">Nome Completo</label>
+          <input id="novo-nome" type="text" placeholder="Nome do funcionário" required>
+        </div>
+        <div>
+          <label for="novo-perfil">Perfil no Sistema</label>
+          <select id="novo-perfil" required>
+            <option value="">Selecione...</option>
+            <option value="MOTORISTA">Motorista — apenas consulta</option>
+            <option value="OPERADOR_PATIO">Operador de Pátio — alocações</option>
+            <option value="COORDENADOR">Coordenador — acesso total operacional</option>
+            <option value="MECANICO">Mecânico — manutenção</option>
+            <option value="ADMIN">Admin — controle total</option>
+          </select>
+        </div>
+        <div>
+          <label>Senha inicial</label>
+          <input type="text" value="RE do funcionário" disabled style="color:var(--muted)">
+          <div class="hint">O usuário troca no primeiro acesso.</div>
+        </div>
+      </div>
+      <div class="form-footer">
+        <button type="submit" class="btn" id="btn-criar">Criar Usuário</button>
+        <button type="reset" class="btn btn-outline">Limpar</button>
+      </div>
+    </form>
+  </div>
+
+  <!-- ── Lista de usuários ── -->
+  <div class="section-title">👥 Usuários Cadastrados</div>
+
+  <div class="filtros">
+    <input id="filtro-busca" type="text" placeholder="Buscar por RE ou nome..." style="min-width:200px">
+    <select id="filtro-perfil">
+      <option value="">Todos os perfis</option>
+      <option value="ADMIN">Admin</option>
+      <option value="COORDENADOR">Coordenador</option>
+      <option value="OPERADOR_PATIO">Operador de Pátio</option>
+      <option value="MOTORISTA">Motorista</option>
+      <option value="MECANICO">Mecânico</option>
+    </select>
+    <select id="filtro-ativo">
+      <option value="">Todos</option>
+      <option value="true">Ativos</option>
+      <option value="false">Inativos</option>
+    </select>
+    <button class="btn btn-outline btn-sm" id="btn-recarregar">↺ Recarregar</button>
+  </div>
+
+  <div class="card" style="padding:0; overflow:hidden;">
+    <div id="lista-loading" class="loading">Carregando usuários...</div>
+    <div class="tabela-wrap" id="tabela-wrap" style="display:none;">
+      <table>
+        <thead>
+          <tr>
+            <th>RE</th>
+            <th>Nome</th>
+            <th>Perfil</th>
+            <th>Status</th>
+            <th>Primeiro Acesso</th>
+            <th>Ações</th>
+          </tr>
+        </thead>
+        <tbody id="tabela-body"></tbody>
+      </table>
+    </div>
+  </div>
+
+</div>
+
+<script type="module">
+  import { getToken, apiFetch, limparSessao, NOME_KEY, PERFIL_KEY } from '../js/config.js';
+
+  // ── Guarda de rota: só ADMIN ──
+  const token  = getToken();
+  const perfil = localStorage.getItem(PERFIL_KEY);
+  if (!token) { window.location.href = '/login.html'; }
+  if (perfil !== 'ADMIN') {
+    alert('Acesso restrito a administradores.');
+    window.location.href = '/index.html';
+  }
+
+  document.getElementById('nome-admin').textContent = localStorage.getItem(NOME_KEY) ?? '';
+
+  // ── Logout ──
+  document.getElementById('btn-logout').addEventListener('click', () => {
+    limparSessao();
+    window.location.href = '/login.html';
+  });
+
+  // ── Helpers ──
+  const PERFIL_LABEL = {
+    ADMIN: ['Admin', 'badge-admin'],
+    COORDENADOR: ['Coordenador', 'badge-coordenador'],
+    OPERADOR_PATIO: ['Operador Pátio', 'badge-operador'],
+    MOTORISTA: ['Motorista', 'badge-motorista'],
+    MECANICO: ['Mecânico', 'badge-mecanico'],
+  };
+
+  function showOk(msg) {
+    const el = document.getElementById('msg-ok');
+    el.textContent = '✅ ' + msg;
+    el.classList.add('visivel');
+    setTimeout(() => el.classList.remove('visivel'), 3500);
+  }
+  function showErro(msg) {
+    const el = document.getElementById('msg-erro');
+    el.textContent = '❌ ' + msg;
+    el.classList.add('visivel');
+    setTimeout(() => el.classList.remove('visivel'), 5000);
+  }
+
+  // ── Carregar usuários ──
+  let todosUsuarios = [];
+
+  async function carregarUsuarios() {
+    document.getElementById('lista-loading').style.display = 'block';
+    document.getElementById('tabela-wrap').style.display = 'none';
+
+    try {
+      const params = new URLSearchParams({ limit: 200 });
+      const busca  = document.getElementById('filtro-busca').value.trim();
+      const perfil = document.getElementById('filtro-perfil').value;
+      const ativo  = document.getElementById('filtro-ativo').value;
+
+      if (busca)  params.set('busca', busca);
+      if (perfil) params.set('perfil', perfil);
+      if (ativo !== '') params.set('ativo', ativo);
+
+      todosUsuarios = await apiFetch(`/usuarios?${params}`);
+      renderTabela(todosUsuarios);
+    } catch (err) {
+      showErro('Erro ao carregar usuários: ' + err.message);
+    } finally {
+      document.getElementById('lista-loading').style.display = 'none';
+    }
+  }
+
+  function renderTabela(lista) {
+    const tbody = document.getElementById('tabela-body');
+    tbody.innerHTML = '';
+
+    if (!lista.length) {
+      tbody.innerHTML = `<tr><td colspan="6" style="text-align:center;color:var(--muted);font-family:var(--mono);font-size:12px;padding:20px;">Nenhum usuário encontrado</td></tr>`;
+      document.getElementById('tabela-wrap').style.display = 'block';
+      return;
+    }
+
+    for (const u of lista) {
+      const [pLabel, pClass] = PERFIL_LABEL[u.perfil] ?? [u.perfil, ''];
+      const ativos = u.ativo;
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td class="td-re">${u.re}</td>
+        <td class="td-nome">${u.nome}</td>
+        <td class="td-perfil"><span class="badge ${pClass}">${pLabel}</span></td>
+        <td>
+          <span class="status-dot ${ativos ? 'ativo' : 'inativo'}"></span>
+          <span style="font-family:var(--mono);font-size:12px;color:${ativos ? 'var(--accent3)' : 'var(--muted)'}">${ativos ? 'Ativo' : 'Inativo'}</span>
+        </td>
+        <td style="font-family:var(--mono);font-size:11px;color:${u.primeiro_acesso ? '#fbbf24' : 'var(--muted)'}">
+          ${u.primeiro_acesso ? '⚠️ Pendente' : '✅ Trocou'}
+        </td>
+        <td class="td-acoes">
+          <button class="btn btn-sm btn-outline btn-toggle-ativo" data-id="${u.id}" data-ativo="${u.ativo}">
+            ${ativos ? 'Desativar' : 'Ativar'}
+          </button>
+          <select class="btn-trocar-perfil" data-id="${u.id}" style="background:var(--surface2);border:1px solid var(--border);border-radius:4px;color:var(--muted);font-family:var(--mono);font-size:10px;padding:4px 6px;cursor:pointer;">
+            <option value="">Trocar perfil...</option>
+            <option value="MOTORISTA">Motorista</option>
+            <option value="OPERADOR_PATIO">Operador Pátio</option>
+            <option value="COORDENADOR">Coordenador</option>
+            <option value="MECANICO">Mecânico</option>
+            <option value="ADMIN">Admin</option>
+          </select>
+        </td>
+      `;
+      tbody.appendChild(tr);
+    }
+
+    document.getElementById('tabela-wrap').style.display = 'block';
+
+    // Listeners de ações
+    tbody.querySelectorAll('.btn-toggle-ativo').forEach(btn => {
+      btn.addEventListener('click', () => toggleAtivo(btn.dataset.id, btn.dataset.ativo === 'true'));
+    });
+    tbody.querySelectorAll('.btn-trocar-perfil').forEach(sel => {
+      sel.addEventListener('change', () => {
+        if (sel.value) trocarPerfil(sel.dataset.id, sel.value);
+        sel.value = '';
+      });
+    });
+  }
+
+  // ── Toggle ativo/inativo ──
+  async function toggleAtivo(id, eraAtivo) {
+    try {
+      await apiFetch(`/usuarios/${id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ ativo: !eraAtivo }),
+      });
+      showOk(`Usuário ${eraAtivo ? 'desativado' : 'ativado'} com sucesso`);
+      carregarUsuarios();
+    } catch (err) {
+      showErro(err.message);
+    }
+  }
+
+  // ── Trocar perfil ──
+  async function trocarPerfil(id, novoPerfil) {
+    const u = todosUsuarios.find(x => x.id === id);
+    if (!confirm(`Trocar perfil de "${u?.nome ?? id}" para ${novoPerfil}?`)) return;
+    try {
+      await apiFetch(`/usuarios/${id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ perfil: novoPerfil }),
+      });
+      showOk('Perfil atualizado com sucesso');
+      carregarUsuarios();
+    } catch (err) {
+      showErro(err.message);
+    }
+  }
+
+  // ── Criar novo usuário ──
+  document.getElementById('form-novo').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const re     = document.getElementById('novo-re').value.trim();
+    const nome   = document.getElementById('novo-nome').value.trim();
+    const perfil = document.getElementById('novo-perfil').value;
+    const btn    = document.getElementById('btn-criar');
+
+    btn.disabled = true;
+    btn.textContent = 'Criando...';
+
+    try {
+      await apiFetch('/usuarios', {
+        method: 'POST',
+        body: JSON.stringify({ re, nome, perfil, senha: re, ativo: true }),
+      });
+      showOk(`Usuário ${nome} (RE: ${re}) criado. Senha inicial = RE.`);
+      e.target.reset();
+      carregarUsuarios();
+    } catch (err) {
+      showErro(err.message);
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'Criar Usuário';
+    }
+  });
+
+  // ── Filtros em tempo real ──
+  document.getElementById('filtro-busca').addEventListener('input', () => carregarUsuarios());
+  document.getElementById('filtro-perfil').addEventListener('change', () => carregarUsuarios());
+  document.getElementById('filtro-ativo').addEventListener('change', () => carregarUsuarios());
+  document.getElementById('btn-recarregar').addEventListener('click', () => carregarUsuarios());
+
+  // ── Init ──
+  carregarUsuarios();
+</script>
+
+</body>
+</html>

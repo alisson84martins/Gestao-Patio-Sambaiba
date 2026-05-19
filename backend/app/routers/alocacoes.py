@@ -1,29 +1,60 @@
 """Mover ônibus entre filas/posições do pátio."""
+from datetime import date, datetime, timedelta
 from typing import Annotated, Optional
 from uuid import UUID
+from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select, text
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
-from app.core.deps import CurrentUser
+from app.core.deps import CurrentUser, OperadorOuAdmin
 from app.core.utils import PaginationParams, set_create_audit, set_update_audit
 from app.models import AlocacaoPatio, Fila, Onibus, TipoFilaEnum
 from app.schemas import AlocacaoBlocoCreate, AlocacaoPatioCreate, AlocacaoPatioRead, AlocacaoPatioUpdate
 
 router = APIRouter(prefix="/alocacoes", tags=["alocações / pátio"])
 
+_SP = ZoneInfo("America/Sao_Paulo")
+
+
+def get_data_servico() -> date:
+    """Retorna a data de serviço operacional.
+
+    O turno de alocação começa às ~23:30 e vai até ~04:30.
+    Após as 20h (horário de Brasília) o pátio já está alocando para o
+    dia seguinte — então data_referencia = amanhã.
+    Antes das 20h = hoje.
+
+    Exemplos:
+        23:45 de segunda → data_referencia = terça  ✅
+        02:00 de terça   → data_referencia = terça  ✅
+        18:00 de terça   → data_referencia = terça  ✅
+        21:00 de terça   → data_referencia = quarta ✅ (próximo ciclo)
+    """
+    agora = datetime.now(_SP)
+    if agora.hour >= 20:
+        return (agora + timedelta(days=1)).date()
+    return agora.date()
+
 
 @router.post("", response_model=AlocacaoPatioRead, status_code=status.HTTP_201_CREATED,
              summary="Aloca ônibus em fila/posição")
-def criar(payload: AlocacaoPatioCreate, user: CurrentUser, db: Annotated[Session, Depends(get_db)]):
-    """Move um ônibus para uma fila. O trigger desativa automaticamente a alocação anterior."""
+def criar(payload: AlocacaoPatioCreate, user: OperadorOuAdmin, db: Annotated[Session, Depends(get_db)]):
+    """Move um ônibus para uma fila. O trigger desativa automaticamente a alocação anterior.
+
+    Restrito a Operadores de Pátio e Administradores.
+    """
     if not db.get(Onibus, payload.onibus_id):
         raise HTTPException(404, "Ônibus não encontrado")
     if not db.get(Fila, payload.fila_id):
         raise HTTPException(404, "Fila não encontrada")
-    a = AlocacaoPatio(**payload.model_dump(), alocado_por=user.id)
+    a = AlocacaoPatio(
+        **payload.model_dump(),
+        alocado_por=user.id,
+        data_referencia=get_data_servico(),
+    )
     set_create_audit(a, user)
     db.add(a)
     db.commit()
@@ -39,6 +70,7 @@ def listar(
     ativa: Optional[bool] = None,
     onibus_id: Optional[UUID] = None,
     fila_id: Optional[UUID] = None,
+    data_referencia: Optional[date] = None,
 ):
     q = select(AlocacaoPatio)
     if ativa is not None:
@@ -47,6 +79,8 @@ def listar(
         q = q.where(AlocacaoPatio.onibus_id == onibus_id)
     if fila_id:
         q = q.where(AlocacaoPatio.fila_id == fila_id)
+    if data_referencia is not None:
+        q = q.where(AlocacaoPatio.data_referencia == data_referencia)
     q = q.order_by(AlocacaoPatio.alocado_em.desc()).offset(pag.skip).limit(pag.limit)
     return db.execute(q).scalars().all()
 
@@ -61,7 +95,7 @@ def buscar(aloc_id: UUID, user: CurrentUser, db: Annotated[Session, Depends(get_
 
 @router.delete("/{aloc_id}", response_model=AlocacaoPatioRead,
                summary="Desativa alocação (tira ônibus da fila)")
-def desativar(aloc_id: UUID, user: CurrentUser, db: Annotated[Session, Depends(get_db)]):
+def desativar(aloc_id: UUID, user: OperadorOuAdmin, db: Annotated[Session, Depends(get_db)]):
     """Marca a alocação como inativa. Não remove do banco — preserva o histórico."""
     a = db.get(AlocacaoPatio, aloc_id)
     if not a:
@@ -76,7 +110,7 @@ def desativar(aloc_id: UUID, user: CurrentUser, db: Annotated[Session, Depends(g
 @router.post("/bloco", response_model=AlocacaoPatioRead,
              status_code=status.HTTP_201_CREATED,
              summary="Modo bloco: aloca recebendo identificadores amigáveis")
-def alocar_bloco(payload: AlocacaoBlocoCreate, user: CurrentUser,
+def alocar_bloco(payload: AlocacaoBlocoCreate, user: OperadorOuAdmin,
                  db: Annotated[Session, Depends(get_db)]):
     """Endpoint atômico do modo bloco da Fase 5.3.
 
@@ -147,6 +181,7 @@ def alocar_bloco(payload: AlocacaoBlocoCreate, user: CurrentUser,
         posicao=nova_posicao,
         ativa=True,
         alocado_por=user.id,
+        data_referencia=get_data_servico(),
     )
     set_create_audit(nova, user)
     db.add(nova)

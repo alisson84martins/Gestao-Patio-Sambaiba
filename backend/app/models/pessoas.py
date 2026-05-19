@@ -44,3 +44,6 @@ class Usuario(Base, AuditoriaMixin):
         nullable=True,
     )
     ultimo_acesso: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    # TRUE enquanto o usuário não trocou a senha inicial (= o RE).
+    # O admin cria a conta e o usuário muda em /auth/trocar-senha.
+    primeiro_acesso: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)

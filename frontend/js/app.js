@@ -1060,6 +1060,8 @@ function _executarAlocarBloco(frota, filaVal, filaInput, linha, naFrota) {
   document.getElementById('bloco-carro').focus();
 
   save(); renderAll();
+  // Dual-write: sincroniza com o backend em segundo plano (falha silenciosa)
+  if (typeof window._apiSyncBloco === 'function') window._apiSyncBloco(frota, filaVal, linha);
   renderHistoricoBloco(filaVal);
 }
 

@@ -7,10 +7,12 @@ from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from pydantic import BaseModel, Field
+
 from app.core.config import get_settings
 from app.core.database import get_db
 from app.core.deps import CurrentUser
-from app.core.security import create_access_token, verify_password
+from app.core.security import create_access_token, hash_password, verify_password
 from app.models import Usuario
 from app.schemas.auth import LoginRequest, TokenResponse
 from app.schemas.pessoas import UsuarioRead
@@ -46,6 +48,7 @@ def _autenticar_e_gerar_token(re: str, senha: str, db: Session) -> TokenResponse
     return TokenResponse(
         access_token=token,
         expires_in=settings.jwt_expire_minutes * 60,
+        primeiro_acesso=user.primeiro_acesso,
     )
 
 
@@ -85,3 +88,39 @@ def login_oauth2(
 )
 def get_me(user: CurrentUser) -> Usuario:
     return user
+
+
+class TrocarSenhaRequest(BaseModel):
+    senha_atual: str = Field(..., min_length=1, max_length=72)
+    nova_senha: str = Field(..., min_length=6, max_length=72)
+
+
+@router.post(
+    "/trocar-senha",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Troca a senha do usuário autenticado",
+)
+def trocar_senha(
+    payload: TrocarSenhaRequest,
+    user: CurrentUser,
+    db: Annotated[Session, Depends(get_db)],
+) -> None:
+    """Troca a senha do usuário logado.
+
+    - Valida a senha atual antes de aceitar a nova.
+    - Após trocar, marca `primeiro_acesso = FALSE`.
+    - Motoristas e operadores usam este endpoint no primeiro login.
+    """
+    if not verify_password(payload.senha_atual, user.senha_hash):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Senha atual incorreta",
+        )
+    if payload.senha_atual == payload.nova_senha:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="A nova senha não pode ser igual à senha atual",
+        )
+    user.senha_hash = hash_password(payload.nova_senha)
+    user.primeiro_acesso = False
+    db.commit()

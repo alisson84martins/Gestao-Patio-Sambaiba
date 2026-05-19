@@ -18,6 +18,9 @@ class TokenResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
     expires_in: int = Field(..., description="Tempo de vida em segundos")
+    # Se TRUE, o frontend deve redirecionar para a tela de troca de senha
+    # antes de liberar o acesso ao sistema.
+    primeiro_acesso: bool = False
 
 
 class TokenPayload(BaseModel):

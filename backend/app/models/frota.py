@@ -1,9 +1,9 @@
 """Modelos de frota e pátio: onibus, fila, alocacao_patio."""
-from datetime import datetime
+from datetime import date, datetime
 from typing import Optional
 from uuid import UUID, uuid4
 
-from sqlalchemy import Boolean, Computed, DateTime, ForeignKey, Integer, String
+from sqlalchemy import Boolean, Computed, Date, DateTime, ForeignKey, Integer, String
 from sqlalchemy import Enum as SQLEnum
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column
@@ -77,3 +77,8 @@ class AlocacaoPatio(Base, AuditoriaMixin, SyncMixin):
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
     ativa: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    # Data de serviço real (calculada pelo backend em get_data_servico).
+    # Após 20h = amanhã, antes das 20h = hoje.
+    data_referencia: Mapped[date] = mapped_column(
+        Date, nullable=False, server_default=func.current_date()
+    )

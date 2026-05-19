@@ -1,5 +1,5 @@
 """Schemas de frota e pátio: onibus, fila, alocacao_patio."""
-from datetime import datetime
+from datetime import date, datetime
 from typing import Literal, Optional
 from uuid import UUID
 
@@ -78,6 +78,7 @@ class AlocacaoPatioRead(AlocacaoPatioBase, ORMBase, AuditoriaSchema, SyncSchema)
     id: UUID
     alocado_por: Optional[UUID] = None
     alocado_em: datetime
+    data_referencia: date  # data de serviço real (calculada pelo backend)
 
 
 class AlocacaoBlocoCreate(BaseModel):
