@@ -7,7 +7,7 @@ const _host = window.location.hostname;
 
 const API_BASE_URL = (_host === 'localhost' || _host === '127.0.0.1')
   ? 'http://localhost:8000'   // dev local
-  : 'https://api.seudominio.com.br';   // TODO: substituir pelo domínio real no deploy
+  : 'https://api.gestaopatiosambaiba.com.br';  // produção
 
 // Chave do token no localStorage
 export const TOKEN_KEY = 'sambaiba_token';
