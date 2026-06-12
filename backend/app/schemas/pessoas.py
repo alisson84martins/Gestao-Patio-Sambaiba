@@ -44,7 +44,7 @@ class UsuarioBase(BaseModel):
 
 
 class UsuarioCreate(UsuarioBase):
-    senha: str = Field(..., min_length=6, max_length=72)
+    cpf: str = Field(..., min_length=11, max_length=14, description="CPF com ou sem formatação. Últimos 4 dígitos viram senha inicial.")
 
 
 class UsuarioUpdate(BaseModel):
@@ -57,6 +57,4 @@ class UsuarioUpdate(BaseModel):
 
 class UsuarioRead(UsuarioBase, ORMBase, AuditoriaSchema):
     """Saída segura: NUNCA inclui senha_hash."""
-    id: UUID
-    ultimo_acesso: Optional[datetime] = None
-    primeiro_acesso: bool = True
+    id:

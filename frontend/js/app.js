@@ -1,3 +1,51 @@
+// ── Sync multi-usuário ─────────────────────────────────────────────────────
+// Detecta ambiente igual ao config.js (sem import — app.js é script clássico)
+const _API_SYNC = (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')
+  ? 'http://localhost:8000'
+  : 'https://api.gestaopatiosambaiba.com.br';
+
+async function _apiFetchSync(path, opts = {}) {
+  const token = localStorage.getItem('sambaiba_token');
+  const res = await fetch(_API_SYNC + path, {
+    ...opts,
+    headers: {
+      'Content-Type': 'application/json',
+      ...(token ? { 'Authorization': 'Bearer ' + token } : {}),
+      ...(opts.headers || {}),
+    },
+  });
+  if (!res.ok) throw new Error(res.status);
+  if (res.status === 204) return null;
+  return res.json();
+}
+
+function _mergeServerState(serverEstado) {
+  // Sobrescreve state com o estado do servidor e garante campos obrigatórios
+  state = serverEstado;
+  if (!state.linhas) state.linhas = [];
+  if (!state.frota) state.frota = [];
+  if (!state.presos) state.presos = [];
+  if (!state.manutencao) state.manutencao = [];
+  if (!state.revisoes) state.revisoes = [];
+  if (!state.filas) state.filas = {};
+  if (!state.especiais) state.especiais = {};
+  if (!state.escala) state.escala = { tipo: null, data: '', importadoEm: null, manobra: [], e2: [], ar2: [] };
+  if (!state.escala.manobra) state.escala.manobra = [];
+  if (!state.escala.e2) state.escala.e2 = [];
+  if (!state.escala.ar2) state.escala.ar2 = [];
+  const FILAS_NUM_LOCAL = Array.from({length:33},(_,i)=>String(i+1));
+  const ESPECIAIS_KEYS = ['coqueiro','laje','lavador','bomba','eletricos','fundao'];
+  function _migrar(lista) {
+    if (!Array.isArray(lista)) return [];
+    return lista.map(x => typeof x === 'string' ? {frota:x, linha:''} : x)
+                .filter(x => x && x.frota && String(x.frota) !== 'undefined' && String(x.frota) !== 'null');
+  }
+  FILAS_NUM_LOCAL.forEach(f => { state.filas[f] = _migrar(state.filas[f] || []); });
+  ESPECIAIS_KEYS.forEach(k => { state.especiais[k] = _migrar(state.especiais[k] || []); });
+  localStorage.setItem('sambaiba_v2', JSON.stringify(state));
+}
+// ────────────────────────────────────────────────────────────────────────────
+
 const FILAS_NUM = Array.from({length:33},(_,i)=>String(i+1));
 
 const ESPECIAIS = [
@@ -59,7 +107,12 @@ function initState(){
   state.frota=state.frota.map(o=>typeof o==='string'?{frota:o}:o).filter(o=>o&&o.frota);
   state.frota.sort((a,b)=>Number(a.frota)-Number(b.frota));
 }
-function save(){localStorage.setItem('sambaiba_v2',JSON.stringify(state));}
+function save() {
+  localStorage.setItem('sambaiba_v2', JSON.stringify(state));
+  // Sync background ao servidor — não bloqueia a UI; falha silenciosa se offline
+  _apiFetchSync('/patio/v2estado', { method: 'PUT', body: JSON.stringify(state) })
+    .catch(e => console.warn('[sync] falha ao enviar estado ao servidor:', e));
+}
 
 // Valida se uma linha existe no catálogo (retorna true se vazio — campo vazio sempre é permitido)
 function _linhaExiste(codigo) {
@@ -2929,4 +2982,32 @@ function cancelarAlocacaoExcel() {
   closeModal('modal-preview-alocacao');
 }
 
-initState();renderAll();
+// ── Init ───────────────────────────────────────────────────────────────────
+initState();
+renderAll(); // Render imediato do localStorage (sem esperar servidor)
+
+// Após render, tenta carregar estado do servidor e faz polling a cada 30s
+(async () => {
+  // Carga inicial do servidor (sobrescreve localStorage se houver dado)
+  try {
+    const r = await _apiFetchSync('/patio/v2estado');
+    if (r && r.estado && Object.keys(r.estado).length > 0) {
+      _mergeServerState(r.estado);
+      renderAll(); // Re-render com estado compartilhado
+    }
+  } catch (e) {
+    console.warn('[sync] carga inicial falhou, usando localStorage:', e);
+  }
+
+  // Polling a cada 30s — mantém todos os dispositivos sincronizados
+  setInterval(async () => {
+    try {
+      const r = await _apiFetchSync('/patio/v2estado');
+      if (r && r.estado && Object.keys(r.estado).length > 0) {
+        _mergeServerState(r.estado);
+        renderAll();
+      }
+    } catch (e) { /* silencioso — rede pode falhar momentaneamente */ }
+  }, 30000);
+})();
+// ────────────────────────────────────────────────────────────────────────────

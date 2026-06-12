@@ -156,9 +156,9 @@
           </select>
         </div>
         <div>
-          <label>Senha inicial</label>
-          <input type="text" value="RE do funcionário" disabled style="color:var(--muted)">
-          <div class="hint">O usuário troca no primeiro acesso.</div>
+          <label for="novo-cpf">CPF</label>
+          <input id="novo-cpf" type="text" placeholder="000.000.000-00 ou 00000000000" required>
+          <div class="hint">Últimos 4 dígitos = senha inicial. O usuário troca no primeiro acesso.</div>
         </div>
       </div>
       <div class="form-footer">
@@ -369,6 +369,7 @@
     e.preventDefault();
     const re     = document.getElementById('novo-re').value.trim();
     const nome   = document.getElementById('novo-nome').value.trim();
+    const cpf    = document.getElementById('novo-cpf').value.trim();
     const perfil = document.getElementById('novo-perfil').value;
     const btn    = document.getElementById('btn-criar');
 
@@ -378,9 +379,9 @@
     try {
       await apiFetch('/usuarios', {
         method: 'POST',
-        body: JSON.stringify({ re, nome, perfil, senha: re, ativo: true }),
+        body: JSON.stringify({ re, nome, cpf, perfil, ativo: true }),
       });
-      showOk(`Usuário ${nome} (RE: ${re}) criado. Senha inicial = RE.`);
+      showOk(`Usuário ${nome} (RE: ${re}) criado. Senha inicial = últimos 4 dígitos do CPF.`);
       e.target.reset();
       carregarUsuarios();
     } catch (err) {
@@ -395,11 +396,4 @@
   document.getElementById('filtro-busca').addEventListener('input', () => carregarUsuarios());
   document.getElementById('filtro-perfil').addEventListener('change', () => carregarUsuarios());
   document.getElementById('filtro-ativo').addEventListener('change', () => carregarUsuarios());
-  document.getElementById('btn-recarregar').addEventListener('click', () => carregarUsuarios());
-
-  // ── Init ──
-  carregarUsuarios();
-</script>
-
-</body>
-</html>
+  document.getElementById('btn-recarre

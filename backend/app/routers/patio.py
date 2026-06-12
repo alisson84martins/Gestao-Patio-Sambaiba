@@ -1,10 +1,11 @@
 """Endpoints de visão consolidada do pátio."""
 from collections import defaultdict
 from datetime import date as date_type, datetime, timezone
-from typing import Annotated, Optional
+from typing import Annotated, Any, Optional
+import json as _json
 
-from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import and_, select
+from fastapi import APIRouter, Body, Depends, HTTPException, Query
+from sqlalchemy import and_, select, text
 from sqlalchemy.orm import Session, aliased
 
 from app.core.database import get_db
@@ -207,5 +208,37 @@ def remanejamento(
             status_ficha=r[7],
             ficha_aberta_em=r[8],
         )
-        for r in db.execute(stmt).all()
-    ]
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Estado V2 — blob JSON para sincronização multi-usuário
+# ─────────────────────────────────────────────────────────────────────────────
+
+@router.get("/v2estado", summary="Estado V2 do pátio (blob para sync multi-usuário)")
+def get_v2estado(user: CurrentUser, db: Annotated[Session, Depends(get_db)]):
+    row = db.execute(
+        text("SELECT estado, atualizado_em, atualizado_por FROM patio_v2_estado WHERE id = 1")
+    ).one_or_none()
+    return {
+        "estado": row[0] if row else {},
+        "atualizado_em": row[1].isoformat() if row and row[1] else None,
+        "atualizado_por": row[2] if row else None,
+    }
+
+
+@router.put("/v2estado", summary="Salva estado V2 do pátio (blob para sync multi-usuário)")
+def put_v2estado(
+    user: CurrentUser,
+    db: Annotated[Session, Depends(get_db)],
+    estado: Any = Body(...),
+):
+    db.execute(
+        text(
+            "INSERT INTO patio_v2_estado (id, estado, atualizado_em, atualizado_por) "
+            "VALUES (1, :estado::jsonb, NOW(), :re) "
+            "ON CONFLICT (id) DO UPDATE "
+            "SET estado = :estado::jsonb, atualizado_em = NOW(), atualizado_por = :re"
+        ),
+        {"estado": _json.dumps(estado), "re": user.re},
+    )
+    db.commit()
+    return {"ok": True}
