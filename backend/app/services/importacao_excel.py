@@ -1,17 +1,25 @@
 """Lógica de parser e importação de planilha Excel de escala.
 
-Formato esperado da planilha:
-- Coluna A: numero_frota (4 dígitos)
-- Coluna B: linha_codigo (ex: '8500-10')
-- Coluna C: horario_saida (HH:MM ou tempo Excel)
-- Coluna D: re_motorista (opcional)
-- Coluna E: tipo (opcional: MANOBRA, PLANTAO_E2, PLANTAO_AR2)
+Suporta dois formatos automaticamente:
 
-A primeira linha é ignorada (cabeçalho).
+  1. Formato Sambaíba (V2) — múltiplas abas com grupos de colunas:
+       Aba E2:      3 grupos (carro|hora|linha) em cols 0,1,2 / 6,7,8 / 12,13,14
+                    Cabeçalho em 3 linhas, dados a partir da linha 4
+       Aba AR2:     mesma estrutura da E2
+       Aba MANOBRA: 6 grupos (carro|hora) em cols 0,1 / 3,4 / 6,7 / 9,10 / 12,13 / 15,16
+                    Cabeçalho em 1 linha, dados a partir da linha 2
+
+  2. Formato simples — uma aba, uma linha por ônibus:
+       Col A: numero_frota | B: linha_codigo | C: horario_saida | D: re_motorista | E: tipo
+       Cabeçalho na linha 1, dados a partir da linha 2
+
+Auto-detecta o formato pelo nome/cabeçalho das abas.
+Auto-cria Ônibus e Linha caso não existam no banco.
 """
 from __future__ import annotations
 
 import hashlib
+import re
 from dataclasses import dataclass
 from datetime import date as date_type, datetime, time, timezone
 from typing import IO
@@ -30,7 +38,10 @@ from app.models import (
     StatusImportacaoEnum,
     TipoEscalaEnum,
 )
+from app.models.enums import SetorEnum
 
+
+# ─── Dataclass de linha parseada ─────────────────────────────────────────────
 
 @dataclass
 class LinhaParseada:
@@ -42,6 +53,8 @@ class LinhaParseada:
     tipo: TipoEscalaEnum | None = None
     erro: str | None = None
 
+
+# ─── Helpers de parsing ───────────────────────────────────────────────────────
 
 def _parse_horario(valor) -> time | None:
     if valor is None:
@@ -69,161 +82,135 @@ def _parse_tipo(valor) -> TipoEscalaEnum | None:
         return None
 
 
-def parsear_planilha(stream: IO[bytes]) -> list[LinhaParseada]:
-    """Lê o Excel e retorna lista de LinhaParseada (com erro preenchido se inválida)."""
-    wb = load_workbook(stream, data_only=True, read_only=True)
+def _val_carro(valor) -> int | None:
+    """Valida número de frota (3-4 dígitos). Retorna None se inválido."""
+    if valor is None:
+        return None
+    try:
+        s = str(int(round(float(str(valor))))).strip()
+    except (ValueError, TypeError):
+        return None
+    return int(s) if re.match(r'^\d{3,4}$', s) else None
+
+
+def _detectar_tipo_aba(sheet_name: str, header_text: str) -> str | None:
+    """Detecta tipo da aba: 'e2', 'ar2', 'manobra', 'configuracao' ou None."""
+    n = sheet_name.upper()
+    h = header_text.upper()
+    if 'E2' in n or 'E2' in h:
+        return 'e2'
+    if 'AR2' in n or 'AR2' in h:
+        return 'ar2'
+    if any(k in n or k in h for k in ('MANOBRA', 'MANOBRISTA', 'PRESO')):
+        return 'manobra'
+    if 'CONFIGURA' in n or 'CONFIGURA' in h:
+        return 'configuracao'
+    return None
+
+
+def _setor_por_frota(numero_frota: int) -> SetorEnum:
+    """Infere setor pelo número de frota: 1000-1999 = E2; 2000-2999 = AR2."""
+    if 2000 <= numero_frota <= 2999:
+        return SetorEnum.AR2
+    return SetorEnum.E2  # default e para 1xxx
+
+
+# ─── Parser formato Sambaíba (V2) ────────────────────────────────────────────
+
+def _parsear_formato_sambaiba(wb) -> list[LinhaParseada]:
+    """
+    Parseia o formato real das planilhas de escala da Sambaíba.
+
+    Abas E2/AR2:  3 grupos (carro, hora, linha) por linha de dados
+                  Índices: (0,1,2), (6,7,8), (12,13,14)
+                  Dados a partir da linha 4 (3 linhas de cabeçalho)
+
+    Aba MANOBRA:  6 grupos (carro, hora) por linha de dados
+                  Índices: (0,1), (3,4), (6,7), (9,10), (12,13), (15,16)
+                  Dados a partir da linha 2 (1 linha de cabeçalho)
+    """
+    resultado: list[LinhaParseada] = []
+    idx = 0
+
+    for sheet_name in wb.sheetnames:
+        ws = wb[sheet_name]
+        rows = list(ws.iter_rows(values_only=True))
+        if not rows:
+            continue
+
+        # Header = primeiras 3 linhas concatenadas
+        header_text = ' '.join(str(c or '') for row in rows[:3] for c in row)
+        tipo_aba = _detectar_tipo_aba(sheet_name, header_text)
+
+        if not tipo_aba or tipo_aba == 'configuracao':
+            continue
+
+        if tipo_aba == 'e2':
+            tipo_enum = TipoEscalaEnum.PLANTAO_E2
+            grupos = [(0, 1, 2), (6, 7, 8), (12, 13, 14)]
+            data_rows = rows[3:]  # pula 3 linhas de cabeçalho
+        elif tipo_aba == 'ar2':
+            tipo_enum = TipoEscalaEnum.PLANTAO_AR2
+            grupos = [(0, 1, 2), (6, 7, 8), (12, 13, 14)]
+            data_rows = rows[3:]
+        else:  # manobra
+            tipo_enum = TipoEscalaEnum.MANOBRA
+            grupos = [(0, 1), (3, 4), (6, 7), (9, 10), (12, 13), (15, 16)]
+            data_rows = rows[1:]  # pula 1 linha de cabeçalho
+
+        for row in data_rows:
+            if not row or all(c is None for c in row):
+                continue
+            # Garante largura mínima para evitar IndexError
+            row_list = list(row) + [None] * 20
+
+            for grupo in grupos:
+                ci = grupo[0]
+                hi = grupo[1]
+                li = grupo[2] if len(grupo) > 2 else None
+
+                frota = _val_carro(row_list[ci])
+                if frota is None:
+                    continue
+
+                hora_raw = row_list[hi]
+                hora_str = str(hora_raw or '').strip().upper()
+                # Marcadores especiais não são escalas de serviço
+                if hora_str in ('PRESO', 'AMOSTRAL', 'EVENTO', 'TABELAS', ''):
+                    continue
+
+                hora = _parse_horario(hora_raw)
+                if hora is None:
+                    continue  # hora não reconhecida — pula silenciosamente
+
+                linha_codigo: str | None = None
+                if li is not None and row_list[li] is not None:
+                    linha_codigo = str(row_list[li]).strip() or None
+
+                idx += 1
+                l = LinhaParseada(
+                    linha_planilha=idx,
+                    numero_frota=frota,
+                    linha_codigo=linha_codigo,
+                    horario_saida=hora,
+                    tipo=tipo_enum,
+                )
+
+                # Plantão SEM linha = erro (manobra não exige linha)
+                if tipo_enum != TipoEscalaEnum.MANOBRA and not linha_codigo:
+                    l.erro = "linha_codigo ausente na aba de plantão"
+
+                resultado.append(l)
+
+    return resultado
+
+
+# ─── Parser formato simples ───────────────────────────────────────────────────
+
+def _parsear_formato_simples(wb) -> list[LinhaParseada]:
+    """Formato simples: uma aba, col A=frota, B=linha, C=hora, D=re, E=tipo."""
     ws = wb.active
     linhas: list[LinhaParseada] = []
     for idx, row in enumerate(ws.iter_rows(min_row=2, values_only=True), start=2):
         if not row or all(cell is None for cell in row):
-            continue
-        l = LinhaParseada(linha_planilha=idx)
-        try:
-            cells = list(row) + [None] * 5
-            l.numero_frota = int(cells[0]) if cells[0] is not None else None
-            l.linha_codigo = str(cells[1]).strip() if cells[1] is not None else None
-            l.horario_saida = _parse_horario(cells[2])
-            l.re_motorista = str(cells[3]).strip() if cells[3] is not None else None
-            l.tipo = _parse_tipo(cells[4])
-            if l.numero_frota is None:
-                l.erro = "numero_frota vazio"
-            elif l.linha_codigo is None:
-                l.erro = "linha_codigo vazio"
-            elif l.horario_saida is None:
-                l.erro = "horario_saida inválido"
-        except Exception as exc:  # noqa: BLE001
-            l.erro = f"erro ao parsear: {exc}"
-        linhas.append(l)
-    return linhas
-
-
-def hash_arquivo(conteudo: bytes) -> str:
-    return hashlib.sha256(conteudo).hexdigest()
-
-
-def importar_escala(
-    db: Session,
-    arquivo_nome: str,
-    conteudo: bytes,
-    data_escala: date_type,
-    tipo_default: TipoEscalaEnum,
-    importado_por_id,
-    substituir_existentes: bool = True,
-) -> tuple[ImportacaoEscala, list[dict], int]:
-    """Processa o Excel e insere escalas. Retorna (importacao, erros, substituidas)."""
-    import io
-    linhas_lidas = parsear_planilha(io.BytesIO(conteudo))
-
-    # Substitui escalas existentes da mesma data (soft delete) se solicitado
-    substituidas = 0
-    if substituir_existentes:
-        stmt = (
-            update(Escala)
-            .where(Escala.data == data_escala, Escala.deletado_em.is_(None))
-            .values(deletado_em=datetime.now(timezone.utc))
-        )
-        result = db.execute(stmt)
-        substituidas = result.rowcount or 0
-
-    # Cria importacao_escala primeiro com status PARCIAL (atualiza no fim)
-    imp = ImportacaoEscala(
-        arquivo_nome=arquivo_nome,
-        arquivo_hash=hash_arquivo(conteudo),
-        data_escala=data_escala,
-        total_registros=len(linhas_lidas),
-        status=StatusImportacaoEnum.PARCIAL,
-        importado_por=importado_por_id,
-    )
-    db.add(imp)
-    db.flush()  # obtém o ID sem commitar
-
-    # Cache de catálogos
-    onibus_por_frota: dict[int, Onibus] = {}
-    linha_por_codigo: dict[str, Linha] = {}
-    motorista_por_re: dict[str, Motorista] = {}
-
-    erros: list[dict] = []
-    sucesso = 0
-
-    for l in linhas_lidas:
-        if l.erro:
-            erros.append({"linha": l.linha_planilha, "motivo": l.erro, "valor_recebido": None})
-            continue
-
-        # Resolve ônibus
-        onibus = onibus_por_frota.get(l.numero_frota)
-        if onibus is None:
-            onibus = db.execute(
-                select(Onibus).where(Onibus.numero_frota == l.numero_frota)
-            ).scalar_one_or_none()
-            if onibus is None:
-                erros.append({"linha": l.linha_planilha,
-                              "motivo": f"Ônibus {l.numero_frota} não cadastrado",
-                              "valor_recebido": str(l.numero_frota)})
-                continue
-            onibus_por_frota[l.numero_frota] = onibus
-
-        # Resolve linha
-        linha = linha_por_codigo.get(l.linha_codigo)
-        if linha is None:
-            linha = db.execute(
-                select(Linha).where(Linha.codigo == l.linha_codigo)
-            ).scalar_one_or_none()
-            if linha is None:
-                erros.append({"linha": l.linha_planilha,
-                              "motivo": f"Linha {l.linha_codigo} não cadastrada",
-                              "valor_recebido": l.linha_codigo})
-                continue
-            linha_por_codigo[l.linha_codigo] = linha
-
-        # Resolve motorista (opcional)
-        motorista_id = None
-        if l.re_motorista:
-            motorista = motorista_por_re.get(l.re_motorista)
-            if motorista is None:
-                motorista = db.execute(
-                    select(Motorista).where(Motorista.re == l.re_motorista)
-                ).scalar_one_or_none()
-                if motorista:
-                    motorista_por_re[l.re_motorista] = motorista
-            if motorista:
-                motorista_id = motorista.id
-
-        # Valida cruzamento de setor
-        if onibus.setor and linha.setor and onibus.setor != linha.setor:
-            erros.append({"linha": l.linha_planilha,
-                          "motivo": f"Setor incompatível: ônibus {onibus.setor.value} em linha {linha.setor.value}",
-                          "valor_recebido": f"{l.numero_frota} -> {l.linha_codigo}"})
-            continue
-
-        # Cria escala
-        escala = Escala(
-            data=data_escala,
-            onibus_id=onibus.id,
-            motorista_id=motorista_id,
-            linha_id=linha.id,
-            horario_saida=l.horario_saida,
-            tipo=l.tipo or tipo_default,
-            origem=OrigemEscalaEnum.IMPORTACAO_EXCEL,
-            importacao_id=imp.id,
-            criado_por=importado_por_id,
-        )
-        db.add(escala)
-        sucesso += 1
-
-    imp.registros_sucesso = sucesso
-    imp.registros_erro = len(erros)
-    if erros and sucesso == 0:
-        imp.status = StatusImportacaoEnum.ERRO
-    elif erros:
-        imp.status = StatusImportacaoEnum.PARCIAL
-    else:
-        imp.status = StatusImportacaoEnum.SUCESSO
-    if erros:
-        # Resumo dos primeiros 10 erros
-        imp.erro_detalhe = "\n".join(
-            f"Linha {e['linha']}: {e['motivo']}" for e in erros[:10]
-        )
-    db.commit()
-    db.refresh(imp)
-    return imp, erros, substituidas
+     
