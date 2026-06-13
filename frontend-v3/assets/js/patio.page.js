@@ -18,6 +18,7 @@ import { apiGet, ApiError } from './api.js';
 import { POLLING_INTERVAL_MS } from './config.js';
 import { init as initAlocacaoBloco } from './alocacao.bloco.js';
 import { init as initMoverChipModal, abrirModalMoverChip } from './mover.chip.modal.js';
+import { initMenu } from './menu.js';
 
 // --- Protege a rota antes de qualquer coisa ---
 if (!requireAuth()) {
@@ -372,6 +373,11 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     initMoverChipModal({ onSuccess: () => loadPatio() });
+
+    initMenu({
+        getFilasSnapshot: () => lastFilas,
+        onSuccess: () => loadPatio(),
+    });
 
     elGrid.addEventListener('click', (e) => {
         const chip = e.target.closest('.onibus-chip');
