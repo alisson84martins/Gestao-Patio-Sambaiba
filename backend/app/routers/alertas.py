@@ -13,6 +13,15 @@ from app.core.utils import PaginationParams, set_create_audit, set_update_audit
 from app.models import Alerta, Onibus, TipoAlertaEnum
 from app.schemas import AlertaCreate, AlertaRead, AlertaResolver
 
+
+def _enriquecer(alerta: Alerta, db: Session) -> AlertaRead:
+    """Converte Alerta em AlertaRead injetando numero_frota via join."""
+    data = AlertaRead.model_validate(alerta)
+    onibus = db.get(Onibus, alerta.onibus_id)
+    if onibus:
+        data.numero_frota = onibus.numero_frota
+    return data
+
 router = APIRouter(prefix="/alertas", tags=["alertas"])
 
 
@@ -33,7 +42,7 @@ def criar(payload: AlertaCreate, user: CurrentUser, db: Annotated[Session, Depen
             raise HTTPException(409, f"Já existe alerta {payload.tipo.value} ativo para este ônibus")
         raise
     db.refresh(a)
-    return a
+    return _enriquecer(a, db)
 
 
 @router.get("", response_model=list[AlertaRead])
@@ -57,7 +66,8 @@ def listar(
         q = q.where(Alerta.onibus_id == onibus_id)
     # Prioridade na ordenação: PRESO antes de AMOSTRAL, depois por data
     q = q.order_by(Alerta.tipo, Alerta.criado_em.desc()).offset(pag.skip).limit(pag.limit)
-    return db.execute(q).scalars().all()
+    alertas = db.execute(q).scalars().all()
+    return [_enriquecer(a, db) for a in alertas]
 
 
 @router.get("/{alerta_id}", response_model=AlertaRead)
@@ -65,7 +75,7 @@ def buscar(alerta_id: UUID, user: CurrentUser, db: Annotated[Session, Depends(ge
     a = db.get(Alerta, alerta_id)
     if not a:
         raise HTTPException(404, "Alerta não encontrado")
-    return a
+    return _enriquecer(a, db)
 
 
 @router.patch("/{alerta_id}/resolver", response_model=AlertaRead,
@@ -85,7 +95,7 @@ def resolver(alerta_id: UUID, payload: AlertaResolver, user: CurrentUser,
     set_update_audit(a, user)
     db.commit()
     db.refresh(a)
-    return a
+    return _enriquecer(a, db)
 
 
 @router.delete("/{alerta_id}", response_model=AlertaRead, summary="Soft delete")
@@ -97,4 +107,4 @@ def deletar(alerta_id: UUID, user: CurrentUser, db: Annotated[Session, Depends(g
     set_update_audit(a, user)
     db.commit()
     db.refresh(a)
-    return a
+    return _enriquecer(a, db)

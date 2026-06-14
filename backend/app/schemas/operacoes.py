@@ -66,6 +66,7 @@ class AlertaRead(AlertaBase, ORMBase, AuditoriaSchema, SyncSchema):
     resolvido_em: Optional[datetime] = None
     resolvido_por: Optional[UUID] = None
     deletado_em: Optional[datetime] = None
+    numero_frota: Optional[int] = None  # enriquecido pelo router via join
 
 
 # =================== FICHA_MANUTENCAO ===================

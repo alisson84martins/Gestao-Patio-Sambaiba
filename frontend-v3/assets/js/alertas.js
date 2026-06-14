@@ -335,7 +335,7 @@ function fmtDataHora(iso) {
  * @param {Object} alerta — AlertaRead do backend
  */
 function buildCard(alerta) {
-    const frota = mapIdParaFrota.get(alerta.onibus_id) ?? alerta.onibus_id.slice(0, 8);
+    const frota = alerta.numero_frota ?? mapIdParaFrota.get(alerta.onibus_id) ?? alerta.onibus_id.slice(0, 8);
 
     const isPreso   = alerta.tipo === 'PRESO';
     const cardClass = isPreso ? 'alerta-card-preso' : 'alerta-card-amostral';
