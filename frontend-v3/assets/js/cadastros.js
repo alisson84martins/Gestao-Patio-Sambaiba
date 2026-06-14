@@ -297,6 +297,7 @@ function setupModais() {
         if (e.target.id === 'modal-linha') fechar('modal-linha');
     });
     document.getElementById('btn-salvar-linha').addEventListener('click', salvarLinha);
+    document.getElementById('btn-excluir-linha').addEventListener('click', excluirLinha);
 
     // Tipo de defeito
     document.getElementById('modal-tipo-fechar').addEventListener('click', () => fechar('modal-tipo-defeito'));
@@ -547,13 +548,14 @@ function abrirModalLinha(l) {
     const editando = !!l;
     document.getElementById('modal-linha-titulo').textContent = editando ? `Editar Linha` : 'Nova Linha';
     document.getElementById('linha-id').value     = l?.id || '';
-    document.getElementById('linha-codigo').value = l?.codigo || '';
-    document.getElementById('linha-codigo').disabled = editando;
-    document.getElementById('linha-nome').value   = l?.nome || '';
-    document.getElementById('linha-setor').value  = l?.setor || 'E2';
-    document.getElementById('linha-setor').disabled = editando; // setor não muda depois
-    document.getElementById('linha-ativa').value  = String(l?.ativa ?? true);
-    document.getElementById('linha-ativa-group').style.display = editando ? '' : 'none';
+    document.getElementById('linha-codigo').value    = l?.codigo || '';
+    document.getElementById('linha-codigo').disabled  = false; // editável em criação e edição
+    document.getElementById('linha-nome').value      = l?.nome || '';
+    document.getElementById('linha-setor').value     = l?.setor || 'E2';
+    document.getElementById('linha-setor').disabled  = editando; // setor não muda depois
+    document.getElementById('linha-ativa').value     = String(l?.ativa ?? true);
+    document.getElementById('linha-ativa-group').style.display  = editando ? '' : 'none';
+    document.getElementById('btn-excluir-linha').style.display  = editando ? '' : 'none';
 
     erroModal('modal-linha-erro', '');
     abrir('modal-linha');
@@ -588,6 +590,20 @@ async function salvarLinha() {
         } catch (err) {
             erroModal('modal-linha-erro', err.message);
         }
+    }
+}
+
+async function excluirLinha() {
+    const id     = document.getElementById('linha-id').value;
+    const codigo = document.getElementById('linha-codigo').value || 'esta linha';
+    if (!id) return;
+    if (!confirm(`Excluir linha "${codigo}"?\n\nEsta ação é permanente. Se a linha estiver em uso na escala atual, a exclusão será bloqueada.`)) return;
+    try {
+        await apiDelete(`/linhas/${id}`);
+        fechar('modal-linha');
+        carregarAba();
+    } catch (err) {
+        erroModal('modal-linha-erro', err.message);
     }
 }
 
