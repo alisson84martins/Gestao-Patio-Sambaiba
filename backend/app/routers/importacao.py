@@ -130,4 +130,5 @@ def reverter(imp_id: UUID, user: CurrentUser, db: Annotated[Session, Depends(get
     db.commit()
     return {
         "importacao_id": str(imp_id),
-   
+        "escalas_revertidas": result.rowcount,
+    }

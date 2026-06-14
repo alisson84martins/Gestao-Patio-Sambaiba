@@ -95,4 +95,4 @@ def resolver(alerta_id: UUID, payload: AlertaResolver, user: OperadorOuAdmin,
     set_update_audit(a, user)
     db.commit()
     db.refresh(a)
-    return _enriquecer(a, 
+    return _enriquecer(a, db)
