@@ -122,7 +122,10 @@ function renderChip(onibus, filaId) {
     chip.dataset.alocacaoId = onibus.alocacao_id;
     chip.dataset.frota      = onibus.numero_frota;
     chip.dataset.filaId     = filaId;
-    chip.dataset.linha      = onibus.linha_codigo || '';
+    // Oculta placeholders internos (MAN-*) do modal — o alocador não deve vê-los
+    chip.dataset.linha      = onibus.linha_codigo && !onibus.linha_codigo.startsWith('MAN-')
+        ? onibus.linha_codigo
+        : '';
 
     // Número de frota
     const frota = document.createElement('span');

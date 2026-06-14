@@ -12,6 +12,7 @@
  */
 
 import { apiDelete } from './api.js';
+// apiDelete('/alocacoes') sem path param chama DELETE /alocacoes (bulk atômico)
 
 // ────────────────────────────────────────────────────────────────
 // INICIALIZAÇÃO — conecta todos os eventos ao DOM
@@ -384,34 +385,26 @@ function exportarDados(filas) {
 // LIMPAR PÁTIO
 // ────────────────────────────────────────────────────────────────
 async function limparPatio(filas, onSuccess) {
-    const ids = (filas || [])
-        .flatMap(f => (f.onibus || []).map(o => o.alocacao_id))
-        .filter(Boolean);
+    const total = (filas || []).reduce((acc, f) => acc + (f.onibus || []).length, 0);
 
-    if (ids.length === 0) {
+    if (total === 0) {
         alert('Pátio já está vazio.');
         return;
     }
 
     const ok = confirm(
-        `LIMPAR PÁTIO\n\nRemove ${ids.length} veículo(s) de todas as filas.\n` +
+        `LIMPAR PÁTIO\n\nRemove ${total} veículo(s) de todas as filas.\n` +
         `Esta ação não pode ser desfeita.\n\nConfirma?`
     );
     if (!ok) return;
 
-    let erros = 0;
-    for (const id of ids) {
-        try {
-            await apiDelete(`/alocacoes/${id}`);
-        } catch (e) {
-            erros++;
-            console.error('[menu] erro ao remover alocação:', id, e?.message);
-        }
+    try {
+        // Operação atômica no servidor — ou limpa tudo, ou não limpa nada
+        const resultado = await apiDelete('/alocacoes');
+        const removidas = resultado?.removidas ?? total;
+        alert(`${removidas} veículo(s) removido(s) com sucesso.`);
+        onSuccess();
+    } catch (err) {
+        alert(`Erro ao limpar pátio: ${err?.message || 'Erro desconhecido'}`);
     }
-
-    const msg = erros > 0
-        ? `Concluído com ${erros} erro(s). Verifique o pátio.`
-        : `${ids.length} veículo(s) removido(s) com sucesso.`;
-    alert(msg);
-    onSuccess();
 }

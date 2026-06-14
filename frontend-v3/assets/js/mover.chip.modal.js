@@ -11,7 +11,7 @@
  * conhecida do MVP (a linha vem da Escala, não da Alocação).
  */
 
-import { apiPost, apiDelete, ApiError } from './api.js';
+import { apiPost, apiPatch, apiDelete, ApiError } from './api.js';
 
 // ─── Estado do módulo ────────────────────────────────────────────
 let alocacaoAtual = null;   // { alocacaoId, frota, filaAtualId }
@@ -74,21 +74,32 @@ async function onSalvar() {
     const novaFilaId = document.getElementById('mover-nova-posicao').value;
     const linha      = document.getElementById('mover-linha').value.trim();
 
-    // "" → mantém na fila atual; caso contrário, muda pra fila selecionada
-    const filaId = novaFilaId || alocacaoAtual.filaAtualId;
-    const fila   = _filasCache.find(f => String(f.fila_id) === String(filaId));
-    if (!fila) {
-        alert('Fila não encontrada. Atualize a página e tente novamente.');
-        return;
-    }
+    // Determina se o usuário realmente mudou a fila
+    const filaMudou = novaFilaId && novaFilaId !== String(alocacaoAtual.filaAtualId);
 
     try {
-        await apiPost('/alocacoes/bloco', {
-            numero_frota: alocacaoAtual.frota,
-            fila:         filaParaBloco(fila),
-            linha_codigo: linha || null,
-            sentido:      'ida',
-        });
+        if (!filaMudou && linha) {
+            // Só a linha mudou — atualiza a escala sem mexer na posição da fila
+            await apiPatch(`/alocacoes/${alocacaoAtual.alocacaoId}/linha`, { linha_codigo: linha });
+        } else if (filaMudou) {
+            // Fila mudou — move via bloco (posição no destino é ao final, esperado)
+            const filaIdDestino = novaFilaId;
+            const fila = _filasCache.find(f => String(f.fila_id) === filaIdDestino);
+            if (!fila) {
+                alert('Fila não encontrada. Atualize a página e tente novamente.');
+                return;
+            }
+            await apiPost('/alocacoes/bloco', {
+                numero_frota: alocacaoAtual.frota,
+                fila:         filaParaBloco(fila),
+                linha_codigo: linha || null,
+                sentido:      'ida',
+            });
+        } else {
+            // Nada mudou — fecha sem chamar a API
+            fecharModalMoverChip();
+            return;
+        }
         fecharModalMoverChip();
         if (_onSuccess) await _onSuccess();
     } catch (err) {

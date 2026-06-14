@@ -11,8 +11,14 @@ from sqlalchemy.orm import Session
 from app.core.database import get_db
 from app.core.deps import CurrentUser, OperadorOuAdmin
 from app.core.utils import PaginationParams, set_create_audit, set_update_audit
-from app.models import AlocacaoPatio, Fila, Onibus, TipoFilaEnum
+from pydantic import BaseModel as _BaseModel
+
+from app.models import AlocacaoPatio, Escala, Fila, Linha, Onibus, TipoFilaEnum
 from app.schemas import AlocacaoBlocoCreate, AlocacaoPatioCreate, AlocacaoPatioRead, AlocacaoPatioUpdate
+
+
+class _LinhaPatch(_BaseModel):
+    linha_codigo: str
 
 router = APIRouter(prefix="/alocacoes", tags=["alocações / pátio"])
 
@@ -105,6 +111,58 @@ def desativar(aloc_id: UUID, user: OperadorOuAdmin, db: Annotated[Session, Depen
     db.commit()
     db.refresh(a)
     return a
+
+
+@router.patch("/{aloc_id}/linha", status_code=200,
+              summary="Atualiza linha da escala sem mover o ônibus na fila")
+def atualizar_linha(aloc_id: UUID, payload: _LinhaPatch, user: OperadorOuAdmin,
+                    db: Annotated[Session, Depends(get_db)]):
+    """Troca a linha da escala do dia sem remover/realocar o ônibus.
+
+    Preserva a posição na fila — use quando o alocador muda só o código de linha.
+    """
+    aloc = db.get(AlocacaoPatio, aloc_id)
+    if not aloc or not aloc.ativa:
+        raise HTTPException(404, "Alocação ativa não encontrada")
+
+    linha = db.execute(
+        select(Linha).where(Linha.codigo == payload.linha_codigo)
+    ).scalar_one_or_none()
+    if not linha:
+        raise HTTPException(404, f"Linha '{payload.linha_codigo}' não encontrada")
+
+    data_hoje = get_data_servico()
+    escala = db.execute(
+        select(Escala).where(
+            Escala.onibus_id == aloc.onibus_id,
+            Escala.data == data_hoje,
+            Escala.deletado_em.is_(None),
+        )
+    ).scalar_one_or_none()
+    if not escala:
+        raise HTTPException(404, "Escala não encontrada para este ônibus hoje")
+
+    escala.linha_id = linha.id
+    set_update_audit(escala, user)
+    db.commit()
+    return {"ok": True, "linha_codigo": linha.codigo}
+
+
+@router.delete("", status_code=200,
+               summary="Limpa todas as alocações ativas do dia de serviço (operação atômica)")
+def limpar_tudo(user: OperadorOuAdmin, db: Annotated[Session, Depends(get_db)]):
+    """Desativa todas as alocações ativas da data de serviço atual em uma única transação."""
+    data = get_data_servico()
+    result = db.execute(
+        text("""
+            UPDATE alocacao_patio
+               SET ativa = FALSE
+             WHERE ativa = TRUE AND data_referencia = :data
+        """),
+        {"data": data},
+    )
+    db.commit()
+    return {"removidas": result.rowcount}
 
 
 @router.post("/bloco", response_model=AlocacaoPatioRead,
