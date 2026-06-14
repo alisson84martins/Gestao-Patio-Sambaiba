@@ -12,7 +12,6 @@
  */
 
 import { apiDelete } from './api.js';
-// apiDelete('/alocacoes') sem path param chama DELETE /alocacoes (bulk atômico)
 
 // ────────────────────────────────────────────────────────────────
 // INICIALIZAÇÃO — conecta todos os eventos ao DOM
@@ -80,7 +79,11 @@ export function initMenu({ getFilasSnapshot, onSuccess }) {
     document.getElementById('menu-dados-importar')
         ?.addEventListener('click', () => { _fecharMenu(); window.location.href = 'importacao.html'; });
 
-    // ── Limpar ───────────────────────────────────────────────────
+    // ── Limpar Escala ────────────────────────────────────────────
+    document.getElementById('menu-limpar-escala')
+        ?.addEventListener('click', () => { _fecharMenu(); limparEscala(onSuccess); });
+
+    // ── Limpar Pátio ─────────────────────────────────────────────
     document.getElementById('menu-limpar')
         ?.addEventListener('click', () => { _fecharMenu(); limparPatio(getFilasSnapshot(), onSuccess); });
 }
@@ -384,6 +387,24 @@ function exportarDados(filas) {
 // ────────────────────────────────────────────────────────────────
 // LIMPAR PÁTIO
 // ────────────────────────────────────────────────────────────────
+async function limparEscala(onSuccess) {
+    const ok = confirm(
+        `LIMPAR ESCALA\n\nRemove toda a escala do dia atual.\n` +
+        `Os ônibus continuam no pátio, mas perdem linha e horário.\n\n` +
+        `Esta ação não pode ser desfeita.\n\nConfirma?`
+    );
+    if (!ok) return;
+
+    try {
+        const resultado = await apiDelete('/escalas');
+        const removidas = resultado?.removidas ?? 0;
+        alert(`Escala limpa: ${removidas} registro(s) removido(s).`);
+        onSuccess();
+    } catch (err) {
+        alert(`Erro ao limpar escala: ${err?.message || 'Erro desconhecido'}`);
+    }
+}
+
 async function limparPatio(filas, onSuccess) {
     const total = (filas || []).reduce((acc, f) => acc + (f.onibus || []).length, 0);
 

@@ -481,6 +481,18 @@ def importar_escala(
         frotas_preso_vistas.add(l.numero_frota)
         try:
             onibus = _get_or_create_onibus(db, l.numero_frota)
+            # Pula se já existe alerta PRESO ativo para este ônibus
+            # (evita UniqueViolation em reimportação da mesma escala)
+            alerta_existente = db.execute(
+                select(Alerta).where(
+                    Alerta.onibus_id == onibus.id,
+                    Alerta.tipo == TipoAlertaEnum.PRESO,
+                    Alerta.resolvido.is_(False),
+                    Alerta.deletado_em.is_(None),
+                )
+            ).scalar_one_or_none()
+            if alerta_existente:
+                continue
             alerta = Alerta(
                 onibus_id=onibus.id,
                 tipo=TipoAlertaEnum.PRESO,
