@@ -229,39 +229,71 @@ function _print(html) {
 }
 
 function imprimirPatio(filas) {
-    const lista = _todosOnibus(filas);
-    const html = `
-        <h2 style="margin:0 0 4px;font-size:14px">Estado do Pátio — Sambaíba</h2>
-        <p style="font-size:10px;color:#888;margin:0 0 8px">
-            ${_dataHoje()} às ${_horaAgora()} · ${lista.length} veículos alocados
-        </p>
-        <table style="width:100%;border-collapse:collapse;font-size:11px">
-            <thead><tr style="background:#000;color:#fff">
-                <th style="padding:4px 6px;text-align:left">Frota</th>
-                <th style="padding:4px 6px;text-align:left">Setor</th>
-                <th style="padding:4px 6px;text-align:left">Fila</th>
-                <th style="padding:4px 6px;text-align:left">Pos</th>
-                <th style="padding:4px 6px;text-align:left">Linha</th>
-                <th style="padding:4px 6px;text-align:left">Hora</th>
-                <th style="padding:4px 6px;text-align:left">Status</th>
-            </tr></thead>
-            <tbody>
-                ${lista.map((o, i) => {
-                    const st = o.alerta_tipo || '';
-                    const stStyle = st === 'PRESO' ? 'color:red;font-weight:800' : '';
-                    return `<tr style="${i % 2 ? 'background:#f5f5f5' : ''}">
-                        <td style="padding:3px 6px;font-weight:800;font-family:monospace">${o.numero_frota}</td>
-                        <td style="padding:3px 6px">${o.setor || '—'}</td>
-                        <td style="padding:3px 6px">${_nomeFila(o)}</td>
-                        <td style="padding:3px 6px">${o.posicao || '—'}</td>
-                        <td style="padding:3px 6px">${o.linha_codigo || '—'}</td>
-                        <td style="padding:3px 6px;font-family:monospace">${_fmtHora(o.horario_saida)}</td>
-                        <td style="padding:3px 6px;${stStyle}">${st || '—'}</td>
-                    </tr>`;
-                }).join('')}
-            </tbody>
-        </table>`;
-    _print(html);
+    const ROWS_PER_COL  = 42;
+    const COLS_PER_PAGE = 4;
+    const ROWS_PER_PAGE = ROWS_PER_COL * COLS_PER_PAGE; // 168 por folha
+
+    const todos = _todosOnibus(filas); // ordenado por frota, com fila_nome/tipo/numero
+
+    // Fallback: se setor não vier do backend, infere pelo prefixo do número
+    function _setorOf(o) {
+        if (o.setor) return o.setor;
+        return String(o.numero_frota).startsWith('1') ? 'E2' : 'AR2';
+    }
+
+    const e2  = todos.filter(o => _setorOf(o) === 'E2');
+    const ar2 = todos.filter(o => _setorOf(o) === 'AR2');
+
+    const meta = `${_dataHoje()} às ${_horaAgora()}`;
+
+    function _filaLabel(o) {
+        if (o.fila_tipo === 'NUMERICA' && o.fila_numero != null) {
+            return `Fila ${String(o.fila_numero).padStart(2, '0')}`;
+        }
+        return o.fila_nome || '—';
+    }
+
+    function buildRow(o) {
+        const preso = o.alerta_tipo === 'PRESO';
+        return `<tr${preso ? ' class="pt-row-preso"' : ''}>
+            <td class="pt-td-frota">${o.numero_frota}</td>
+            <td class="pt-td-fila">${_filaLabel(o)}${preso ? ' ⚠' : ''}</td>
+            <td class="pt-td-pos">${o.posicao ?? '—'}</td>
+        </tr>`;
+    }
+
+    function buildSetor(lista, setor) {
+        if (!lista.length) return '';
+        const total = lista.length;
+        const numPages = Math.max(1, Math.ceil(total / ROWS_PER_PAGE));
+        let html = '';
+
+        for (let p = 0; p < numPages; p++) {
+            const pageItems = lista.slice(p * ROWS_PER_PAGE, (p + 1) * ROWS_PER_PAGE);
+            html += `<div class="pt-page">
+                <div class="pt-page-header">
+                    <div class="pt-empresa">Sambaíba Transportes Urbanos</div>
+                    <div class="pt-setor-titulo">SETOR ${setor}</div>
+                    <div class="pt-meta">${meta} · ${total} veículos</div>
+                </div>
+                <div class="pt-grid">`;
+
+            for (let c = 0; c < COLS_PER_PAGE; c++) {
+                const colItems = pageItems.slice(c * ROWS_PER_COL, (c + 1) * ROWS_PER_COL);
+                html += `<table class="pt-table">
+                    <thead><tr>
+                        <th>Carro</th><th>Fila</th><th>Pos.</th>
+                    </tr></thead>
+                    <tbody>${colItems.map(buildRow).join('')}</tbody>
+                </table>`;
+            }
+
+            html += `</div></div>`;
+        }
+        return html;
+    }
+
+    _print(buildSetor(e2, 'E2') + buildSetor(ar2, 'AR2'));
 }
 
 function imprimirRelatorio(tipo, filas) {
