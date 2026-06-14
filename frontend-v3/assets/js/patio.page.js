@@ -130,21 +130,17 @@ function renderChip(onibus, filaId) {
     frota.textContent = String(onibus.numero_frota);
     chip.appendChild(frota);
 
-    // Badge de setor (E2/AR2)
-    if (onibus.setor) {
-        const setor = document.createElement('span');
-        setor.className = `chip-setor setor-${onibus.setor.toLowerCase()}`;
-        setor.textContent = onibus.setor;
-        chip.appendChild(setor);
-    }
-
     // Bloco com linha + horário
     const meta = document.createElement('div');
     meta.className = 'chip-meta';
-    if (onibus.linha_codigo) {
+    // Oculta placeholders de manobra (MAN-E2, MAN-AR2) — são internos ao backend
+    const linhaExibir = onibus.linha_codigo && !onibus.linha_codigo.startsWith('MAN-')
+        ? onibus.linha_codigo
+        : null;
+    if (linhaExibir) {
         const linha = document.createElement('span');
         linha.className = 'chip-linha';
-        linha.textContent = onibus.linha_codigo;
+        linha.textContent = linhaExibir;
         meta.appendChild(linha);
     }
     if (onibus.horario_saida) {
