@@ -29,6 +29,7 @@ from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
 from app.models import (
+    Alerta,
     Escala,
     ImportacaoEscala,
     Linha,
@@ -36,6 +37,7 @@ from app.models import (
     Onibus,
     OrigemEscalaEnum,
     StatusImportacaoEnum,
+    TipoAlertaEnum,
     TipoEscalaEnum,
 )
 from app.models.enums import SetorEnum
@@ -52,6 +54,7 @@ class LinhaParseada:
     re_motorista: str | None = None
     tipo: TipoEscalaEnum | None = None
     erro: str | None = None
+    is_preso: bool = False  # veículo marcado como PRESO na planilha
 
 
 # ─── Helpers de parsing ───────────────────────────────────────────────────────
@@ -176,7 +179,15 @@ def _parsear_formato_sambaiba(wb) -> list[LinhaParseada]:
                 hora_raw = row_list[hi]
                 hora_str = str(hora_raw or '').strip().upper()
                 # Marcadores especiais não são escalas de serviço
-                if hora_str in ('PRESO', 'AMOSTRAL', 'EVENTO', 'TABELAS', ''):
+                if hora_str == 'PRESO':
+                    idx += 1
+                    resultado.append(LinhaParseada(
+                        linha_planilha=idx,
+                        numero_frota=frota,
+                        is_preso=True,
+                    ))
+                    continue
+                if hora_str in ('AMOSTRAL', 'EVENTO', 'TABELAS', ''):
                     continue
 
                 hora = _parse_horario(hora_raw)
@@ -299,10 +310,14 @@ def importar_escala(
     tipo_default: TipoEscalaEnum,
     importado_por_id,
     substituir_existentes: bool = True,
-) -> tuple[ImportacaoEscala, list[dict], int]:
-    """Processa o Excel e insere escalas. Retorna (importacao, erros, substituidas)."""
+) -> tuple[ImportacaoEscala, list[dict], int, int]:
+    """Processa o Excel e insere escalas. Retorna (importacao, erros, substituidas, presos_criados)."""
     import io
     linhas_lidas = parsear_planilha(io.BytesIO(conteudo))
+
+    # Separa presos das escalas normais
+    linhas_presas = [l for l in linhas_lidas if l.is_preso]
+    linhas_lidas  = [l for l in linhas_lidas if not l.is_preso]
 
     # Soft-delete das escalas anteriores da mesma data
     substituidas = 0
@@ -429,6 +444,26 @@ def importar_escala(
             f"Linha {e['linha']}: {e['motivo']}" for e in erros[:10]
         )
 
+    # ── Cria alertas de PRESO para veículos marcados na planilha ─────────────
+    presos_criados = 0
+    frotas_preso_vistas: set[int] = set()
+    for l in linhas_presas:
+        if not l.numero_frota or l.numero_frota in frotas_preso_vistas:
+            continue
+        frotas_preso_vistas.add(l.numero_frota)
+        try:
+            onibus = _get_or_create_onibus(db, l.numero_frota)
+            alerta = Alerta(
+                onibus_id=onibus.id,
+                tipo=TipoAlertaEnum.PRESO,
+                motivo=f"Importado da escala {arquivo_nome} ({data_escala})",
+                registrado_por=importado_por_id,
+            )
+            db.add(alerta)
+            presos_criados += 1
+        except Exception:
+            pass  # não deixa erro de alerta travar a importação
+
     db.commit()
     db.refresh(imp)
-    return imp, erros, substituidas
+    return imp, erros, substituidas, presos_criados

@@ -65,7 +65,7 @@ async def importar(
         raise HTTPException(413, "Arquivo muito grande (máx 10 MB)")
 
     try:
-        imp, erros, substituidas = importar_escala(
+        imp, erros, substituidas, presos_criados = importar_escala(
             db=db,
             arquivo_nome=arquivo.filename or "sem_nome.xlsx",
             conteudo=conteudo,
@@ -84,6 +84,7 @@ async def importar(
         total_erros=imp.registros_erro,
         erros=[ErroLinha(**e) for e in erros],
         substituidas=substituidas,
+        presos_criados=presos_criados,
     )
 
 

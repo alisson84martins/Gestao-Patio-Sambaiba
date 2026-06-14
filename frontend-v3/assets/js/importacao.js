@@ -107,7 +107,7 @@ async function apiUpload(path, formData) {
     }
 
     if (!response.ok) {
-        const detail = payload?.detail || payload?.message || response.statusText;
+        const detail = payload?.erro || payload?.detail || payload?.message || response.statusText;
         const msg = typeof detail === 'string' ? detail : 'Erro inesperado no upload';
         throw new ApiError(response.status, msg, payload);
     }
@@ -221,7 +221,7 @@ function renderResultado(resp) {
     const div = document.getElementById('import-resultado');
     if (!div) return;
 
-    const { total_lidos, total_inseridos, total_erros, substituidas, erros } = resp;
+    const { total_lidos, total_inseridos, total_erros, substituidas, presos_criados, erros } = resp;
 
     // Define classe de cor conforme resultado
     let classeResultado = 'import-result import-result-ok';
@@ -250,6 +250,11 @@ function renderResultado(resp) {
             <div>
                 <div class="import-stat">${substituidas}</div>
                 <div class="import-stat-label">Substituídos</div>
+            </div>` : ''}
+            ${presos_criados > 0 ? `
+            <div>
+                <div class="import-stat" style="color:#ef4444">${presos_criados}</div>
+                <div class="import-stat-label">Presos</div>
             </div>` : ''}
         </div>
     `;

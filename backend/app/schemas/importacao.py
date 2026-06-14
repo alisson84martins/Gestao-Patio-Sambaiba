@@ -20,4 +20,5 @@ class ImportacaoUploadResponse(BaseModel):
     total_inseridos: int
     total_erros: int
     erros: list[ErroLinha] = []
-    substituidas: int = 0  # qtde de escalas antigas marcadas como deletadas
+    substituidas: int = 0    # qtde de escalas antigas marcadas como deletadas
+    presos_criados: int = 0  # veículos com PRESO na planilha → alerta criado
