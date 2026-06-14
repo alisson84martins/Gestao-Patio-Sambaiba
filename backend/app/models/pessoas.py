@@ -43,7 +43,9 @@ class Usuario(Base, AuditoriaMixin):
         ForeignKey("motorista.id", ondelete="SET NULL"),
         nullable=True,
     )
+    # CPF usado apenas para gerar a senha inicial — nunca exposto na API.
+    cpf: Mapped[Optional[str]] = mapped_column(String(14), nullable=True)
     ultimo_acesso: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
-    # TRUE enquanto o usuário não trocou a senha inicial (= o RE).
+    # TRUE enquanto o usuário não trocou a senha inicial (últimos 4 dígitos do CPF).
     # O admin cria a conta e o usuário muda em /auth/trocar-senha.
     primeiro_acesso: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
