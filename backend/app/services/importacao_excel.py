@@ -385,13 +385,9 @@ def importar_escala(
         linha = linha_cache.get(linha_codigo)
         if linha is None:
             try:
-                # Setor do tipo de escala tem prioridade; fallback pelo frota
-                if tipo_efetivo == TipoEscalaEnum.PLANTAO_E2:
-                    setor = SetorEnum.E2
-                elif tipo_efetivo == TipoEscalaEnum.PLANTAO_AR2:
-                    setor = SetorEnum.AR2
-                else:
-                    setor = _setor_por_frota(l.numero_frota)
+                # Setor sempre pelo número de frota — evita CheckViolation do trigger
+                # (ônibus 2xxx pode aparecer em aba E2 por escala cruzada)
+                setor = _setor_por_frota(l.numero_frota)
                 linha = _get_or_create_linha(db, linha_codigo, setor)
                 linha_cache[linha_codigo] = linha
             except Exception as exc:
@@ -401,6 +397,19 @@ def importar_escala(
                     "valor_recebido": linha_codigo,
                 })
                 continue
+
+        # Valida compatibilidade de setor linha × ônibus (espelha trigger do banco)
+        setor_onibus = _setor_por_frota(l.numero_frota)
+        if linha.setor != setor_onibus:
+            erros.append({
+                "linha": l.linha_planilha,
+                "motivo": (
+                    f"Setor incompatível: ônibus {l.numero_frota} é {setor_onibus.value} "
+                    f"mas linha {linha_codigo} é {linha.setor.value}"
+                ),
+                "valor_recebido": linha_codigo,
+            })
+            continue
 
         # ── Motorista (opcional) ──────────────────────────────────────────────
         motorista_id = None
