@@ -119,12 +119,15 @@ def alocar_bloco(payload: AlocacaoBlocoCreate, user: OperadorOuAdmin,
     - Sentido 'volta': empurra todas as ativas (posicao += 1) e insere em 1
     - Tudo em uma única transação (rollback automático em erro)
     """
-    # 1) Resolve ônibus por numero_frota
+    # 1) Resolve ônibus por numero_frota — cria automaticamente se não existir
     onibus = db.execute(
         select(Onibus).where(Onibus.numero_frota == payload.numero_frota)
     ).scalar_one_or_none()
     if not onibus:
-        raise HTTPException(404, f"Ônibus {payload.numero_frota} não encontrado na frota")
+        onibus = Onibus(numero_frota=payload.numero_frota)
+        set_create_audit(onibus, user)
+        db.add(onibus)
+        db.flush()  # obtém o id sem commitar ainda
 
     # 2) Resolve fila: tenta como número primeiro (ex: "5"), depois como nome (ex: "Lavador")
     fila = None
@@ -158,17 +161,13 @@ def alocar_bloco(payload: AlocacaoBlocoCreate, user: OperadorOuAdmin,
         """), {"fila_id": fila.id}).scalar()
         nova_posicao = (max_pos or 0) + 1
     else:
-        # VOLTA: truque pra escapar do unique constraint
-        # Passo 1: nega temporariamente todas as posições ativas (sem conflito de unique)
+        # VOLTA: empurra todas as posições ativas +1 e insere na posição 1.
+        # PostgreSQL verifica a unique constraint após o UPDATE completo da
+        # statement (não linha a linha), então posicao + 1 não gera conflito.
+        # Evitamos posições negativas, que violam o CHECK posicao > 0 do banco.
         db.execute(text("""
             UPDATE alocacao_patio
-               SET posicao = -posicao
-             WHERE fila_id = :fila_id AND ativa = TRUE
-        """), {"fila_id": fila.id})
-        # Passo 2: volta pra positivo e incrementa
-        db.execute(text("""
-            UPDATE alocacao_patio
-               SET posicao = ABS(posicao) + 1
+               SET posicao = posicao + 1
              WHERE fila_id = :fila_id AND ativa = TRUE
         """), {"fila_id": fila.id})
         db.flush()
