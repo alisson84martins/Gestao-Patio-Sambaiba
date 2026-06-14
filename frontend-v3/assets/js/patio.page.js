@@ -372,11 +372,13 @@ document.addEventListener('DOMContentLoaded', () => {
     startPolling();
 
     if (_isMotorista) {
-        // MOTORISTA: apenas consulta — esconde painel de ações e menu
+        // MOTORISTA: apenas consulta — esconde painel de ações, menu e stats
         const alocacaoPanel = document.querySelector('.alocar-rapido');
         if (alocacaoPanel) alocacaoPanel.style.display = 'none';
         const menuDots = document.getElementById('menu-dots');
         if (menuDots) menuDots.style.display = 'none';
+        const statsBar = document.querySelector('.stats-bar');
+        if (statsBar) statsBar.style.display = 'none';
         // esconde links de nav que motorista não acessa
         ['remanejamento.html','alertas.html','manutencao.html','importacao.html'].forEach(href => {
             const link = document.querySelector(`a[href="${href}"]`);
@@ -384,6 +386,65 @@ document.addEventListener('DOMContentLoaded', () => {
         });
         // chip click desativado — só visualização
         elGrid.addEventListener('click', e => e.stopPropagation(), true);
+
+        // --- Busca de carro para motorista ---
+        const buscaDiv    = document.getElementById('motorista-busca');
+        const buscaInput  = document.getElementById('motorista-busca-input');
+        const buscaBtn    = document.getElementById('motorista-busca-btn');
+        const buscaResult = document.getElementById('motorista-busca-resultado');
+        if (buscaDiv) buscaDiv.style.display = '';
+
+        function buscarCarro() {
+            const frota = parseInt(buscaInput.value, 10);
+            if (!frota) {
+                buscaResult.innerHTML = '<p style="color:#888">Digite o número do carro.</p>';
+                return;
+            }
+            let encontrado = null;
+            for (const fila of lastFilas) {
+                const onibus = (fila.onibus || []);
+                for (let i = 0; i < onibus.length; i++) {
+                    if (Number(onibus[i].numero_frota) === frota) {
+                        encontrado = { fila, onibus: onibus[i], posicao: i + 1 };
+                        break;
+                    }
+                }
+                if (encontrado) break;
+            }
+
+            if (!encontrado) {
+                buscaResult.innerHTML = `
+                    <div style="padding:16px;background:var(--surface-2);border-radius:8px;color:#888">
+                        Carro <strong style="color:#ccc">${frota}</strong> não encontrado no pátio no momento.
+                    </div>`;
+                return;
+            }
+
+            const { fila, onibus, posicao } = encontrado;
+            const nomeFila = fila.fila_tipo === 'NUMERICA' && fila.fila_numero != null
+                ? `Fila ${String(fila.fila_numero).padStart(2, '0')}`
+                : (fila.fila_nome || fila.fila_tipo);
+            const preso = onibus.alerta_tipo === 'PRESO';
+            const borderColor = preso ? 'var(--accent, #f43f5e)' : '#22c55e';
+
+            buscaResult.innerHTML = `
+                <div style="padding:20px;background:var(--surface-2);border-radius:8px;border-left:4px solid ${borderColor}">
+                    <div style="font-size:1.6rem;font-weight:800;letter-spacing:0.04em;margin-bottom:6px">
+                        Carro ${frota}
+                    </div>
+                    <div style="font-size:1rem;color:#ccc;margin-bottom:4px">
+                        📍 ${nomeFila} &mdash; posição ${posicao}
+                    </div>
+                    ${preso ? `
+                    <div style="margin-top:12px;padding:10px 14px;background:rgba(244,63,94,0.15);border-radius:6px;color:var(--accent,#f43f5e);font-weight:700;font-size:0.95rem">
+                        ⚠️ PRESO — veículo retido na rua
+                    </div>` : ''}
+                </div>`;
+        }
+
+        if (buscaBtn)   buscaBtn.addEventListener('click', buscarCarro);
+        if (buscaInput) buscaInput.addEventListener('keydown', e => { if (e.key === 'Enter') buscarCarro(); });
+
         return; // não inicializa módulos de escrita
     }
 

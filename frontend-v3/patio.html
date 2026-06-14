@@ -95,6 +95,21 @@
 <script>try{var _u=JSON.parse(localStorage.getItem('patio_v3_user')||'null');if(_u&&_u.perfil==='ADMIN')document.getElementById('nav-cadastros').style.display='';}catch(e){}</script>
 
 <main class="patio-main">
+    <!-- Busca de carro — visível apenas para MOTORISTA (controlado via JS) -->
+    <div id="motorista-busca" style="display:none;padding:16px 0 4px">
+        <div style="display:flex;gap:8px;max-width:440px">
+            <input type="number" id="motorista-busca-input" class="form-input"
+                   placeholder="Digite o número do carro…"
+                   style="font-size:1.15rem;padding:12px 16px;flex:1"
+                   min="1000" max="9999">
+            <button class="btn btn-primary" id="motorista-busca-btn"
+                    style="font-size:1rem;padding:12px 20px;white-space:nowrap">
+                Buscar
+            </button>
+        </div>
+        <div id="motorista-busca-resultado" style="margin-top:12px;max-width:440px"></div>
+    </div>
+
     <!-- Barra de stats: 4 KPIs grandes -->
     <section class="stats-bar" aria-label="Indicadores do pátio">
         <div class="stat-card">
