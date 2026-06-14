@@ -89,7 +89,9 @@
     <a href="alertas.html" class="app-nav-link">Alertas</a>
     <a href="manutencao.html" class="app-nav-link">Manutenção</a>
     <a href="importacao.html" class="app-nav-link">Importação</a>
+    <a href="cadastros.html" class="app-nav-link" id="nav-cadastros" style="display:none">Cadastros</a>
 </nav>
+<script>try{var _u=JSON.parse(localStorage.getItem('patio_v3_user')||'null');if(_u&&_u.perfil==='ADMIN')document.getElementById('nav-cadastros').style.display='';}catch(e){}</script>
 
 <main class="patio-main">
     <!-- Barra de stats: 4 KPIs grandes -->
@@ -146,4 +148,39 @@
 <!-- Modal mover/remover ônibus — Fase 5.3 -->
 <div class="modal-overlay" id="modal-mover-chip">
     <div class="modal">
-        <button type="button" class="modal-cl
+        <button type="button" class="modal-close" id="modal-mover-fechar">✕</button>
+        <div class="modal-title" id="modal-mover-titulo">Veículo —</div>
+        <div class="form-group">
+            <label class="form-label" for="mover-nova-posicao">Mover para outra posição (opcional)</label>
+            <select class="form-select" id="mover-nova-posicao">
+                <option value="">— Manter posição atual —</option>
+            </select>
+        </div>
+        <div class="form-group">
+            <label class="form-label" for="mover-linha">Linha que irá operar</label>
+            <input type="text" class="form-input" id="mover-linha" placeholder="Ex: 917H-10" list="lista-linhas-bloco" autocomplete="off">
+        </div>
+        <button type="button" class="btn btn-primary btn-full" id="btn-mover-salvar">Salvar</button>
+        <button type="button" class="btn btn-danger btn-full btn-modal-stack" id="btn-mover-remover">Remover desta posição</button>
+        <button type="button" class="btn btn-ghost btn-full btn-modal-stack" id="btn-mover-cancelar">Cancelar</button>
+    </div>
+</div>
+
+<!-- Modal Ver Escala -->
+<div class="modal-overlay" id="modal-escala">
+    <div class="modal">
+        <button type="button" class="modal-close" id="modal-escala-fechar">✕</button>
+        <div class="modal-title">Escala do Dia</div>
+        <input type="text" class="form-input" id="search-escala"
+               placeholder="Buscar frota ou linha…"
+               style="margin-bottom:12px">
+        <div id="escala-content" style="overflow-y:auto;max-height:55vh"></div>
+    </div>
+</div>
+
+<!-- Área de impressão — oculta em tela, visível ao imprimir -->
+<div id="print-content"></div>
+
+<script type="module" src="./assets/js/patio.page.js"></script>
+</body>
+</html>
