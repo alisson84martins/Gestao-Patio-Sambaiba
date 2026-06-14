@@ -88,9 +88,42 @@ def patio_completo(
     )
     rows = db.execute(stmt).all()
 
+    # Deduplicação: um ônibus pode ter N escalas no mesmo dia (planilha com
+    # duplicatas ou bus listado em E2 e Manobra ao mesmo tempo). A query retorna
+    # N linhas para a mesma alocação, causando N chips idênticos no pátio.
+    # Mantemos apenas a melhor linha por alocacao_id: preferimos linha real
+    # (não-MAN-*) sobre placeholder; em empate, a primeira encontrada vence.
+    best: dict = {}   # alocacao_id → row com melhor escala
+    for r in rows:
+        aloc_id = r[15]
+        if aloc_id is None:
+            continue
+        if aloc_id not in best:
+            best[aloc_id] = r
+        else:
+            atual_linha = best[aloc_id][10]   # Linha.codigo da row vencedora
+            nova_linha  = r[10]
+            atual_real  = atual_linha and not atual_linha.startswith('MAN-')
+            nova_real   = nova_linha  and not nova_linha.startswith('MAN-')
+            if nova_real and not atual_real:
+                best[aloc_id] = r  # troca: nova tem linha real, atual não tem
+
+    # Reconstrói a lista de rows mantendo a ordem original (por fila/posição)
+    # e usando apenas a melhor escala por alocação
+    seen_aloc: set = set()
+    rows_dedup = []
+    for r in rows:
+        fila_id = r[0]
+        aloc_id = r[15]
+        if aloc_id is None:
+            rows_dedup.append(r)
+        elif aloc_id not in seen_aloc:
+            seen_aloc.add(aloc_id)
+            rows_dedup.append(best[aloc_id])  # usa a row com a melhor escala
+
     grupos: dict = {}
     ordem: list = []
-    for r in rows:
+    for r in rows_dedup:
         fila_id = r[0]
         if fila_id not in grupos:
             grupos[fila_id] = PatioFilaInfo(

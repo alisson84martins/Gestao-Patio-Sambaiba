@@ -319,6 +319,25 @@ def importar_escala(
     linhas_presas = [l for l in linhas_lidas if l.is_preso]
     linhas_lidas  = [l for l in linhas_lidas if not l.is_preso]
 
+    # Deduplicação por frota: um ônibus deve ter no máximo uma escala por dia.
+    # Regra: entrada com linha_codigo real vence entrada sem linha (manobra).
+    # Entre duas entradas com linha real, a primeira encontrada vence.
+    # Entradas com erro passam sem dedup para aparecer no relatório de erros.
+    _seen: dict[int, int] = {}   # frota → índice em _dedup
+    _dedup: list[LinhaParseada] = []
+    for _l in linhas_lidas:
+        if _l.erro or _l.numero_frota is None:
+            _dedup.append(_l)
+            continue
+        if _l.numero_frota not in _seen:
+            _seen[_l.numero_frota] = len(_dedup)
+            _dedup.append(_l)
+        elif _l.linha_codigo and not _dedup[_seen[_l.numero_frota]].linha_codigo:
+            # Nova tem linha real; existente não tem (manobra) → substitui
+            _dedup[_seen[_l.numero_frota]] = _l
+        # Caso contrário (duplicata sem vantagem) → descarta silenciosamente
+    linhas_lidas = _dedup
+
     # Soft-delete das escalas anteriores da mesma data
     substituidas = 0
     if substituir_existentes:
