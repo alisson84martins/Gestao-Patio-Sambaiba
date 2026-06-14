@@ -13,7 +13,7 @@ class PaginationParams:
     def __init__(
         self,
         skip: Annotated[int, Query(ge=0, description="Quantos registros pular")] = 0,
-        limit: Annotated[int, Query(ge=1, le=200, description="Máximo por página (1–200)")] = 50,
+        limit: Annotated[int, Query(ge=1, le=5000, description="Máximo por página (1–5000)")] = 50,
     ):
         self.skip = skip
         self.limit = limit

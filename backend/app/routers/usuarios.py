@@ -71,4 +71,29 @@ def atualizar(
 ):
     u = db.get(Usuario, usuario_id)
     if not u:
-        raise HTTPE
+        raise HTTPException(status_code=404, detail="Usuário não encontrado")
+    data = payload.model_dump(exclude_unset=True)
+    # senha precisa ser hasheada — não pode ir direto pro setattr
+    if "senha" in data:
+        u.senha_hash = hash_password(data.pop("senha"))
+        u.primeiro_acesso = False  # reset de senha pelo admin cancela o primeiro_acesso
+    for k, v in data.items():
+        setattr(u, k, v)
+    set_update_audit(u, user)
+    db.commit()
+    db.refresh(u)
+    return u
+
+
+@router.delete("/{usuario_id}", status_code=200, summary="Desativa um usuário (soft-delete via ativo=False)")
+def deletar(usuario_id: UUID, user: AdminUser, db: Annotated[Session, Depends(get_db)]):
+    """Desativa o usuário impedindo login. Não remove do banco (preserva auditoria)."""
+    u = db.get(Usuario, usuario_id)
+    if not u:
+        raise HTTPException(status_code=404, detail="Usuário não encontrado")
+    if str(u.id) == str(user.id):
+        raise HTTPException(status_code=400, detail="Você não pode desativar sua própria conta")
+    u.ativo = False
+    set_update_audit(u, user)
+    db.commit()
+    return {"ok": True, "re": u.re, "nome": u.nome}

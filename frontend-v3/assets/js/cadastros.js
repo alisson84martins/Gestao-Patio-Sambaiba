@@ -272,6 +272,7 @@ function setupModais() {
         if (e.target.id === 'modal-usuario') fechar('modal-usuario');
     });
     document.getElementById('btn-salvar-usuario').addEventListener('click', salvarUsuario);
+    document.getElementById('btn-desativar-usuario').addEventListener('click', desativarUsuario);
 
     // Ônibus
     document.getElementById('modal-onibus-fechar').addEventListener('click', () => fechar('modal-onibus'));
@@ -357,10 +358,11 @@ function abrirModalUsuario(u) {
     document.getElementById('usuario-ativo').value     = String(u?.ativo ?? true);
     document.getElementById('usuario-senha').value     = '';
 
-    // Na criação: CPF obrigatório. Na edição: campo de senha opcional aparece
-    document.getElementById('usuario-cpf-group').style.display  = editando ? 'none' : '';
-    document.getElementById('usuario-senha-group').style.display = editando ? '' : 'none';
-    document.getElementById('usuario-ativo-group').style.display = editando ? '' : 'none';
+    // Na criação: CPF obrigatório. Na edição: campos de senha/status/desativar aparecem
+    document.getElementById('usuario-cpf-group').style.display      = editando ? 'none' : '';
+    document.getElementById('usuario-senha-group').style.display     = editando ? '' : 'none';
+    document.getElementById('usuario-ativo-group').style.display     = editando ? '' : 'none';
+    document.getElementById('btn-desativar-usuario').style.display   = editando && u?.ativo ? '' : 'none';
 
     erroModal('modal-usuario-erro', '');
     abrir('modal-usuario');
@@ -414,10 +416,33 @@ async function salvarUsuario() {
         try {
             await apiPost('/usuarios', { re, nome, cpf, perfil });
             fechar('modal-usuario');
+            // Mostra a senha inicial pro admin comunicar ao usuário
+            const cpfDigits = cpf.replace(/\D/g, '');
+            const senhaInicial = cpfDigits.slice(-4);
+            alert(
+                `✅ Usuário criado com sucesso!\n\n` +
+                `RE: ${re}\n` +
+                `Senha inicial: ${senhaInicial}\n\n` +
+                `(Últimos 4 dígitos do CPF. O usuário deve trocar no primeiro acesso.)`
+            );
             carregarAba();
         } catch (err) {
             erroModal('modal-usuario-erro', err.message);
         }
+    }
+}
+
+async function desativarUsuario() {
+    const id   = document.getElementById('usuario-id').value;
+    const nome = document.getElementById('usuario-nome').value || 'este usuário';
+    if (!id) return;
+    if (!confirm(`Desativar "${nome}"?\n\nO usuário ficará impedido de fazer login, mas o histórico é preservado.`)) return;
+    try {
+        await apiDelete(`/usuarios/${id}`);
+        fechar('modal-usuario');
+        carregarAba();
+    } catch (err) {
+        erroModal('modal-usuario-erro', err.message);
     }
 }
 
