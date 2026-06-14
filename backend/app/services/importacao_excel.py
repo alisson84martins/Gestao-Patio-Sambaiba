@@ -213,4 +213,222 @@ def _parsear_formato_simples(wb) -> list[LinhaParseada]:
     linhas: list[LinhaParseada] = []
     for idx, row in enumerate(ws.iter_rows(min_row=2, values_only=True), start=2):
         if not row or all(cell is None for cell in row):
-     
+            continue
+        l = LinhaParseada(linha_planilha=idx)
+        try:
+            cells = list(row) + [None] * 5
+            l.numero_frota = int(cells[0]) if cells[0] is not None else None
+            l.linha_codigo = str(cells[1]).strip() if cells[1] is not None else None
+            l.horario_saida = _parse_horario(cells[2])
+            l.re_motorista = str(cells[3]).strip() if cells[3] is not None else None
+            l.tipo = _parse_tipo(cells[4])
+            if l.numero_frota is None:
+                l.erro = "numero_frota vazio"
+            elif l.horario_saida is None:
+                l.erro = "horario_saida inválido"
+        except Exception as exc:  # noqa: BLE001
+            l.erro = f"erro ao parsear: {exc}"
+        linhas.append(l)
+    return linhas
+
+
+# ─── Auto-detecção de formato ─────────────────────────────────────────────────
+
+def _e_formato_sambaiba(wb) -> bool:
+    """True se qualquer aba tiver nome/cabeçalho reconhecido como E2/AR2/Manobra."""
+    for sheet_name in wb.sheetnames:
+        ws = wb[sheet_name]
+        rows = list(ws.iter_rows(min_row=1, max_row=3, values_only=True))
+        header_text = ' '.join(str(c or '') for row in rows for c in row)
+        tipo = _detectar_tipo_aba(sheet_name, header_text)
+        if tipo and tipo != 'configuracao':
+            return True
+    return False
+
+
+def parsear_planilha(stream: IO[bytes]) -> list[LinhaParseada]:
+    """Ponto de entrada único: auto-detecta formato e delega ao parser correto."""
+    wb = load_workbook(stream, data_only=True, read_only=True)
+    if _e_formato_sambaiba(wb):
+        return _parsear_formato_sambaiba(wb)
+    return _parsear_formato_simples(wb)
+
+
+# ─── Auto-criação de catálogos ────────────────────────────────────────────────
+
+def _get_or_create_onibus(db: Session, numero_frota: int) -> Onibus:
+    """Busca ou cria ônibus pelo número de frota."""
+    onibus = db.execute(
+        select(Onibus).where(Onibus.numero_frota == numero_frota)
+    ).scalar_one_or_none()
+    if onibus is None:
+        onibus = Onibus(numero_frota=numero_frota)
+        db.add(onibus)
+        db.flush()
+    return onibus
+
+
+def _get_or_create_linha(db: Session, codigo: str, setor: SetorEnum) -> Linha:
+    """Busca ou cria linha pelo código. Se criar, usa código como nome e setor inferido."""
+    linha = db.execute(
+        select(Linha).where(Linha.codigo == codigo)
+    ).scalar_one_or_none()
+    if linha is None:
+        linha = Linha(
+            codigo=codigo,
+            nome=codigo,   # nome provisório = código; pode ser atualizado depois
+            setor=setor,
+            ativa=True,
+        )
+        db.add(linha)
+        db.flush()
+    return linha
+
+
+def hash_arquivo(conteudo: bytes) -> str:
+    return hashlib.sha256(conteudo).hexdigest()
+
+
+# ─── Importação principal ─────────────────────────────────────────────────────
+
+def importar_escala(
+    db: Session,
+    arquivo_nome: str,
+    conteudo: bytes,
+    data_escala: date_type,
+    tipo_default: TipoEscalaEnum,
+    importado_por_id,
+    substituir_existentes: bool = True,
+) -> tuple[ImportacaoEscala, list[dict], int]:
+    """Processa o Excel e insere escalas. Retorna (importacao, erros, substituidas)."""
+    import io
+    linhas_lidas = parsear_planilha(io.BytesIO(conteudo))
+
+    # Soft-delete das escalas anteriores da mesma data
+    substituidas = 0
+    if substituir_existentes:
+        stmt = (
+            update(Escala)
+            .where(Escala.data == data_escala, Escala.deletado_em.is_(None))
+            .values(deletado_em=datetime.now(timezone.utc))
+        )
+        result = db.execute(stmt)
+        substituidas = result.rowcount or 0
+
+    # Registro de importação
+    imp = ImportacaoEscala(
+        arquivo_nome=arquivo_nome,
+        arquivo_hash=hash_arquivo(conteudo),
+        data_escala=data_escala,
+        total_registros=len(linhas_lidas),
+        status=StatusImportacaoEnum.PARCIAL,
+        importado_por=importado_por_id,
+    )
+    db.add(imp)
+    db.flush()
+
+    # Caches para evitar queries repetidas por ônibus/linha/motorista
+    onibus_cache: dict[int, Onibus] = {}
+    linha_cache: dict[str, Linha] = {}
+    motorista_cache: dict[str, Motorista] = {}
+
+    erros: list[dict] = []
+    sucesso = 0
+
+    for l in linhas_lidas:
+        if l.erro:
+            erros.append({
+                "linha": l.linha_planilha,
+                "motivo": l.erro,
+                "valor_recebido": None,
+            })
+            continue
+
+        tipo_efetivo = l.tipo or tipo_default
+
+        # ── Ônibus (auto-cria) ────────────────────────────────────────────────
+        onibus = onibus_cache.get(l.numero_frota)
+        if onibus is None:
+            try:
+                onibus = _get_or_create_onibus(db, l.numero_frota)
+                onibus_cache[l.numero_frota] = onibus
+            except Exception as exc:
+                erros.append({
+                    "linha": l.linha_planilha,
+                    "motivo": f"Erro ao registrar ônibus {l.numero_frota}: {exc}",
+                    "valor_recebido": str(l.numero_frota),
+                })
+                continue
+
+        # ── Linha (auto-cria; MANOBRA sem linha usa placeholder "MAN-<setor>") ─
+        linha_codigo = l.linha_codigo
+        if not linha_codigo:
+            # Manobra sem código: usa placeholder por setor
+            setor_frota = _setor_por_frota(l.numero_frota)
+            linha_codigo = f"MAN-{setor_frota.value}"
+
+        linha = linha_cache.get(linha_codigo)
+        if linha is None:
+            try:
+                # Setor do tipo de escala tem prioridade; fallback pelo frota
+                if tipo_efetivo == TipoEscalaEnum.PLANTAO_E2:
+                    setor = SetorEnum.E2
+                elif tipo_efetivo == TipoEscalaEnum.PLANTAO_AR2:
+                    setor = SetorEnum.AR2
+                else:
+                    setor = _setor_por_frota(l.numero_frota)
+                linha = _get_or_create_linha(db, linha_codigo, setor)
+                linha_cache[linha_codigo] = linha
+            except Exception as exc:
+                erros.append({
+                    "linha": l.linha_planilha,
+                    "motivo": f"Erro ao registrar linha {linha_codigo}: {exc}",
+                    "valor_recebido": linha_codigo,
+                })
+                continue
+
+        # ── Motorista (opcional) ──────────────────────────────────────────────
+        motorista_id = None
+        if l.re_motorista:
+            motorista = motorista_cache.get(l.re_motorista)
+            if motorista is None:
+                motorista = db.execute(
+                    select(Motorista).where(Motorista.re == l.re_motorista)
+                ).scalar_one_or_none()
+                if motorista:
+                    motorista_cache[l.re_motorista] = motorista
+            if motorista:
+                motorista_id = motorista.id
+
+        # ── Insere escala ─────────────────────────────────────────────────────
+        escala = Escala(
+            data=data_escala,
+            onibus_id=onibus.id,
+            motorista_id=motorista_id,
+            linha_id=linha.id,
+            horario_saida=l.horario_saida,
+            tipo=tipo_efetivo,
+            origem=OrigemEscalaEnum.IMPORTACAO_EXCEL,
+            importacao_id=imp.id,
+            criado_por=importado_por_id,
+        )
+        db.add(escala)
+        sucesso += 1
+
+    # ── Atualiza status da importação ─────────────────────────────────────────
+    imp.registros_sucesso = sucesso
+    imp.registros_erro = len(erros)
+    if erros and sucesso == 0:
+        imp.status = StatusImportacaoEnum.ERRO
+    elif erros:
+        imp.status = StatusImportacaoEnum.PARCIAL
+    else:
+        imp.status = StatusImportacaoEnum.SUCESSO
+    if erros:
+        imp.erro_detalhe = "\n".join(
+            f"Linha {e['linha']}: {e['motivo']}" for e in erros[:10]
+        )
+
+    db.commit()
+    db.refresh(imp)
+    return imp, erros, substituidas

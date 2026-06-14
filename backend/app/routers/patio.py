@@ -208,6 +208,9 @@ def remanejamento(
             status_ficha=r[7],
             ficha_aberta_em=r[8],
         )
+        for r in db.execute(stmt).all()
+    ]
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Estado V2 — blob JSON para sincronização multi-usuário

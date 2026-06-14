@@ -57,4 +57,5 @@ class UsuarioUpdate(BaseModel):
 
 class UsuarioRead(UsuarioBase, ORMBase, AuditoriaSchema):
     """Saída segura: NUNCA inclui senha_hash."""
-    id:
+    id: UUID
+    cpf: Optional[str] = None

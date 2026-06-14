@@ -99,7 +99,8 @@ async function request(path, options = {}) {
     }
 
     if (!response.ok) {
-        const detail = payload?.detail || payload?.message || response.statusText;
+        // Backend retorna { erro: "...", status_code: N } — não usa o campo "detail" do FastAPI padrão.
+        const detail = payload?.detail ?? payload?.erro ?? payload?.message ?? response.statusText;
         const msg = typeof detail === 'string'
             ? detail
             : 'Erro inesperado da API';
