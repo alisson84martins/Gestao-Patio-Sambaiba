@@ -8,7 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
-from app.core.deps import CurrentUser, OperadorOuAdmin
+from app.core.deps import CurrentUser, MecanicoOuSuperior
 from app.core.utils import PaginationParams, set_create_audit, set_update_audit
 from app.models import FichaManutencao, Onibus, StatusFichaEnum, TipoDefeito
 from app.schemas import FichaManutencaoCreate, FichaManutencaoRead, FichaManutencaoUpdate
@@ -18,7 +18,7 @@ router = APIRouter(prefix="/manutencao", tags=["manutenção"])
 
 @router.post("", response_model=FichaManutencaoRead, status_code=status.HTTP_201_CREATED,
              summary="Abre ficha de manutenção")
-def criar(payload: FichaManutencaoCreate, user: OperadorOuAdmin,
+def criar(payload: FichaManutencaoCreate, user: MecanicoOuSuperior,
           db: Annotated[Session, Depends(get_db)]):
     if not db.get(Onibus, payload.onibus_id):
         raise HTTPException(404, "Ônibus não encontrado")
@@ -62,7 +62,7 @@ def buscar(ficha_id: UUID, user: CurrentUser, db: Annotated[Session, Depends(get
 
 @router.patch("/{ficha_id}", response_model=FichaManutencaoRead,
               summary="Atualiza ficha (concluir, mudar status, atribuir mecânico)")
-def atualizar(ficha_id: UUID, payload: FichaManutencaoUpdate, user: OperadorOuAdmin,
+def atualizar(ficha_id: UUID, payload: FichaManutencaoUpdate, user: MecanicoOuSuperior,
               db: Annotated[Session, Depends(get_db)]):
     f = db.get(FichaManutencao, ficha_id)
     if not f:
@@ -77,7 +77,7 @@ def atualizar(ficha_id: UUID, payload: FichaManutencaoUpdate, user: OperadorOuAd
 
 
 @router.delete("/{ficha_id}", response_model=FichaManutencaoRead, summary="Soft delete")
-def deletar(ficha_id: UUID, user: OperadorOuAdmin, db: Annotated[Session, Depends(get_db)]):
+def deletar(ficha_id: UUID, user: MecanicoOuSuperior, db: Annotated[Session, Depends(get_db)]):
     f = db.get(FichaManutencao, ficha_id)
     if not f:
         raise HTTPException(404, "Ficha não encontrada")

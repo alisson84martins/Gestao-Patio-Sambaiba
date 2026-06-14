@@ -13,11 +13,11 @@
  * Polling: 30 s (mesmo intervalo do patio.page.js).
  */
 
-// --- Guard MOTORISTA: apenas consulta no pátio ---
+// --- Guard: perfis sem acesso a remanejamento ---
 (function() {
     try {
         const _u = JSON.parse(localStorage.getItem('patio_v3_user') || 'null');
-        if (_u && _u.perfil === 'MOTORISTA') {
+        if (_u && ['MOTORISTA', 'MECANICO'].includes(_u.perfil)) {
             window.location.replace('patio.html');
         }
     } catch (_) {}

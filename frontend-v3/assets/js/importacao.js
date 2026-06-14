@@ -9,11 +9,11 @@
  *   5. Listar histórico de importações e permitir reversão
  */
 
-// --- Guard MOTORISTA: apenas consulta no pátio ---
+// --- Guard: apenas COORDENADOR e ADMIN podem importar ---
 (function() {
     try {
         const _u = JSON.parse(localStorage.getItem('patio_v3_user') || 'null');
-        if (_u && _u.perfil === 'MOTORISTA') {
+        if (_u && !['COORDENADOR', 'ADMIN'].includes(_u.perfil)) {
             window.location.replace('patio.html');
         }
     } catch (_) {}

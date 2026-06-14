@@ -73,18 +73,44 @@ def require_perfis(*perfis) -> Callable:
 CurrentUser = Annotated[Usuario, Depends(get_current_user)]
 AdminUser = Annotated[Usuario, Depends(require_admin)]
 
-# Escrita no pátio: operadores e admins; motoristas só leem
+# Escrita no pátio: operadores e admins; motoristas e mecânicos só leem
 def _require_operador_ou_admin(
     user: Annotated[Usuario, Depends(get_current_user)],
 ) -> Usuario:
     from app.models.enums import PerfilUsuarioEnum
-    permitidos = {PerfilUsuarioEnum.OPERADOR_PATIO, PerfilUsuarioEnum.ADMIN}
+    permitidos = {
+        PerfilUsuarioEnum.OPERADOR_PATIO,
+        PerfilUsuarioEnum.COORDENADOR,
+        PerfilUsuarioEnum.ADMIN,
+    }
     if user.perfil not in permitidos:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Apenas Operadores de Pátio e Administradores podem realizar esta operação",
+            detail="Perfil sem permissão para esta operação",
         )
     return user
 
 
 OperadorOuAdmin = Annotated[Usuario, Depends(_require_operador_ou_admin)]
+
+
+# Manutenção: mecânicos, operadores, coordenadores e admins
+def _require_mecanico_ou_superior(
+    user: Annotated[Usuario, Depends(get_current_user)],
+) -> Usuario:
+    from app.models.enums import PerfilUsuarioEnum
+    permitidos = {
+        PerfilUsuarioEnum.MECANICO,
+        PerfilUsuarioEnum.OPERADOR_PATIO,
+        PerfilUsuarioEnum.COORDENADOR,
+        PerfilUsuarioEnum.ADMIN,
+    }
+    if user.perfil not in permitidos:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Perfil sem permissão para esta operação",
+        )
+    return user
+
+
+MecanicoOuSuperior = Annotated[Usuario, Depends(_require_mecanico_ou_superior)]

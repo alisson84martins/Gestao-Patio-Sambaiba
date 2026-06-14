@@ -29,6 +29,7 @@ if (!requireAuth()) {
 // --- Perfil do usuário logado ---
 const _currentUser = getCurrentUser();
 const _isMotorista = _currentUser?.perfil === 'MOTORISTA';
+const _isMecanico  = _currentUser?.perfil === 'MECANICO';
 
 // --- Refs do DOM ---
 const elUserName   = document.getElementById('user-name');
@@ -370,6 +371,20 @@ document.addEventListener('DOMContentLoaded', () => {
     setupHeader();
     loadPatio();
     startPolling();
+
+    if (_isMecanico) {
+        // MECÂNICO: vê pátio e stats, não aloca/move, não acessa outros módulos
+        const alocacaoPanel = document.querySelector('.alocar-rapido');
+        if (alocacaoPanel) alocacaoPanel.style.display = 'none';
+        const menuDots = document.getElementById('menu-dots');
+        if (menuDots) menuDots.style.display = 'none';
+        ['remanejamento.html', 'alertas.html', 'importacao.html'].forEach(href => {
+            const link = document.querySelector(`a[href="${href}"]`);
+            if (link) link.style.display = 'none';
+        });
+        elGrid.addEventListener('click', e => e.stopPropagation(), true);
+        return;
+    }
 
     if (_isMotorista) {
         // MOTORISTA: apenas consulta — esconde painel de ações, menu e stats

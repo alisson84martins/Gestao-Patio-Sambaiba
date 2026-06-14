@@ -11,11 +11,11 @@
  * Polling: 30 s (mesmo intervalo das demais telas).
  */
 
-// --- Guard MOTORISTA: apenas consulta no pátio ---
+// --- Guard: perfis sem acesso a alertas ---
 (function() {
     try {
         const _u = JSON.parse(localStorage.getItem('patio_v3_user') || 'null');
-        if (_u && _u.perfil === 'MOTORISTA') {
+        if (_u && ['MOTORISTA', 'MECANICO'].includes(_u.perfil)) {
             window.location.replace('patio.html');
         }
     } catch (_) {}
