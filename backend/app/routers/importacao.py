@@ -8,7 +8,7 @@ from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
-from app.core.deps import CurrentUser
+from app.core.deps import CurrentUser, OperadorOuAdmin
 from app.core.utils import PaginationParams
 from app.models import Escala, ImportacaoEscala, PerfilUsuarioEnum, TipoEscalaEnum
 from app.schemas import ImportacaoEscalaRead
@@ -130,5 +130,4 @@ def reverter(imp_id: UUID, user: CurrentUser, db: Annotated[Session, Depends(get
     db.commit()
     return {
         "importacao_id": str(imp_id),
-        "escalas_revertidas": result.rowcount or 0,
-    }
+   

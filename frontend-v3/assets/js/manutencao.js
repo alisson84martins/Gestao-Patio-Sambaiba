@@ -16,6 +16,17 @@
  *   - Clicar num card abre o modal de atualização pré-preenchido
  */
 
+// --- Guard MOTORISTA: apenas consulta no pátio ---
+(function() {
+    try {
+        const _u = JSON.parse(localStorage.getItem('patio_v3_user') || 'null');
+        if (_u && _u.perfil === 'MOTORISTA') {
+            window.location.replace('patio.html');
+        }
+    } catch (_) {}
+})();
+
+
 import { requireAuth, getCurrentUser, logout } from './auth.js';
 import { apiGet, apiPost, apiPatch, ApiError } from './api.js';
 

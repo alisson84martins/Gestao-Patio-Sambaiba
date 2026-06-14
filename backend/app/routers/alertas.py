@@ -8,7 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
-from app.core.deps import CurrentUser
+from app.core.deps import CurrentUser, OperadorOuAdmin
 from app.core.utils import PaginationParams, set_create_audit, set_update_audit
 from app.models import Alerta, Onibus, TipoAlertaEnum
 from app.schemas import AlertaCreate, AlertaRead, AlertaResolver
@@ -27,7 +27,7 @@ router = APIRouter(prefix="/alertas", tags=["alertas"])
 
 @router.post("", response_model=AlertaRead, status_code=status.HTTP_201_CREATED,
              summary="Registra alerta PRESO ou AMOSTRAL")
-def criar(payload: AlertaCreate, user: CurrentUser, db: Annotated[Session, Depends(get_db)]):
+def criar(payload: AlertaCreate, user: OperadorOuAdmin, db: Annotated[Session, Depends(get_db)]):
     """Cria alerta. UNIQUE parcial impede duplicidade de alerta ativo do mesmo tipo."""
     if not db.get(Onibus, payload.onibus_id):
         raise HTTPException(404, "Ônibus não encontrado")
@@ -80,7 +80,7 @@ def buscar(alerta_id: UUID, user: CurrentUser, db: Annotated[Session, Depends(ge
 
 @router.patch("/{alerta_id}/resolver", response_model=AlertaRead,
               summary="Marca alerta como resolvido")
-def resolver(alerta_id: UUID, payload: AlertaResolver, user: CurrentUser,
+def resolver(alerta_id: UUID, payload: AlertaResolver, user: OperadorOuAdmin,
              db: Annotated[Session, Depends(get_db)]):
     a = db.get(Alerta, alerta_id)
     if not a:
@@ -95,16 +95,4 @@ def resolver(alerta_id: UUID, payload: AlertaResolver, user: CurrentUser,
     set_update_audit(a, user)
     db.commit()
     db.refresh(a)
-    return _enriquecer(a, db)
-
-
-@router.delete("/{alerta_id}", response_model=AlertaRead, summary="Soft delete")
-def deletar(alerta_id: UUID, user: CurrentUser, db: Annotated[Session, Depends(get_db)]):
-    a = db.get(Alerta, alerta_id)
-    if not a:
-        raise HTTPException(404, "Alerta não encontrado")
-    a.deletado_em = datetime.now(timezone.utc)
-    set_update_audit(a, user)
-    db.commit()
-    db.refresh(a)
-    return _enriquecer(a, db)
+    return _enriquecer(a, 

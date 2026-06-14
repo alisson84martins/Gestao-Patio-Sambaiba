@@ -7,7 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
-from app.core.deps import CurrentUser
+from app.core.deps import CurrentUser, OperadorOuAdmin
 from app.core.utils import PaginationParams, set_create_audit, set_update_audit
 from app.models import Onibus, PerfilUsuarioEnum, StatusOnibusEnum, SetorEnum
 from app.schemas import OnibusCreate, OnibusRead, OnibusUpdate
@@ -56,7 +56,7 @@ def buscar(onibus_id: UUID, user: CurrentUser, db: Annotated[Session, Depends(ge
 
 
 @router.post("", response_model=OnibusRead, status_code=status.HTTP_201_CREATED)
-def criar(payload: OnibusCreate, user: CurrentUser, db: Annotated[Session, Depends(get_db)]):
+def criar(payload: OnibusCreate, user: OperadorOuAdmin, db: Annotated[Session, Depends(get_db)]):
     if not _pode_escrever(user):
         raise HTTPException(status_code=403, detail="Apenas ADMIN ou COORDENADOR pode cadastrar")
     existente = db.execute(select(Onibus).where(Onibus.numero_frota == payload.numero_frota)).scalar_one_or_none()
@@ -72,7 +72,7 @@ def criar(payload: OnibusCreate, user: CurrentUser, db: Annotated[Session, Depen
 
 @router.patch("/{onibus_id}", response_model=OnibusRead)
 def atualizar(
-    onibus_id: UUID, payload: OnibusUpdate, user: CurrentUser, db: Annotated[Session, Depends(get_db)]
+    onibus_id: UUID, payload: OnibusUpdate, user: OperadorOuAdmin, db: Annotated[Session, Depends(get_db)]
 ):
     if not _pode_escrever(user):
         raise HTTPException(status_code=403, detail="Apenas ADMIN ou COORDENADOR pode editar")

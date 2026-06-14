@@ -9,6 +9,17 @@
  *   5. Listar histórico de importações e permitir reversão
  */
 
+// --- Guard MOTORISTA: apenas consulta no pátio ---
+(function() {
+    try {
+        const _u = JSON.parse(localStorage.getItem('patio_v3_user') || 'null');
+        if (_u && _u.perfil === 'MOTORISTA') {
+            window.location.replace('patio.html');
+        }
+    } catch (_) {}
+})();
+
+
 import { requireAuth, getCurrentUser, logout } from './auth.js';
 import { apiGet, ApiError } from './api.js';
 import { API_BASE_URL, TOKEN_KEY } from './config.js';
@@ -460,14 +471,3 @@ function fmtData(iso) {
  * Escapa caracteres especiais HTML para evitar XSS ao inserir strings
  * de dados externos em innerHTML.
  *
- * @param {string} str
- * @returns {string}
- */
-function escapeHtml(str) {
-    return String(str)
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;')
-        .replace(/"/g, '&quot;')
-        .replace(/'/g, '&#39;');
-}

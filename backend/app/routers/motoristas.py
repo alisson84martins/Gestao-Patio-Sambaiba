@@ -7,7 +7,7 @@ from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
-from app.core.deps import CurrentUser
+from app.core.deps import CurrentUser, OperadorOuAdmin
 from app.core.utils import PaginationParams, set_create_audit, set_update_audit
 from app.models import Motorista, PerfilUsuarioEnum, StatusMotoristaEnum
 from app.schemas import MotoristaCreate, MotoristaRead, MotoristaUpdate
@@ -46,7 +46,7 @@ def buscar(motorista_id: UUID, user: CurrentUser, db: Annotated[Session, Depends
 
 
 @router.post("", response_model=MotoristaRead, status_code=status.HTTP_201_CREATED)
-def criar(payload: MotoristaCreate, user: CurrentUser, db: Annotated[Session, Depends(get_db)]):
+def criar(payload: MotoristaCreate, user: OperadorOuAdmin, db: Annotated[Session, Depends(get_db)]):
     if not _pode_escrever(user):
         raise HTTPException(status_code=403, detail="Apenas ADMIN ou COORDENADOR pode cadastrar")
     if db.execute(select(Motorista).where(Motorista.re == payload.re)).scalar_one_or_none():
@@ -61,7 +61,7 @@ def criar(payload: MotoristaCreate, user: CurrentUser, db: Annotated[Session, De
 
 @router.patch("/{motorista_id}", response_model=MotoristaRead)
 def atualizar(
-    motorista_id: UUID, payload: MotoristaUpdate, user: CurrentUser, db: Annotated[Session, Depends(get_db)]
+    motorista_id: UUID, payload: MotoristaUpdate, user: OperadorOuAdmin, db: Annotated[Session, Depends(get_db)]
 ):
     if not _pode_escrever(user):
         raise HTTPException(status_code=403, detail="Apenas ADMIN ou COORDENADOR pode editar")

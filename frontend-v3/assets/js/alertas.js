@@ -11,6 +11,17 @@
  * Polling: 30 s (mesmo intervalo das demais telas).
  */
 
+// --- Guard MOTORISTA: apenas consulta no pátio ---
+(function() {
+    try {
+        const _u = JSON.parse(localStorage.getItem('patio_v3_user') || 'null');
+        if (_u && _u.perfil === 'MOTORISTA') {
+            window.location.replace('patio.html');
+        }
+    } catch (_) {}
+})();
+
+
 import { requireAuth, getCurrentUser, logout } from './auth.js';
 import { apiGet, apiPost, apiPatch, ApiError } from './api.js';
 
@@ -414,5 +425,4 @@ initModal();
 // Pre-load da frota antes da primeira busca de alertas
 preloadOnibus().then(() => {
     fetchAlertas();
-    setInterval(fetchAlertas, POLL_INTERVALO_MS);
-});
+    setInterval(fetchAlertas, P

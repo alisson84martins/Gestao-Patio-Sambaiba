@@ -17,7 +17,7 @@ router = APIRouter(prefix="/escalas", tags=["escala"])
 
 
 @router.post("", response_model=EscalaRead, status_code=status.HTTP_201_CREATED)
-def criar(payload: EscalaCreate, user: CurrentUser, db: Annotated[Session, Depends(get_db)]):
+def criar(payload: EscalaCreate, user: OperadorOuAdmin, db: Annotated[Session, Depends(get_db)]):
     """Cria escala manual. Validação de setor cruzado é feita por trigger no banco."""
     if not db.get(Onibus, payload.onibus_id):
         raise HTTPException(404, "Ônibus não encontrado")
@@ -78,7 +78,7 @@ def buscar(escala_id: UUID, user: CurrentUser, db: Annotated[Session, Depends(ge
 
 
 @router.patch("/{escala_id}", response_model=EscalaRead)
-def atualizar(escala_id: UUID, payload: EscalaUpdate, user: CurrentUser,
+def atualizar(escala_id: UUID, payload: EscalaUpdate, user: OperadorOuAdmin,
               db: Annotated[Session, Depends(get_db)]):
     e = db.get(Escala, escala_id)
     if not e:
@@ -92,29 +92,11 @@ def atualizar(escala_id: UUID, payload: EscalaUpdate, user: CurrentUser,
 
 
 @router.delete("/{escala_id}", response_model=EscalaRead, summary="Soft delete")
-def deletar(escala_id: UUID, user: CurrentUser, db: Annotated[Session, Depends(get_db)]):
+def deletar(escala_id: UUID, user: OperadorOuAdmin, db: Annotated[Session, Depends(get_db)]):
     e = db.get(Escala, escala_id)
     if not e:
         raise HTTPException(404, "Escala não encontrada")
     e.deletado_em = datetime.now(timezone.utc)
     set_update_audit(e, user)
     db.commit()
-    db.refresh(e)
-    return e
-
-
-@router.delete("", status_code=200, summary="Limpa todas as escalas de uma data (default: hoje)")
-def limpar_escalas(
-    user: OperadorOuAdmin,
-    db: Annotated[Session, Depends(get_db)],
-    data: Annotated[Optional[date_type], Query(description="Data da escala (YYYY-MM-DD). Default: hoje.")] = None,
-):
-    """Soft-delete em todas as escalas da data informada. Operação atômica."""
-    data_alvo = data or datetime.now(timezone.utc).date()
-    result = db.execute(
-        update(Escala)
-        .where(Escala.data == data_alvo, Escala.deletado_em.is_(None))
-        .values(deletado_em=datetime.now(timezone.utc))
-    )
-    db.commit()
-    return {"removidas": result.rowcount, "data": str(data_alvo)}
+    db

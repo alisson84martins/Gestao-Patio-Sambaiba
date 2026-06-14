@@ -26,6 +26,10 @@ if (!requireAuth()) {
     throw new Error('Sessao nao autenticada — interrompendo carga da pagina');
 }
 
+// --- Perfil do usuário logado ---
+const _currentUser = getCurrentUser();
+const _isMotorista = _currentUser?.perfil === 'MOTORISTA';
+
 // --- Refs do DOM ---
 const elUserName   = document.getElementById('user-name');
 const elUserMeta   = document.getElementById('user-meta');
@@ -366,6 +370,23 @@ document.addEventListener('DOMContentLoaded', () => {
     setupHeader();
     loadPatio();
     startPolling();
+
+    if (_isMotorista) {
+        // MOTORISTA: apenas consulta — esconde painel de ações e menu
+        const alocacaoPanel = document.querySelector('.alocar-rapido');
+        if (alocacaoPanel) alocacaoPanel.style.display = 'none';
+        const menuDots = document.getElementById('menu-dots');
+        if (menuDots) menuDots.style.display = 'none';
+        // esconde links de nav que motorista não acessa
+        ['remanejamento.html','alertas.html','manutencao.html','importacao.html'].forEach(href => {
+            const link = document.querySelector(`a[href="${href}"]`);
+            if (link) link.style.display = 'none';
+        });
+        // chip click desativado — só visualização
+        elGrid.addEventListener('click', e => e.stopPropagation(), true);
+        return; // não inicializa módulos de escrita
+    }
+
     initAlocacaoBloco({
         onSuccess: () => loadPatio(),
         getFilasSnapshot: () => lastFilas,
