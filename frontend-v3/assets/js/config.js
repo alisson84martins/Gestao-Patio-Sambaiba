@@ -24,7 +24,7 @@ const LOCAL_API_URL = 'http://127.0.0.1:8000';
 //   - 'https://api.gestao-patio-sambaiba.com.br'
 //   - 'https://gestao-patio-api.onrender.com'
 //   - 'https://gestao-patio.up.railway.app'
-const PROD_API_URL = 'https://api.gestao-patio-sambaiba.com.br'; // placeholder — atualizar na Fase 6
+const PROD_API_URL = 'https://api.gestaopatiosambaiba.com.br';
 
 const hostname = window.location.hostname;
 const isLocal = LOCAL_HOSTS.has(hostname);
