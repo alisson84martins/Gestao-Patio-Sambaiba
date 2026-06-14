@@ -269,4 +269,149 @@ function imprimirRelatorio(tipo, filas) {
         const com_escala = lista.filter(o => o.horario_saida || o.linha_codigo);
         html = `<h2 style="margin:0 0 4px;font-size:14px">Escala do Dia</h2>
             <p style="font-size:10px;color:#888;margin:0 0 8px">${meta} · ${com_escala.length} veículos</p>
-            <table style=
+            <table style="width:100%;border-collapse:collapse;font-size:11px">
+                <thead><tr style="background:#000;color:#fff">
+                    <th style="padding:4px 6px;text-align:left">Frota</th>
+                    <th style="padding:4px 6px;text-align:left">Setor</th>
+                    <th style="padding:4px 6px;text-align:left">Fila</th>
+                    <th style="padding:4px 6px;text-align:left">Linha</th>
+                    <th style="padding:4px 6px;text-align:left">Hora</th>
+                </tr></thead>
+                <tbody>
+                    ${com_escala.map((o, i) => `<tr style="${i % 2 ? 'background:#f5f5f5' : ''}">
+                        <td style="padding:3px 6px;font-weight:800;font-family:monospace">${o.numero_frota}</td>
+                        <td style="padding:3px 6px">${o.setor || '—'}</td>
+                        <td style="padding:3px 6px">${_nomeFila(o)}</td>
+                        <td style="padding:3px 6px">${o.linha_codigo || '—'}</td>
+                        <td style="padding:3px 6px;font-family:monospace">${_fmtHora(o.horario_saida)}</td>
+                    </tr>`).join('')}
+                </tbody>
+            </table>`;
+    } else if (tipo === 'frota') {
+        html = `<h2 style="margin:0 0 4px;font-size:14px">Frota Completa — Pátio</h2>
+            <p style="font-size:10px;color:#888;margin:0 0 8px">${meta} · ${lista.length} veículos</p>
+            <table style="width:100%;border-collapse:collapse;font-size:11px">
+                <thead><tr style="background:#000;color:#fff">
+                    <th style="padding:4px 6px;text-align:left">Frota</th>
+                    <th style="padding:4px 6px;text-align:left">Setor</th>
+                    <th style="padding:4px 6px;text-align:left">Fila</th>
+                    <th style="padding:4px 6px;text-align:left">Pos</th>
+                    <th style="padding:4px 6px;text-align:left">Status</th>
+                </tr></thead>
+                <tbody>
+                    ${lista.map((o, i) => `<tr style="${i % 2 ? 'background:#f5f5f5' : ''}">
+                        <td style="padding:3px 6px;font-weight:800;font-family:monospace">${o.numero_frota}</td>
+                        <td style="padding:3px 6px">${o.setor || '—'}</td>
+                        <td style="padding:3px 6px">${_nomeFila(o)}</td>
+                        <td style="padding:3px 6px">${o.posicao || '—'}</td>
+                        <td style="padding:3px 6px">${o.alerta_tipo || '—'}</td>
+                    </tr>`).join('')}
+                </tbody>
+            </table>`;
+    }
+    _print(html);
+}
+
+// ────────────────────────────────────────────────────────────────
+// RELATÓRIOS CSV (abre como Excel)
+// ────────────────────────────────────────────────────────────────
+function exportarExcel(tipo, filas) {
+    const lista = _todosOnibus(filas);
+    const nome  = tipo === 'patio'  ? 'Patio'
+                : tipo === 'escala' ? 'Escala'
+                : 'Frota';
+
+    let cabecalho, dados;
+
+    if (tipo === 'patio') {
+        cabecalho = ['Frota', 'Setor', 'Fila', 'Posição', 'Linha', 'Horário', 'Status'];
+        dados = lista.map(o => [
+            o.numero_frota, o.setor || '', _nomeFila(o),
+            o.posicao || '', o.linha_codigo || '',
+            _fmtHora(o.horario_saida), o.alerta_tipo || '',
+        ]);
+    } else if (tipo === 'escala') {
+        cabecalho = ['Frota', 'Setor', 'Hora', 'Linha', 'Status'];
+        dados = lista
+            .filter(o => o.horario_saida || o.linha_codigo)
+            .map(o => [
+                o.numero_frota, o.setor || '',
+                _fmtHora(o.horario_saida),
+                o.linha_codigo || '', o.alerta_tipo || '',
+            ]);
+    } else { // frota
+        cabecalho = ['Frota', 'Setor', 'Linha', 'Hora', 'Posição no Pátio'];
+        dados = lista.map(o => [
+            o.numero_frota, o.setor || '',
+            o.linha_codigo || '', _fmtHora(o.horario_saida),
+            `${_nomeFila(o)} pos ${o.posicao || '—'}`,
+        ]);
+    }
+
+    const nomeFinal = `${nome}_${new Date().toLocaleDateString('pt-BR').replace(/\//g, '-')}`;
+    const bom = '﻿';
+    const csv = bom + [cabecalho, ...dados]
+        .map(row => row.map(v => `"${String(v).replace(/"/g, '""')}"`).join(';'))
+        .join('\r\n');
+
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement('a');
+    a.href = url; a.download = nomeFinal + '.csv';
+    a.click();
+    URL.revokeObjectURL(url);
+}
+
+// ────────────────────────────────────────────────────────────────
+// EXPORTAR DADOS (snapshot JSON)
+// ────────────────────────────────────────────────────────────────
+function exportarDados(filas) {
+    const snapshot = {
+        exportadoEm: new Date().toISOString(),
+        sistema: 'Gestão de Pátio Sambaíba V3',
+        filas,
+    };
+    const blob = new Blob([JSON.stringify(snapshot, null, 2)], { type: 'application/json' });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement('a');
+    a.href = url;
+    a.download = `patio_sambaiba_${new Date().toLocaleDateString('pt-BR').replace(/\//g, '-')}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+}
+
+// ────────────────────────────────────────────────────────────────
+// LIMPAR PÁTIO
+// ────────────────────────────────────────────────────────────────
+async function limparPatio(filas, onSuccess) {
+    const ids = (filas || [])
+        .flatMap(f => (f.onibus || []).map(o => o.alocacao_id))
+        .filter(Boolean);
+
+    if (ids.length === 0) {
+        alert('Pátio já está vazio.');
+        return;
+    }
+
+    const ok = confirm(
+        `LIMPAR PÁTIO\n\nRemove ${ids.length} veículo(s) de todas as filas.\n` +
+        `Esta ação não pode ser desfeita.\n\nConfirma?`
+    );
+    if (!ok) return;
+
+    let erros = 0;
+    for (const id of ids) {
+        try {
+            await apiDelete(`/alocacoes/${id}`);
+        } catch (e) {
+            erros++;
+            console.error('[menu] erro ao remover alocação:', id, e?.message);
+        }
+    }
+
+    const msg = erros > 0
+        ? `Concluído com ${erros} erro(s). Verifique o pátio.`
+        : `${ids.length} veículo(s) removido(s) com sucesso.`;
+    alert(msg);
+    onSuccess();
+}
