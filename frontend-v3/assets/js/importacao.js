@@ -185,9 +185,8 @@ async function importarEscala() {
         renderResultado(resp);
         // Limpa o file input após upload bem-sucedido, mantém a data
         inputArquivo.value = '';
-        // Recarrega histórico em background
-        await fetchHistorico();
     } catch (err) {
+        console.error('[importacao] Erro no upload:', err);
         exibirErroUpload(err.message || 'Erro ao importar escala.');
         // Esconde resultado anterior caso exista
         const divResultado = document.getElementById('import-resultado');
@@ -195,6 +194,10 @@ async function importarEscala() {
     } finally {
         setFormBusy(false);
     }
+
+    // Recarrega histórico separado do try/catch do upload para que uma falha
+    // no histórico não oculte o resultado do upload bem-sucedido.
+    fetchHistorico().catch(err => console.warn('[importacao] Erro ao recarregar histórico:', err));
 }
 
 /**
@@ -234,12 +237,12 @@ function renderResultado(resp) {
 
     const { total_lidos, total_inseridos, total_erros, substituidas, presos_criados, erros } = resp;
 
-    // Define classe de cor conforme resultado
-    let classeResultado = 'import-result import-result-ok';
+    // Define classe de cor conforme resultado (corresponde ao CSS .import-resultado-*)
+    let classeResultado = 'import-resultado import-resultado-ok';
     if (total_erros > 0 && total_inseridos === 0) {
-        classeResultado = 'import-result import-result-erro';
+        classeResultado = 'import-resultado import-resultado-erro';
     } else if (total_erros > 0) {
-        classeResultado = 'import-result import-result-aviso';
+        classeResultado = 'import-resultado import-resultado-parcial';
     }
 
     // Monta stats
@@ -456,18 +459,4 @@ function fmtData(iso) {
     if (!iso) return '—';
     try {
         return new Date(iso).toLocaleString('pt-BR', {
-            day: '2-digit',
-            month: '2-digit',
-            year: 'numeric',
-            hour: '2-digit',
-            minute: '2-digit',
-        });
-    } catch {
-        return iso;
-    }
-}
-
-/**
- * Escapa caracteres especiais HTML para evitar XSS ao inserir strings
- * de dados externos em innerHTML.
- *
+            day: '2-d

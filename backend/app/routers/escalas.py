@@ -91,12 +91,10 @@ def atualizar(escala_id: UUID, payload: EscalaUpdate, user: OperadorOuAdmin,
     return e
 
 
-@router.delete("/{escala_id}", response_model=EscalaRead, summary="Soft delete")
-def deletar(escala_id: UUID, user: OperadorOuAdmin, db: Annotated[Session, Depends(get_db)]):
-    e = db.get(Escala, escala_id)
-    if not e:
-        raise HTTPException(404, "Escala não encontrada")
-    e.deletado_em = datetime.now(timezone.utc)
-    set_update_audit(e, user)
-    db.commit()
-    db
+@router.delete("", status_code=200, summary="Soft delete em lote — limpa escalas de uma data")
+def limpar_dia(
+    user: OperadorOuAdmin,
+    db: Annotated[Session, Depends(get_db)],
+    data: Annotated[Optional[date_type], Query(description="Data a limpar (YYYY-MM-DD). Default: hoje (UTC).")] = None,
+):
+    """Remove (soft-delete) todas as escalas não deletadas de uma data.
