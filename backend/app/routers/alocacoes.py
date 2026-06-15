@@ -220,25 +220,46 @@ def alocar_bloco(payload: AlocacaoBlocoCreate, user: OperadorOuAdmin,
         nova_posicao = (max_pos or 0) + 1
     else:
         # VOLTA: empurra todas as posições ativas +1 e insere na posição 1.
-        # uq_alocacao_fila_posicao_ativa é CREATE UNIQUE INDEX (não DEFERRABLE),
-        # então o PostgreSQL verifica unicidade linha a linha dentro do UPDATE.
-        # Com 2+ carros na fila, deslocar pos 1→2 enquanto pos 2 ainda existe
-        # gera UniqueViolation. Solução: two-step UPDATE via range alto.
-        #   Passo 1: desloca para range alto (ex: 1→10001, 2→10002) — sem conflito
-        #   Passo 2: retorna ao range correto (+1 da original: 10001→2, 10002→3)
-        # O CHECK posicao > 0 permanece satisfeito em ambos os passos.
-        db.execute(text("""
-            UPDATE alocacao_patio
-               SET posicao = posicao + 10000
-             WHERE fila_id = :fila_id AND ativa = TRUE
-        """), {"fila_id": fila.id})
-        db.execute(text("""
-            UPDATE alocacao_patio
-               SET posicao = posicao - 9999
-             WHERE fila_id = :fila_id AND ativa = TRUE
-        """), {"fila_id": fila.id})
-        db.flush()
+        # uq_alocacao_fila_posicao_ativa é CREATE UNIQUE INDEX imediato (não DEFERRABLE),
+        # então o PostgreSQL verifica unicidade linha a linha dentro de um UPDATE.
+        # Solução: usar o ORM para deslocar da maior posição para a menor,
+        # garantindo que nunca haverá duas linhas na mesma posição durante o processo.
+        # O with_for_update() também previne race condition entre requests simultâneos.
+        existentes = db.execute(
+            select(AlocacaoPatio)
+            .where(AlocacaoPatio.fila_id == fila.id, AlocacaoPatio.ativa.is_(True))
+            .order_by(AlocacaoPatio.posicao.desc())
+            .with_for_update()
+        ).scalars().all()
+        # Flush um a um da maior para a menor posição.
+        # uq_alocacao_fila_posicao_ativa é verificado linha a linha pelo PostgreSQL.
+        # Processar da maior posição para a menor garante que o slot de destino
+        # sempre está livre antes de cada UPDATE individual:
+        #   posicao 3→4 (4 livre)  →  flush
+        #   posicao 2→3 (3 livre)  →  flush
+        #   posicao 1→2 (2 livre)  →  flush
+        for aloc in existentes:
+            aloc.posicao += 1
+            db.flush()
         nova_posicao = 1
 
     # 4) Insere a nova alocação (trigger desativa alocação anterior do mesmo ônibus)
-   
+    nova = AlocacaoPatio(
+        onibus_id=onibus.id,
+        fila_id=fila.id,
+        posicao=nova_posicao,
+        ativa=True,
+        alocado_por=user.id,
+        data_referencia=get_data_servico(),
+    )
+    set_create_audit(nova, user)
+    db.add(nova)
+
+    # 5) Commit único — se qualquer passo acima falhou, transação inteira reverte
+    try:
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(409, f"Conflito ao alocar: {str(e)}")
+    db.refresh(nova)
+    return nova
