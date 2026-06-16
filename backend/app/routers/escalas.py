@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 from app.core.database import get_db
 from app.core.deps import CurrentUser, OperadorOuAdmin
 from app.core.utils import PaginationParams, set_create_audit, set_update_audit
-from app.models import Escala, Linha, Motorista, Onibus, OrigemEscalaEnum, PerfilUsuarioEnum
+from app.models import Alerta, Escala, Linha, Motorista, Onibus, OrigemEscalaEnum, PerfilUsuarioEnum, TipoAlertaEnum
 from app.schemas import EscalaCreate, EscalaRead, EscalaUpdate
 
 router = APIRouter(prefix="/escalas", tags=["escala"])
@@ -108,13 +108,27 @@ def limpar_dia(
         Query(description="Data a limpar (YYYY-MM-DD). Default: hoje UTC."),
     ] = None,
 ):
-    """Soft-delete em lote das escalas de uma data. Usado pelo botao Limpar Escala."""
+    """Soft-delete em lote das escalas de uma data. Usado pelo botao Limpar Escala.
+
+    Também resolve todos os alertas PRESO pendentes para não ficarem presos nos chips.
+    """
     if data is None:
         data = datetime.now(timezone.utc).date()
+    agora = datetime.now(timezone.utc)
     result = db.execute(
         update(Escala)
         .where(Escala.data == data, Escala.deletado_em.is_(None))
-        .values(deletado_em=datetime.now(timezone.utc))
+        .values(deletado_em=agora)
+    )
+    # Resolve alertas PRESO que ficaram ativos após a limpeza
+    db.execute(
+        update(Alerta)
+        .where(
+            Alerta.tipo == TipoAlertaEnum.PRESO,
+            Alerta.resolvido.is_(False),
+            Alerta.deletado_em.is_(None),
+        )
+        .values(resolvido=True, resolvido_em=agora)
     )
     db.commit()
     return {"removidas": result.rowcount}

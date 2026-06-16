@@ -26,8 +26,8 @@ import { API_BASE_URL, TOKEN_KEY } from './config.js';
 
 // ─── Guard de autenticação ────────────────────────────────────────────────────
 if (!requireAuth()) {
-    // requireAuth já redireciona — nada mais a fazer aqui
-    throw new Error('Não autenticado');
+    // requireAuth já redireciona — o módulo continua carregando mas a página
+    // será substituída antes de qualquer interação do usuário
 }
 
 // ─── Init ─────────────────────────────────────────────────────────────────────

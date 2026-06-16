@@ -348,6 +348,17 @@ def importar_escala(
         )
         result = db.execute(stmt)
         substituidas = result.rowcount or 0
+        # Resolve todos os alertas PRESO pendentes — serão recriados
+        # apenas para os ônibus marcados como presos na nova escala
+        db.execute(
+            update(Alerta)
+            .where(
+                Alerta.tipo == TipoAlertaEnum.PRESO,
+                Alerta.resolvido.is_(False),
+                Alerta.deletado_em.is_(None),
+            )
+            .values(resolvido=True, resolvido_em=datetime.now(timezone.utc))
+        )
 
     # Registro de importação
     imp = ImportacaoEscala(
