@@ -425,4 +425,5 @@ initModal();
 // Pre-load da frota antes da primeira busca de alertas
 preloadOnibus().then(() => {
     fetchAlertas();
-    setInterval(fetchAlertas, P
+    setInterval(fetchAlertas, POLL_INTERVALO_MS);
+});
