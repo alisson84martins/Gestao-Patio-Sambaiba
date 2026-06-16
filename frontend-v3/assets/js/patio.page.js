@@ -386,23 +386,8 @@ document.addEventListener('DOMContentLoaded', () => {
         return;
     }
 
-    if (_isMotorista) {
-        // MOTORISTA: apenas consulta — esconde painel de ações, menu e stats
-        const alocacaoPanel = document.querySelector('.alocar-rapido');
-        if (alocacaoPanel) alocacaoPanel.style.display = 'none';
-        const menuDots = document.getElementById('menu-dots');
-        if (menuDots) menuDots.style.display = 'none';
-        const statsBar = document.querySelector('.stats-bar');
-        if (statsBar) statsBar.style.display = 'none';
-        // esconde links de nav que motorista não acessa
-        ['remanejamento.html','alertas.html','manutencao.html','importacao.html'].forEach(href => {
-            const link = document.querySelector(`a[href="${href}"]`);
-            if (link) link.style.display = 'none';
-        });
-        // chip click desativado — só visualização
-        elGrid.addEventListener('click', e => e.stopPropagation(), true);
-
-        // --- Busca de carro para motorista ---
+    // ── Busca de carro — disponível para todos os perfis ─────────────────────
+    (function initBuscaCarro() {
         const buscaDiv    = document.getElementById('motorista-busca');
         const buscaInput  = document.getElementById('motorista-busca-input');
         const buscaBtn    = document.getElementById('motorista-busca-btn');
@@ -430,7 +415,7 @@ document.addEventListener('DOMContentLoaded', () => {
             if (!encontrado) {
                 buscaResult.innerHTML = `
                     <div style="padding:16px;background:var(--surface-2);border-radius:8px;color:#888">
-                        Carro <strong style="color:#ccc">${frota}</strong> não encontrado no pátio no momento.
+                        Carro <strong style="color:#ccc">${frota}</strong> não está alocado no pátio no momento.
                     </div>`;
                 return;
             }
@@ -459,6 +444,23 @@ document.addEventListener('DOMContentLoaded', () => {
 
         if (buscaBtn)   buscaBtn.addEventListener('click', buscarCarro);
         if (buscaInput) buscaInput.addEventListener('keydown', e => { if (e.key === 'Enter') buscarCarro(); });
+    })();
+
+    if (_isMotorista) {
+        // MOTORISTA: apenas consulta — esconde painel de ações, menu e stats
+        const alocacaoPanel = document.querySelector('.alocar-rapido');
+        if (alocacaoPanel) alocacaoPanel.style.display = 'none';
+        const menuDots = document.getElementById('menu-dots');
+        if (menuDots) menuDots.style.display = 'none';
+        const statsBar = document.querySelector('.stats-bar');
+        if (statsBar) statsBar.style.display = 'none';
+        // esconde links de nav que motorista não acessa
+        ['remanejamento.html','alertas.html','manutencao.html','importacao.html'].forEach(href => {
+            const link = document.querySelector(`a[href="${href}"]`);
+            if (link) link.style.display = 'none';
+        });
+        // chip click desativado — só visualização
+        elGrid.addEventListener('click', e => e.stopPropagation(), true);
 
         return; // não inicializa módulos de escrita
     }
