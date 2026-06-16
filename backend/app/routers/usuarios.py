@@ -71,9 +71,12 @@ def atualizar(
 ):
     u = db.get(Usuario, usuario_id)
     if not u:
-        raise HTTPException(status_code=404, detail="Usuário não encontrado")
+        raise HTTPException(status_code=404, detail="Usuario nao encontrado")
     data = payload.model_dump(exclude_unset=True)
-    # senha precisa ser hasheada — não pode ir direto pro setattr
+    # Admin nao pode alterar o proprio perfil nem desativar a propria conta
+    if str(u.id) == str(user.id) and ("perfil" in data or "ativo" in data):
+        raise HTTPException(status_code=400, detail="Voce nao pode alterar o proprio perfil ou status ativo")
+    # senha precisa ser hasheada — nao pode ir direto pro setattr
     if "senha" in data:
         u.senha_hash = hash_password(data.pop("senha"))
         u.primeiro_acesso = False  # reset de senha pelo admin cancela o primeiro_acesso

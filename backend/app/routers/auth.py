@@ -1,8 +1,10 @@
-"""Endpoints de autenticação: login e dados do usuário corrente."""
+"""Endpoints de autenticacao: login e dados do usuario corrente."""
+import time
+from collections import defaultdict
 from datetime import datetime, timezone
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -17,7 +19,24 @@ from app.models import Usuario
 from app.schemas.auth import LoginRequest, TokenResponse
 from app.schemas.pessoas import UsuarioRead
 
-router = APIRouter(prefix="/auth", tags=["autenticação"])
+router = APIRouter(prefix="/auth", tags=["autenticacao"])
+
+# --- Rate limiting in-memory (max 10 tentativas/IP/60s) ---
+_LOGIN_TENTATIVAS: dict[str, list[float]] = defaultdict(list)
+_RATE_MAX = 10
+_RATE_JANELA = 60  # segundos
+
+
+def _checar_rate_limit(request: Request) -> None:
+    ip = request.client.host if request.client else "unknown"
+    agora = time.time()
+    _LOGIN_TENTATIVAS[ip] = [t for t in _LOGIN_TENTATIVAS[ip] if agora - t < _RATE_JANELA]
+    if len(_LOGIN_TENTATIVAS[ip]) >= _RATE_MAX:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Muitas tentativas de login. Aguarde 1 minuto.",
+        )
+    _LOGIN_TENTATIVAS[ip].append(agora)
 
 
 def _autenticar_e_gerar_token(re: str, senha: str, db: Session) -> TokenResponse:
@@ -58,10 +77,12 @@ def _autenticar_e_gerar_token(re: str, senha: str, db: Session) -> TokenResponse
     summary="Login via JSON (uso pelo frontend)",
 )
 def login_json(
+    request: Request,
     credentials: LoginRequest,
     db: Annotated[Session, Depends(get_db)],
 ) -> TokenResponse:
     """Login com `{re, senha}` em JSON. Usado pelo frontend."""
+    _checar_rate_limit(request)
     return _autenticar_e_gerar_token(credentials.re, credentials.senha, db)
 
 
@@ -71,13 +92,15 @@ def login_json(
     summary="Login via form OAuth2 (uso pelo Swagger Authorize)",
 )
 def login_oauth2(
+    request: Request,
     form_data: Annotated[OAuth2PasswordRequestForm, Depends()],
     db: Annotated[Session, Depends(get_db)],
 ) -> TokenResponse:
     """Login no padrão OAuth2 (form-urlencoded).
 
-    O campo `username` recebe o **RE** do funcionário.
+    O campo `username` recebe o RE do funcionario.
     """
+    _checar_rate_limit(request)
     return _autenticar_e_gerar_token(form_data.username, form_data.password, db)
 
 

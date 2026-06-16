@@ -90,11 +90,13 @@ async def importar(
 
 @router.get("", response_model=list[ImportacaoEscalaRead])
 def listar(
-    user: CurrentUser,
+    user: OperadorOuAdmin,
     db: Annotated[Session, Depends(get_db)],
     pag: Annotated[PaginationParams, Depends()],
     data: Annotated[Optional[date_type], Query()] = None,
 ):
+    if not _pode_importar(user):
+        raise HTTPException(403, "Apenas ADMIN ou COORDENADOR pode listar importacoes")
     q = select(ImportacaoEscala)
     if data:
         q = q.where(ImportacaoEscala.data_escala == data)
@@ -103,19 +105,21 @@ def listar(
 
 
 @router.get("/{imp_id}", response_model=ImportacaoEscalaRead)
-def buscar(imp_id: UUID, user: CurrentUser, db: Annotated[Session, Depends(get_db)]):
+def buscar(imp_id: UUID, user: OperadorOuAdmin, db: Annotated[Session, Depends(get_db)]):
+    if not _pode_importar(user):
+        raise HTTPException(403, "Apenas ADMIN ou COORDENADOR pode acessar importacoes")
     imp = db.get(ImportacaoEscala, imp_id)
     if not imp:
-        raise HTTPException(404, "Importação não encontrada")
+        raise HTTPException(404, "Importacao nao encontrada")
     return imp
 
 
 @router.post(
     "/{imp_id}/reverter",
     response_model=dict,
-    summary="Reverte uma importação (soft delete das escalas geradas)",
+    summary="Reverte uma importacao (soft delete das escalas geradas)",
 )
-def reverter(imp_id: UUID, user: CurrentUser, db: Annotated[Session, Depends(get_db)]):
+def reverter(imp_id: UUID, user: OperadorOuAdmin, db: Annotated[Session, Depends(get_db)]):
     if not _pode_importar(user):
         raise HTTPException(403, "Apenas ADMIN ou COORDENADOR pode reverter")
     imp = db.get(ImportacaoEscala, imp_id)

@@ -459,4 +459,18 @@ function fmtData(iso) {
     if (!iso) return '—';
     try {
         return new Date(iso).toLocaleString('pt-BR', {
-            day: '2-d
+            day: '2-digit',
+            month: '2-digit',
+            year: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit',
+        });
+    } catch {
+        return iso;
+    }
+}
+
+/**
+ * Escapa caracteres especiais HTML para evitar XSS ao inserir strings
+ * de dados externos em innerHTML.
+ *
