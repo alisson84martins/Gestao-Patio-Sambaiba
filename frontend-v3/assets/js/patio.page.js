@@ -437,7 +437,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     </div>
                     ${preso ? `
                     <div style="margin-top:12px;padding:10px 14px;background:rgba(244,63,94,0.15);border-radius:6px;color:var(--accent,#f43f5e);font-weight:700;font-size:0.95rem">
-                        ⚠️ PRESO — veículo retido na rua
+                        ⚠️ PRESO
                     </div>` : ''}
                 </div>`;
         }
