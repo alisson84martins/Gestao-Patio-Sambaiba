@@ -44,12 +44,22 @@ class TipoDefeito(Base):
 
 
 class Permissao(Base):
+    """Override individual de acesso (exceção por pessoa).
+
+    Após migration 011: usuario_id é opcional (coluna legada); usar funcionario_id.
+    A view vw_acesso_efetivo já combina funcao_permissao + esta tabela.
+    """
     __tablename__ = "permissao"
     __table_args__ = (UniqueConstraint("usuario_id", "recurso", name="uq_permissao_usuario_recurso"),)
 
     id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True, default=uuid4)
-    usuario_id: Mapped[UUID] = mapped_column(
-        PG_UUID(as_uuid=True), ForeignKey("usuario.id", ondelete="CASCADE"), nullable=False
+    # Coluna legada — mantida durante a transição; nullable após migration 011
+    usuario_id: Mapped[Optional[UUID]] = mapped_column(
+        PG_UUID(as_uuid=True), ForeignKey("usuario.id", ondelete="CASCADE"), nullable=True
+    )
+    # Coluna nova — uso a partir da migration 011
+    funcionario_id: Mapped[Optional[UUID]] = mapped_column(
+        PG_UUID(as_uuid=True), ForeignKey("funcionario.id", ondelete="CASCADE"), nullable=True
     )
     recurso: Mapped[str] = mapped_column(String(50), nullable=False)
     pode_ler: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)

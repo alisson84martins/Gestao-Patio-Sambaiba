@@ -5,6 +5,7 @@ from uuid import UUID
 from pydantic import BaseModel, Field
 
 from app.models.enums import PerfilUsuarioEnum
+from app.schemas.cadastro import ModuloDisponivel
 
 
 class LoginRequest(BaseModel):
@@ -18,8 +19,6 @@ class TokenResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
     expires_in: int = Field(..., description="Tempo de vida em segundos")
-    # Se TRUE, o frontend deve redirecionar para a tela de troca de senha
-    # antes de liberar o acesso ao sistema.
     primeiro_acesso: bool = False
 
 
@@ -30,3 +29,22 @@ class TokenPayload(BaseModel):
     iat: Optional[int] = None
     perfil: Optional[PerfilUsuarioEnum] = None
     re: Optional[str] = None
+
+
+class MeResponse(BaseModel):
+    """Resposta de GET /auth/me — dados da pessoa + acesso RBAC completo."""
+    # Identificadores
+    id: UUID
+    re: str
+    nome: str
+    # Sistema novo (populated when logged in via usuario_login)
+    funcionario_id: Optional[UUID] = None
+    funcoes: list[str] = Field(default_factory=list, description="Códigos das funções ativas")
+    acesso: dict[str, dict[str, bool]] = Field(
+        default_factory=dict,
+        description='Acesso efetivo: {"alocacao": {"ler": true, "escrever": false}, ...}',
+    )
+    modulos: list[ModuloDisponivel] = Field(default_factory=list)
+    # Sistema antigo (populated when logged in via usuario — transição)
+    perfil: Optional[str] = None
+    primeiro_acesso: bool = False
