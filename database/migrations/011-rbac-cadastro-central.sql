@@ -31,6 +31,50 @@
 CREATE EXTENSION IF NOT EXISTS pgcrypto;   -- gen_random_uuid()
 
 -- ============================================================================
+-- PARTE 0 — Padronização do dono das tabelas
+-- ----------------------------------------------------------------------------
+-- POR QUE ISTO EXISTE (descoberto no ensaio de 29/07/2026)
+--   O schema `public` tinha DOIS donos: as 15 tabelas do núcleo do Pátio
+--   (migrations 001–010) pertenciam ao `postgres`, e as 7 tabelas criadas na
+--   migração de 27/07 pertenciam ao `sambaiba`.
+--
+--   Consequência: rodar este script com `SET ROLE sambaiba` fazia a Parte B
+--   falhar com `must be owner of table permissao` — e, em cascata, a coluna
+--   `funcionario_id`, o backfill e as duas views não eram criados. O script
+--   terminava "sem erro fatal", mas pela metade. Silencioso e perigoso.
+--
+--   Este bloco unifica o dono em `sambaiba` antes de qualquer ALTER. É mudança
+--   de metadado: instantânea, não move dado, não interrompe quem está usando.
+--
+-- OBS.: precisa de superusuário. O RESET ROLE abaixo volta ao papel original
+--       da sessão (postgres) e o SET ROLE no fim devolve para `sambaiba`.
+-- ============================================================================
+RESET ROLE;
+
+DO $$
+DECLARE r record;
+BEGIN
+    FOR r IN SELECT tablename FROM pg_tables
+              WHERE schemaname = 'public' AND tableowner <> 'sambaiba'
+    LOOP EXECUTE format('ALTER TABLE public.%I OWNER TO sambaiba', r.tablename); END LOOP;
+
+    FOR r IN SELECT viewname FROM pg_views
+              WHERE schemaname = 'public' AND viewowner <> 'sambaiba'
+    LOOP EXECUTE format('ALTER VIEW public.%I OWNER TO sambaiba', r.viewname); END LOOP;
+
+    FOR r IN SELECT sequencename FROM pg_sequences
+              WHERE schemaname = 'public' AND sequenceowner <> 'sambaiba'
+    LOOP EXECUTE format('ALTER SEQUENCE public.%I OWNER TO sambaiba', r.sequencename); END LOOP;
+
+    RAISE NOTICE 'Dono das tabelas do schema public padronizado em sambaiba.';
+EXCEPTION
+    WHEN insufficient_privilege THEN
+        RAISE NOTICE 'Sem privilégio para trocar o dono — rode como superusuário se a Parte B falhar.';
+END $$;
+
+SET ROLE sambaiba;
+
+-- ============================================================================
 -- PARTE A — Tabelas do cadastro central
 -- (já aplicadas em produção em 27/07/2026; aqui só para versionar e permitir
 --  instalação do zero. Em produção todos os comandos abaixo são no-op.)
