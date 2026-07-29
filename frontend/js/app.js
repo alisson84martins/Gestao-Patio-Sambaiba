@@ -14,6 +14,13 @@ async function _apiFetchSync(path, opts = {}) {
       ...(opts.headers || {}),
     },
   });
+  if (res.status === 401) {
+    localStorage.removeItem('sambaiba_token');
+    localStorage.removeItem('sambaiba_perfil');
+    localStorage.removeItem('sambaiba_nome');
+    window.location.replace('login.html');
+    return;
+  }
   if (!res.ok) throw new Error(res.status);
   if (res.status === 204) return null;
   return res.json();
