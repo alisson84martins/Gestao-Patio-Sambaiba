@@ -27,7 +27,7 @@ class Settings(BaseSettings):
         min_length=32,
     )
     jwt_algorithm: str = "HS256"
-    jwt_expire_minutes: int = 480
+    jwt_expire_minutes: int = 1440  # 24 horas — cobre turnos do dia completo
 
     # Ambiente
     environment: str = Field(default="development", pattern="^(development|staging|production)$")
