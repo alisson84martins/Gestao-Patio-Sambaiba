@@ -396,4 +396,10 @@
   document.getElementById('filtro-busca').addEventListener('input', () => carregarUsuarios());
   document.getElementById('filtro-perfil').addEventListener('change', () => carregarUsuarios());
   document.getElementById('filtro-ativo').addEventListener('change', () => carregarUsuarios());
-  document.getElementById('btn-recarre
+  document.getElementById('btn-recarregar').addEventListener('click', () => carregarUsuarios());
+
+  // ── Carga inicial ──
+  carregarUsuarios();
+</script>
+</body>
+</html>
