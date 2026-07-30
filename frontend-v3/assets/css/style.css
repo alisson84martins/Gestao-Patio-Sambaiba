@@ -1107,6 +1107,11 @@ body {
     border-bottom-color: var(--accent);
 }
 
+.app-nav-trocar-modulo {
+    margin-left: auto;
+    color: var(--accent4);
+}
+
 /* ── Menu três pontinhos ───────────────────────────────────────── */
 .menu-dots-wrap {
     position: relative;
