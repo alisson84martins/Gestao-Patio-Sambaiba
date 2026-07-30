@@ -13,22 +13,18 @@
  * Polling: 30 s (mesmo intervalo do patio.page.js).
  */
 
-// --- Guard: perfis sem acesso a remanejamento ---
-(function() {
-    try {
-        const _u = JSON.parse(localStorage.getItem('patio_v3_user') || 'null');
-        if (_u && ['MOTORISTA', 'MECANICO'].includes(_u.perfil)) {
-            window.location.replace('patio.html');
-        }
-    } catch (_) {}
-})();
-
-
 import { requireAuth, getCurrentUser, logout } from './auth.js';
 import { apiGet, ApiError } from './api.js';
+import { podeEscrever } from './sessao.js';
 
 // Guard de sessão — redireciona pra login se não autenticado
 if (!requireAuth()) throw new Error('Não autenticado');
+
+// Guard de acesso: remanejamento é ação de escrita em "alocacao"
+if (!podeEscrever('alocacao')) {
+    window.location.replace('patio.html');
+    throw new Error('Sem acesso de escrita ao recurso alocacao');
+}
 
 /* ------------------------------------------------------------------ */
 /*  ESTADO LOCAL                                                        */
@@ -65,7 +61,7 @@ function initHeader() {
     const user = getCurrentUser();
     if (user) {
         elUserName.textContent = user.nome ?? user.re ?? '—';
-        elUserMeta.textContent = user.perfil ?? '—';
+        elUserMeta.textContent = user.re ?? '—';
     }
 
     document.getElementById('btn-logout').addEventListener('click', () => {

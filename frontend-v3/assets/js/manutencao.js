@@ -16,22 +16,18 @@
  *   - Clicar num card abre o modal de atualização pré-preenchido
  */
 
-// --- Guard MOTORISTA: apenas consulta no pátio ---
-(function() {
-    try {
-        const _u = JSON.parse(localStorage.getItem('patio_v3_user') || 'null');
-        if (_u && _u.perfil === 'MOTORISTA') {
-            window.location.replace('patio.html');
-        }
-    } catch (_) {}
-})();
-
-
 import { requireAuth, getCurrentUser, logout } from './auth.js';
 import { apiGet, apiPost, apiPatch, ApiError } from './api.js';
+import { podeLer } from './sessao.js';
 
 // Guard de sessão — redireciona pro login se não autenticado
 if (!requireAuth()) throw new Error('Não autenticado');
+
+// Guard de acesso: quem não lê "manutencao" não vê esta tela
+if (!podeLer('manutencao')) {
+    window.location.replace('patio.html');
+    throw new Error('Sem acesso ao recurso manutencao');
+}
 
 /* ------------------------------------------------------------------ */
 /*  ESTADO LOCAL                                                        */
@@ -142,7 +138,7 @@ function initHeader() {
     const user = getCurrentUser();
     if (user) {
         elUserName.textContent = user.nome ?? user.re ?? '—';
-        elUserMeta.textContent = user.perfil ?? '—';
+        elUserMeta.textContent = user.re ?? '—';
     }
 
     document.getElementById('btn-logout').addEventListener('click', () => {

@@ -11,22 +11,18 @@
  * Polling: 30 s (mesmo intervalo das demais telas).
  */
 
-// --- Guard: perfis sem acesso a alertas ---
-(function() {
-    try {
-        const _u = JSON.parse(localStorage.getItem('patio_v3_user') || 'null');
-        if (_u && ['MOTORISTA', 'MECANICO'].includes(_u.perfil)) {
-            window.location.replace('patio.html');
-        }
-    } catch (_) {}
-})();
-
-
 import { requireAuth, getCurrentUser, logout } from './auth.js';
 import { apiGet, apiPost, apiPatch, ApiError } from './api.js';
+import { podeLer } from './sessao.js';
 
 // Guard de sessão — redireciona pra login se não autenticado
 if (!requireAuth()) throw new Error('Não autenticado');
+
+// Guard de acesso: quem não lê "alerta" não vê esta tela
+if (!podeLer('alerta')) {
+    window.location.replace('patio.html');
+    throw new Error('Sem acesso ao recurso alerta');
+}
 
 /* ------------------------------------------------------------------ */
 /*  CONSTANTES                                                          */
@@ -80,7 +76,7 @@ function initHeader() {
     const user = getCurrentUser();
     if (user) {
         elUserName.textContent = user.nome ?? user.re ?? '—';
-        elUserMeta.textContent = user.perfil ?? '—';
+        elUserMeta.textContent = user.re ?? '—';
     }
 
     document.getElementById('btn-logout').addEventListener('click', () => {

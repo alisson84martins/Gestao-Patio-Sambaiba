@@ -19,17 +19,13 @@ import { POLLING_INTERVAL_MS } from './config.js';
 import { init as initAlocacaoBloco } from './alocacao.bloco.js';
 import { init as initMoverChipModal, abrirModalMoverChip } from './mover.chip.modal.js';
 import { initMenu } from './menu.js';
+import { podeEscrever } from './sessao.js';
 
 // --- Protege a rota antes de qualquer coisa ---
 if (!requireAuth()) {
     // requireAuth já redireciona se não autenticado; nada mais a fazer
     throw new Error('Sessao nao autenticada — interrompendo carga da pagina');
 }
-
-// --- Perfil do usuário logado ---
-const _currentUser = getCurrentUser();
-const _isMotorista = _currentUser?.perfil === 'MOTORISTA';
-const _isMecanico  = _currentUser?.perfil === 'MECANICO';
 
 // --- Refs do DOM ---
 const elUserName   = document.getElementById('user-name');
@@ -55,8 +51,7 @@ function setupHeader() {
     const user = getCurrentUser();
     if (user) {
         elUserName.textContent = user.nome || '—';
-        elUserMeta.textContent =
-            `${user.re || ''} · ${user.perfil || ''}`.toUpperCase();
+        elUserMeta.textContent = (user.re || '—').toUpperCase();
     }
     elLogout.addEventListener('click', () => {
         stopPolling();
@@ -372,21 +367,7 @@ document.addEventListener('DOMContentLoaded', () => {
     loadPatio();
     startPolling();
 
-    if (_isMecanico) {
-        // MECÂNICO: vê pátio e stats, não aloca/move, não acessa outros módulos
-        const alocacaoPanel = document.querySelector('.alocar-rapido');
-        if (alocacaoPanel) alocacaoPanel.style.display = 'none';
-        const menuDots = document.getElementById('menu-dots');
-        if (menuDots) menuDots.style.display = 'none';
-        ['remanejamento.html', 'alertas.html', 'importacao.html'].forEach(href => {
-            const link = document.querySelector(`a[href="${href}"]`);
-            if (link) link.style.display = 'none';
-        });
-        elGrid.addEventListener('click', e => e.stopPropagation(), true);
-        return;
-    }
-
-    // ── Busca de carro — disponível para todos os perfis ─────────────────────
+    // ── Busca de carro — disponível pra quem só lê "alocacao" também ─────────
     (function initBuscaCarro() {
         const buscaDiv    = document.getElementById('motorista-busca');
         const buscaInput  = document.getElementById('motorista-busca-input');
@@ -446,19 +427,12 @@ document.addEventListener('DOMContentLoaded', () => {
         if (buscaInput) buscaInput.addEventListener('keydown', e => { if (e.key === 'Enter') buscarCarro(); });
     })();
 
-    if (_isMotorista) {
-        // MOTORISTA: apenas consulta — esconde painel de ações, menu e stats
+    if (!podeEscrever('alocacao')) {
+        // Somente leitura: vê pátio e stats, não aloca/move.
         const alocacaoPanel = document.querySelector('.alocar-rapido');
         if (alocacaoPanel) alocacaoPanel.style.display = 'none';
         const menuDots = document.getElementById('menu-dots');
         if (menuDots) menuDots.style.display = 'none';
-        const statsBar = document.querySelector('.stats-bar');
-        if (statsBar) statsBar.style.display = 'none';
-        // esconde links de nav que motorista não acessa
-        ['remanejamento.html','alertas.html','manutencao.html','importacao.html'].forEach(href => {
-            const link = document.querySelector(`a[href="${href}"]`);
-            if (link) link.style.display = 'none';
-        });
         // chip click desativado — só visualização
         elGrid.addEventListener('click', e => e.stopPropagation(), true);
 

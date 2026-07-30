@@ -9,25 +9,20 @@
  *   5. Listar histórico de importações e permitir reversão
  */
 
-// --- Guard: apenas COORDENADOR e ADMIN podem importar ---
-(function() {
-    try {
-        const _u = JSON.parse(localStorage.getItem('patio_v3_user') || 'null');
-        if (_u && !['COORDENADOR', 'ADMIN'].includes(_u.perfil)) {
-            window.location.replace('patio.html');
-        }
-    } catch (_) {}
-})();
-
-
 import { requireAuth, getCurrentUser, logout } from './auth.js';
 import { apiGet, ApiError } from './api.js';
 import { API_BASE_URL, TOKEN_KEY } from './config.js';
+import { podeEscrever } from './sessao.js';
 
 // ─── Guard de autenticação ────────────────────────────────────────────────────
 if (!requireAuth()) {
-    // requireAuth já redireciona — o módulo continua carregando mas a página
-    // será substituída antes de qualquer interação do usuário
+    throw new Error('Não autenticado');
+}
+
+// Guard de acesso: importar escala é ação de escrita em "escala"
+if (!podeEscrever('escala')) {
+    window.location.replace('patio.html');
+    throw new Error('Sem acesso de escrita ao recurso escala');
 }
 
 // ─── Init ─────────────────────────────────────────────────────────────────────
@@ -54,7 +49,7 @@ function initHeader() {
         const elNome = document.getElementById('user-name');
         const elMeta = document.getElementById('user-meta');
         if (elNome) elNome.textContent = user.nome || user.re || '—';
-        if (elMeta) elMeta.textContent = user.cargo || user.perfil || '—';
+        if (elMeta) elMeta.textContent = user.re || '—';
     }
 
     const btnLogout = document.getElementById('btn-logout');
