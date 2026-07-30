@@ -1186,6 +1186,139 @@ body {
     padding: 2px 10px;
 }
 
+/* ============================================================
+   TELA DE PERMISSÕES (permissoes.html)
+   ============================================================ */
+.permissoes-layout {
+    display: flex;
+    gap: 16px;
+    align-items: flex-start;
+}
+
+.permissoes-lateral {
+    flex: 0 0 220px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.permissoes-funcao-btn {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 8px 12px;
+    text-align: left;
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 12px;
+    cursor: pointer;
+    transition: border-color 0.15s, background 0.15s;
+}
+
+.permissoes-funcao-btn:hover {
+    border-color: var(--muted);
+}
+
+.permissoes-funcao-btn.active {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: #fff;
+}
+
+.permissoes-grid-area {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+.permissoes-grid-titulo {
+    font-family: var(--display);
+    font-size: 18px;
+    font-weight: 700;
+    margin-bottom: 12px;
+}
+
+.permissoes-modulo-header {
+    font-family: var(--mono);
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin: 16px 0 6px;
+}
+
+.permissoes-modulo-header:first-child {
+    margin-top: 0;
+}
+
+.permissoes-tabela {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+.permissoes-tabela td {
+    padding: 8px 10px;
+    border-bottom: 1px solid var(--border);
+}
+
+.permissoes-recurso-nome {
+    font-size: 13px;
+    color: var(--text);
+}
+
+.linha-excecao .permissoes-recurso-nome {
+    color: #93c5fd;
+}
+
+.linha-excecao {
+    background: rgba(59, 130, 246, 0.05);
+}
+
+.permissoes-pessoa-resultados {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    margin-top: 8px;
+    max-height: 320px;
+    overflow-y: auto;
+}
+
+.pessoa-resultado-item {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 8px 10px;
+    cursor: pointer;
+    font-size: 12px;
+    transition: border-color 0.15s;
+}
+
+.pessoa-resultado-item:hover,
+.pessoa-resultado-item.active {
+    border-color: var(--accent);
+}
+
+.pessoa-resultado-nome {
+    color: var(--text);
+    font-weight: 700;
+}
+
+.pessoa-resultado-re {
+    color: var(--muted);
+    font-family: var(--mono);
+    font-size: 10px;
+}
+
+@media (max-width: 720px) {
+    .permissoes-layout {
+        flex-direction: column;
+    }
+    .permissoes-lateral {
+        flex-basis: auto;
+        width: 100%;
+    }
+}
+
 /* ── Menu três pontinhos ───────────────────────────────────────── */
 .menu-dots-wrap {
     position: relative;
