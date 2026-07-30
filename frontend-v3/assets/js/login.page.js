@@ -9,6 +9,7 @@
 import { login, redirectIfAuthenticated, ApiError } from './auth.js';
 import { checkApiHealth } from './api.js';
 import { API_BASE_URL, IS_LOCAL, APP_VERSION } from './config.js';
+import { destinoAposLogin } from './sessao.js';
 
 // Se já tem sessão válida, redireciona antes mesmo de mostrar a tela
 redirectIfAuthenticated();
@@ -71,7 +72,7 @@ form.addEventListener('submit', async (e) => {
         // Sucesso — mensagem rápida e redireciono
         showAlert(`Bem-vindo, ${user.nome.split(' ')[0]}.`, 'success');
         setTimeout(() => {
-            window.location.href = 'patio.html';
+            window.location.href = destinoAposLogin();
         }, 400);
     } catch (err) {
         setLoading(false);

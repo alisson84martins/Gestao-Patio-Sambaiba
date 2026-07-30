@@ -16,6 +16,7 @@
 
 import { apiPost, apiGet, ApiError } from './api.js';
 import { TOKEN_KEY, USER_KEY } from './config.js';
+import { destinoAposLogin } from './sessao.js';
 
 const EXPIRES_AT_KEY = 'patio_v3_expires_at';
 
@@ -93,12 +94,12 @@ export function requireAuth() {
 }
 
 /**
- * Se já tá logado, redireciona pra patio.html.
+ * Se já tá logado, redireciona pro destino da pessoa (destinoAposLogin()).
  * Usado na própria tela de login pra evitar exibir o form pra quem já tem sessão.
  */
 export function redirectIfAuthenticated() {
     if (isAuthenticated()) {
-        window.location.replace('patio.html');
+        window.location.replace(destinoAposLogin());
     }
 }
 
