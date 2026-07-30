@@ -43,7 +43,7 @@
 
     <!-- Abas internas da página de cadastros -->
     <div class="remanejo-filtros" id="cadastros-tabs" style="flex-wrap:wrap;gap:4px">
-        <button class="filtro-btn active" data-tab="usuarios">Usuários</button>
+        <button class="filtro-btn active" data-tab="usuarios">Funcionários</button>
         <button class="filtro-btn" data-tab="onibus">Ônibus</button>
         <button class="filtro-btn" data-tab="motoristas">Motoristas</button>
         <button class="filtro-btn" data-tab="linhas">Linhas</button>
@@ -71,7 +71,7 @@
 <div class="modal-overlay" id="modal-usuario">
     <div class="modal">
         <button type="button" class="modal-close" id="modal-usuario-fechar">✕</button>
-        <div class="modal-title" id="modal-usuario-titulo">Novo Usuário</div>
+        <div class="modal-title" id="modal-usuario-titulo">Novo Funcionário</div>
 
         <input type="hidden" id="usuario-id">
 
@@ -88,43 +88,41 @@
         <div class="form-group" id="usuario-cpf-group">
             <label class="form-label" for="usuario-cpf">
                 CPF <span style="color:var(--accent)">*</span>
-                <span style="color:#888;font-size:0.8rem;font-weight:400"> — últimos 4 dígitos viram senha inicial</span>
+                <span style="color:#888;font-size:0.8rem;font-weight:400"> — últimos 4 dígitos viram a senha inicial do acesso</span>
             </label>
             <input type="text" class="form-input" id="usuario-cpf" placeholder="000.000.000-00" maxlength="14">
         </div>
 
+        <div id="modal-usuario-conflito" class="modulos-aviso" style="display:none;margin-bottom:0.75rem">
+            <div id="modal-usuario-conflito-texto"></div>
+            <button type="button" class="btn btn-ghost btn-full" id="btn-abrir-existente" style="margin-top:8px">Abrir cadastro existente</button>
+        </div>
+
         <div class="form-group">
-            <label class="form-label" for="usuario-perfil">Perfil <span style="color:var(--accent)">*</span></label>
-            <select class="form-select" id="usuario-perfil">
-                <option value="">— Selecione —</option>
-                <option value="OPERADOR_PATIO">Operador de Pátio</option>
-                <option value="COORDENADOR">Coordenador</option>
-                <option value="MECANICO">Mecânico</option>
-                <option value="MOTORISTA">Motorista</option>
-                <option value="ADMIN">Admin</option>
-            </select>
+            <label class="form-label">Funções <span style="color:var(--accent)">*</span></label>
+            <div id="usuario-funcoes-lista" class="funcoes-lista"></div>
+            <div style="color:#888;font-size:0.75rem;margin-top:4px">A função de maior hierarquia entre as marcadas vira automaticamente a principal.</div>
         </div>
 
         <div class="form-group" id="usuario-ativo-group">
-            <label class="form-label">Status</label>
-            <select class="form-select" id="usuario-ativo">
-                <option value="true">Ativo</option>
-                <option value="false">Inativo</option>
+            <label class="form-label" for="usuario-status">Status</label>
+            <select class="form-select" id="usuario-status">
+                <option value="ATIVO">Ativo</option>
+                <option value="AFASTADO">Afastado</option>
+                <option value="FERIAS">Férias</option>
+                <option value="DESLIGADO">Desligado</option>
             </select>
         </div>
 
-        <div class="form-group" id="usuario-senha-group" style="display:none">
-            <label class="form-label" for="usuario-senha">
-                Nova Senha
-                <span style="color:#888;font-size:0.8rem;font-weight:400"> — deixe em branco para não alterar</span>
-            </label>
-            <input type="password" class="form-input" id="usuario-senha" placeholder="Mínimo 6 caracteres" minlength="6" maxlength="72">
+        <div class="form-group" id="usuario-acesso-area" style="display:none">
+            <label class="form-label">Acesso ao sistema</label>
+            <button type="button" class="btn btn-ghost btn-full" id="btn-criar-acesso">Criar acesso ao sistema</button>
+            <div id="usuario-acesso-resultado" style="display:none;color:var(--accent3);font-size:0.85rem;margin-top:6px"></div>
         </div>
 
         <div id="modal-usuario-erro" style="display:none;color:var(--accent);font-size:0.85rem;margin-bottom:0.75rem;"></div>
 
         <button type="button" class="btn btn-primary btn-full" id="btn-salvar-usuario">Salvar</button>
-        <button type="button" class="btn btn-danger btn-full btn-modal-stack" id="btn-desativar-usuario" style="display:none">Desativar Usuário</button>
         <button type="button" class="btn btn-ghost btn-full btn-modal-stack" id="btn-cancelar-usuario">Cancelar</button>
     </div>
 </div>

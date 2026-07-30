@@ -1555,6 +1555,20 @@ body {
     border: 1px solid var(--accent4);
 }
 
+.badge-funcao {
+    background: var(--surface2);
+    color: var(--muted);
+    border: 1px solid var(--border);
+    margin: 1px;
+}
+
+.badge-funcao-principal {
+    background: rgba(59, 130, 246, 0.12);
+    color: #93c5fd;
+    border: 1px solid var(--accent4);
+    margin: 1px;
+}
+
 /* Botão resolver */
 .btn-resolver {
     align-self: flex-start;
@@ -2084,6 +2098,22 @@ body {
     font-size: 13px;
     color: var(--text);
     cursor: pointer;
+}
+
+.funcoes-lista {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 16px;
+    padding: 10px 12px;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    max-height: 180px;
+    overflow-y: auto;
+}
+
+.funcoes-lista .form-check {
+    flex: 0 0 auto;
 }
 
 /* File input estilizado */

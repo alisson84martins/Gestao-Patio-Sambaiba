@@ -1,30 +1,46 @@
 /*
- * Cadastros — Fase 5.8
- * ---------------------
- * Tela de gestão de entidades base, acesso restrito a ADMIN.
+ * Cadastros — Fase 5.8 / Etapa 5 (RBAC)
+ * ---------------------------------------
+ * Tela de gestão de entidades base, acesso restrito a quem escreve em "usuarios".
  *
- * Abas: Usuários | Ônibus | Motoristas | Linhas | Tipos de Defeito
+ * Abas: Funcionários | Ônibus | Motoristas | Linhas | Tipos de Defeito
+ * (a chave interna da primeira aba continua 'usuarios' — só o rótulo mudou —
+ * pra não precisar tocar no roteamento das outras 4 abas, que não mudam.)
  *
  * Cada aba segue o mesmo padrão:
  *   carregar() → renderTabela() → clicar linha → abrirModal() → salvar()
+ *
+ * A aba Funcionários lida com múltiplas funções por pessoa: quem tem
+ * acesso a "usuarios" pode atribuir/remover funções (POST e DELETE
+ * /funcionarios/{id}/funcoes) e criar acesso ao sistema separadamente
+ * (POST /funcionarios/{id}/login). A função principal é calculada pelo
+ * banco (fn_ajustar_funcao_principal) pela hierarquia — não é escolhida
+ * manualmente aqui.
  */
 
 import { requireAuth, getCurrentUser, logout } from './auth.js';
 import { apiGet, apiPost, apiPatch, apiDelete, ApiError } from './api.js';
+import { podeEscrever } from './sessao.js';
 
-// --- Guard: somente ADMIN ---
+// --- Guard: só quem escreve em "usuarios" ---
 if (!requireAuth()) {
     throw new Error('Sessao nao autenticada');
 }
-const _me = getCurrentUser();
-if (_me?.perfil !== 'ADMIN') {
+if (!podeEscrever('usuarios')) {
     window.location.replace('patio.html');
+    throw new Error('Sem acesso de escrita ao recurso usuarios');
 }
 
 // ─── Estado global da aba ────────────────────────────────────────
 let abaAtiva = 'usuarios';
 let dadosCache = [];   // último resultado carregado da API
 let buscaAtual = '';
+
+// ─── Estado da aba Funcionários ───────────────────────────────────
+let funcoesCatalogo = [];         // catálogo de funções (GET /funcoes), carregado uma vez
+let funcionarioIdEmEdicao = null; // usado pra não acusar conflito com o próprio registro
+let funcionarioVinculosAtuais = []; // vínculos de função do registro aberto no modal
+let verificacaoDebounce = null;
 
 // ─── Boot ────────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
@@ -33,14 +49,22 @@ document.addEventListener('DOMContentLoaded', () => {
     setupBusca();
     setupModais();
     carregarAba();
+    carregarFuncoesCatalogo();
 });
+
+async function carregarFuncoesCatalogo() {
+    try {
+        funcoesCatalogo = await apiGet('/funcoes');
+    } catch (err) {
+        funcoesCatalogo = [];
+    }
+}
 
 // ─── HEADER ──────────────────────────────────────────────────────
 function setupHeader() {
     const user = getCurrentUser();
     document.getElementById('user-name').textContent = user?.nome || '—';
-    document.getElementById('user-meta').textContent =
-        `${user?.re || ''} · ${user?.perfil || ''}`.toUpperCase();
+    document.getElementById('user-meta').textContent = (user?.re || '—').toUpperCase();
     document.getElementById('btn-logout').addEventListener('click', () => {
         logout();
         window.location.replace('index.html');
@@ -97,7 +121,7 @@ async function carregarAba() {
 
 async function fetchAba(aba) {
     switch (aba) {
-        case 'usuarios':     return await apiGet('/usuarios?limit=500');
+        case 'usuarios':     return await apiGet('/funcionarios?limit=500');
         case 'onibus':       return await apiGet('/onibus?limit=1000');
         case 'motoristas':   return await apiGet('/motoristas?limit=1000');
         case 'linhas':       return await apiGet('/linhas?limit=500');
@@ -119,7 +143,7 @@ function renderTabela(dados) {
 
     switch (abaAtiva) {
         case 'usuarios':
-            html = tabelaUsuarios(dados);
+            html = tabelaFuncionarios(dados);
             break;
         case 'onibus':
             html = tabelaOnibus(dados);
@@ -154,7 +178,7 @@ function _table(cabecalho, linhas) {
         <div style="overflow-x:auto">
         <table style="width:100%;border-collapse:collapse;font-size:0.875rem">
             <thead>
-                <tr style="background:var(--surface-2);text-align:left">
+                <tr style="background:var(--surface2);text-align:left">
                     ${cabecalho.map(c => `<th style="padding:8px 12px;white-space:nowrap">${c}</th>`).join('')}
                 </tr>
             </thead>
@@ -175,32 +199,40 @@ function _badge(texto, cor) {
 }
 
 function _tr(id, celulas, extra = '') {
-    return `<tr data-id="${id}" style="border-bottom:1px solid var(--surface-2);transition:background 0.1s" ${extra}
-            onmouseover="this.style.background='var(--surface-2)'"
+    return `<tr data-id="${id}" style="border-bottom:1px solid var(--surface2);transition:background 0.1s" ${extra}
+            onmouseover="this.style.background='var(--surface2)'"
             onmouseout="this.style.background=''">
         ${celulas.map(c => `<td style="padding:8px 12px">${c ?? '—'}</td>`).join('')}
     </tr>`;
 }
 
-function tabelaUsuarios(dados) {
-    const linhas = dados.map(u => _tr(u.id, [
-        `<strong style="font-family:monospace">${u.re}</strong>`,
-        u.nome,
-        _badgePerfil(u.perfil),
-        u.ativo ? _badge('Ativo', 'verde') : _badge('Inativo', 'cinza'),
+function tabelaFuncionarios(dados) {
+    const linhas = dados.map(f => _tr(f.id, [
+        `<strong style="font-family:var(--mono)">${f.re}</strong>`,
+        f.nome,
+        _chipsFuncoes(f.vinculos),
+        f.tem_login ? _badge('Com acesso', 'verde') : _badge('Sem acesso', 'cinza'),
+        _badgeStatusFuncionario(f.status),
     ])).join('');
-    return _table(['RE', 'Nome', 'Perfil', 'Status'], linhas);
+    return _table(['RE', 'Nome', 'Funções', 'Acesso', 'Status'], linhas);
 }
 
-function _badgePerfil(perfil) {
+function _chipsFuncoes(vinculos) {
+    const ativos = (vinculos || []).filter(v => v.ativo);
+    if (ativos.length === 0) return '<span style="color:var(--muted)">—</span>';
+    return ativos
+        .map(v => `<span class="remanejo-badge ${v.principal ? 'badge-funcao-principal' : 'badge-funcao'}">${v.funcao.nome}</span>`)
+        .join(' ');
+}
+
+function _badgeStatusFuncionario(status) {
     const mapa = {
-        ADMIN:          ['Admin', 'vermelho'],
-        COORDENADOR:    ['Coordenador', 'azul'],
-        OPERADOR_PATIO: ['Operador', 'verde'],
-        MECANICO:       ['Mecânico', 'amarelo'],
-        MOTORISTA:      ['Motorista', 'cinza'],
+        ATIVO:      ['Ativo', 'verde'],
+        AFASTADO:   ['Afastado', 'amarelo'],
+        FERIAS:     ['Férias', 'azul'],
+        DESLIGADO:  ['Desligado', 'cinza'],
     };
-    const [label, cor] = mapa[perfil] || [perfil, 'cinza'];
+    const [label, cor] = mapa[status] || [status, 'cinza'];
     return _badge(label, cor);
 }
 
@@ -265,14 +297,17 @@ function tabelaTiposDefeito(dados) {
 // ─── MODAIS ──────────────────────────────────────────────────────
 
 function setupModais() {
-    // Usuário
+    // Funcionário
     document.getElementById('modal-usuario-fechar').addEventListener('click', () => fechar('modal-usuario'));
     document.getElementById('btn-cancelar-usuario').addEventListener('click', () => fechar('modal-usuario'));
     document.getElementById('modal-usuario').addEventListener('click', e => {
         if (e.target.id === 'modal-usuario') fechar('modal-usuario');
     });
-    document.getElementById('btn-salvar-usuario').addEventListener('click', salvarUsuario);
-    document.getElementById('btn-desativar-usuario').addEventListener('click', desativarUsuario);
+    document.getElementById('btn-salvar-usuario').addEventListener('click', salvarFuncionario);
+    document.getElementById('btn-abrir-existente').addEventListener('click', abrirCadastroExistente);
+    document.getElementById('btn-criar-acesso').addEventListener('click', criarAcesso);
+    document.getElementById('usuario-re').addEventListener('blur', () => agendarVerificacao('re'));
+    document.getElementById('usuario-cpf').addEventListener('blur', () => agendarVerificacao('cpf'));
 
     // Ônibus
     document.getElementById('modal-onibus-fechar').addEventListener('click', () => fechar('modal-onibus'));
@@ -346,101 +381,175 @@ function abrirModalEditar(item) {
     }
 }
 
-// ─── MODAL USUÁRIO ───────────────────────────────────────────────
+// ─── MODAL FUNCIONÁRIO ───────────────────────────────────────────
 function abrirModalUsuario(u) {
     const editando = !!u;
-    document.getElementById('modal-usuario-titulo').textContent = editando ? `Editar Usuário` : 'Novo Usuário';
-    document.getElementById('usuario-id').value        = u?.id || '';
-    document.getElementById('usuario-re').value        = u?.re || '';
-    document.getElementById('usuario-re').disabled     = editando; // RE não pode mudar
-    document.getElementById('usuario-nome').value      = u?.nome || '';
-    document.getElementById('usuario-cpf').value       = '';
-    document.getElementById('usuario-perfil').value    = u?.perfil || '';
-    document.getElementById('usuario-ativo').value     = String(u?.ativo ?? true);
-    document.getElementById('usuario-senha').value     = '';
+    funcionarioIdEmEdicao = u?.id || null;
+    funcionarioVinculosAtuais = u?.vinculos || [];
 
-    // Na criação: CPF obrigatório. Na edição: campos de senha/status/desativar aparecem
-    document.getElementById('usuario-cpf-group').style.display      = editando ? 'none' : '';
-    document.getElementById('usuario-senha-group').style.display     = editando ? '' : 'none';
-    document.getElementById('usuario-ativo-group').style.display     = editando ? '' : 'none';
-    document.getElementById('btn-desativar-usuario').style.display   = editando && u?.ativo ? '' : 'none';
+    document.getElementById('modal-usuario-titulo').textContent = editando ? 'Editar Funcionário' : 'Novo Funcionário';
+    document.getElementById('usuario-id').value     = u?.id || '';
+    document.getElementById('usuario-re').value     = u?.re || '';
+    document.getElementById('usuario-re').disabled  = editando; // RE não pode mudar
+    document.getElementById('usuario-nome').value   = u?.nome || '';
+    document.getElementById('usuario-cpf').value    = u?.cpf || '';
+    document.getElementById('usuario-status').value = u?.status || 'ATIVO';
 
+    document.getElementById('usuario-ativo-group').style.display = editando ? '' : 'none';
+
+    renderFuncoesLista(funcionarioVinculosAtuais);
+
+    const resultadoAcesso = document.getElementById('usuario-acesso-resultado');
+    resultadoAcesso.style.display = 'none';
+    resultadoAcesso.textContent = '';
+    document.getElementById('btn-criar-acesso').style.display = '';
+    document.getElementById('usuario-acesso-area').style.display = editando && !u?.tem_login ? '' : 'none';
+
+    limparConflito();
     erroModal('modal-usuario-erro', '');
     abrir('modal-usuario');
     document.getElementById(editando ? 'usuario-nome' : 'usuario-re').focus();
 }
 
-async function salvarUsuario() {
-    const id    = document.getElementById('usuario-id').value;
-    const editando = !!id;
+function renderFuncoesLista(vinculosAtuais) {
+    const idsAtivos = new Set(vinculosAtuais.filter(v => v.ativo).map(v => v.funcao.id));
+    const container = document.getElementById('usuario-funcoes-lista');
 
+    if (funcoesCatalogo.length === 0) {
+        container.innerHTML = '<span style="color:var(--muted)">Carregando funções…</span>';
+        return;
+    }
+
+    container.innerHTML = funcoesCatalogo.map(f => `
+        <label class="form-check">
+            <input type="checkbox" value="${f.id}" ${idsAtivos.has(f.id) ? 'checked' : ''}>
+            <span class="form-check-label">${f.nome}</span>
+        </label>
+    `).join('');
+}
+
+function lerFuncoesSelecionadas() {
+    return Array.from(document.querySelectorAll('#usuario-funcoes-lista input[type="checkbox"]:checked'))
+        .map(input => input.value);
+}
+
+async function sincronizarFuncoes(funcionarioId, idsSelecionados, vinculosAtuais) {
+    const ativosAtuais = (vinculosAtuais || []).filter(v => v.ativo);
+    const idsAtuais = new Set(ativosAtuais.map(v => v.funcao.id));
+    const idsNovos = new Set(idsSelecionados);
+
+    for (const v of ativosAtuais) {
+        if (!idsNovos.has(v.funcao.id)) {
+            await apiDelete(`/funcionarios/${funcionarioId}/funcoes/${v.funcao.id}`);
+        }
+    }
+    for (const funcaoId of idsSelecionados) {
+        if (!idsAtuais.has(funcaoId)) {
+            await apiPost(`/funcionarios/${funcionarioId}/funcoes`, { funcao_id: funcaoId });
+        }
+    }
+}
+
+async function salvarFuncionario() {
+    const id = document.getElementById('usuario-id').value;
+    const editando = !!id;
     erroModal('modal-usuario-erro', '');
 
-    if (editando) {
-        // PATCH — só o que pode mudar
-        const payload = {};
-        const nome   = document.getElementById('usuario-nome').value.trim();
-        const perfil = document.getElementById('usuario-perfil').value;
-        const ativo  = document.getElementById('usuario-ativo').value === 'true';
-        const senha  = document.getElementById('usuario-senha').value;
+    const re     = document.getElementById('usuario-re').value.trim();
+    const nome   = document.getElementById('usuario-nome').value.trim();
+    const cpf    = document.getElementById('usuario-cpf').value.trim();
+    const status = document.getElementById('usuario-status').value;
+    const funcoesSelecionadas = lerFuncoesSelecionadas();
 
-        if (!nome)   return erroModal('modal-usuario-erro', 'Nome é obrigatório.');
-        if (!perfil) return erroModal('modal-usuario-erro', 'Perfil é obrigatório.');
+    if (!re)   return erroModal('modal-usuario-erro', 'RE é obrigatório.');
+    if (!nome) return erroModal('modal-usuario-erro', 'Nome é obrigatório.');
+    if (!editando && !cpf) return erroModal('modal-usuario-erro', 'CPF é obrigatório.');
+    if (funcoesSelecionadas.length === 0) return erroModal('modal-usuario-erro', 'Selecione ao menos uma função.');
 
-        payload.nome   = nome;
-        payload.perfil = perfil;
-        payload.ativo  = ativo;
-        if (senha) {
-            if (senha.length < 6) return erroModal('modal-usuario-erro', 'Senha precisa ter pelo menos 6 caracteres.');
-            payload.senha = senha;
+    try {
+        let funcionarioId = id;
+
+        if (editando) {
+            await apiPatch(`/funcionarios/${id}`, { nome, cpf: cpf || undefined, status });
+        } else {
+            const criado = await apiPost('/funcionarios', { re, nome, cpf, status });
+            funcionarioId = criado.id;
         }
 
-        try {
-            await apiPatch(`/usuarios/${id}`, payload);
-            fechar('modal-usuario');
-            carregarAba();
-        } catch (err) {
-            erroModal('modal-usuario-erro', err.message);
-        }
-    } else {
-        // POST — criação
-        const re     = document.getElementById('usuario-re').value.trim();
-        const nome   = document.getElementById('usuario-nome').value.trim();
-        const cpf    = document.getElementById('usuario-cpf').value.trim();
-        const perfil = document.getElementById('usuario-perfil').value;
+        await sincronizarFuncoes(funcionarioId, funcoesSelecionadas, funcionarioVinculosAtuais);
 
-        if (!re)     return erroModal('modal-usuario-erro', 'RE é obrigatório.');
-        if (!nome)   return erroModal('modal-usuario-erro', 'Nome é obrigatório.');
-        if (!cpf)    return erroModal('modal-usuario-erro', 'CPF é obrigatório (últimos 4 dígitos viram senha inicial).');
-        if (!perfil) return erroModal('modal-usuario-erro', 'Perfil é obrigatório.');
-
-        try {
-            await apiPost('/usuarios', { re, nome, cpf, perfil });
-            fechar('modal-usuario');
-            // Mostra a senha inicial pro admin comunicar ao usuário
-            const cpfDigits = cpf.replace(/\D/g, '');
-            const senhaInicial = cpfDigits.slice(-4);
-            alert(
-                `✅ Usuário criado com sucesso!\n\n` +
-                `RE: ${re}\n` +
-                `Senha inicial: ${senhaInicial}\n\n` +
-                `(Últimos 4 dígitos do CPF. O usuário deve trocar no primeiro acesso.)`
-            );
-            carregarAba();
-        } catch (err) {
+        fechar('modal-usuario');
+        carregarAba();
+    } catch (err) {
+        if (err instanceof ApiError && err.status === 409 && err.body?.conflito) {
+            mostrarConflito(err.body.conflito);
+        } else {
             erroModal('modal-usuario-erro', err.message);
         }
     }
 }
 
-async function desativarUsuario() {
-    const id   = document.getElementById('usuario-id').value;
-    const nome = document.getElementById('usuario-nome').value || 'este usuário';
-    if (!id) return;
-    if (!confirm(`Desativar "${nome}"?\n\nO usuário ficará impedido de fazer login, mas o histórico é preservado.`)) return;
+// ─── VERIFICAÇÃO DE RE/CPF DUPLICADO ──────────────────────────────
+function agendarVerificacao(campo) {
+    const valor = document.getElementById(`usuario-${campo}`).value.trim();
+    clearTimeout(verificacaoDebounce);
+    if (!valor) { limparConflito(); return; }
+    verificacaoDebounce = setTimeout(() => verificarDuplicata(campo, valor), 250);
+}
+
+async function verificarDuplicata(campo, valor) {
     try {
-        await apiDelete(`/usuarios/${id}`);
+        const params = new URLSearchParams({ [campo]: valor });
+        const conflito = await apiGet(`/funcionarios/verificar?${params}`);
+        if (conflito && conflito.funcionario_id !== funcionarioIdEmEdicao) {
+            mostrarConflito(conflito);
+        } else {
+            limparConflito();
+        }
+    } catch (_) {
+        // verificação é best-effort — não bloqueia o preenchimento
+    }
+}
+
+function mostrarConflito(conflito) {
+    document.getElementById('modal-usuario-conflito-texto').textContent =
+        `Já existe cadastro com este ${conflito.campo.toUpperCase()}: ${conflito.nome} (RE ${conflito.re}).`;
+    document.getElementById('modal-usuario-conflito').dataset.funcionarioId = conflito.funcionario_id;
+    document.getElementById('modal-usuario-conflito').style.display = '';
+}
+
+function limparConflito() {
+    const el = document.getElementById('modal-usuario-conflito');
+    el.style.display = 'none';
+    delete el.dataset.funcionarioId;
+}
+
+async function abrirCadastroExistente() {
+    const funcionarioId = document.getElementById('modal-usuario-conflito').dataset.funcionarioId;
+    if (!funcionarioId) return;
+    try {
+        const funcionario = await apiGet(`/funcionarios/${funcionarioId}`);
         fechar('modal-usuario');
+        abrirModalUsuario(funcionario);
+    } catch (err) {
+        erroModal('modal-usuario-erro', err.message);
+    }
+}
+
+// ─── CRIAR ACESSO AO SISTEMA ───────────────────────────────────────
+async function criarAcesso() {
+    const id = document.getElementById('usuario-id').value;
+    if (!id) return;
+    erroModal('modal-usuario-erro', '');
+    try {
+        await apiPost(`/funcionarios/${id}/login`);
+        document.getElementById('btn-criar-acesso').style.display = 'none';
+
+        const cpfDigits = document.getElementById('usuario-cpf').value.replace(/\D/g, '');
+        const resultado = document.getElementById('usuario-acesso-resultado');
+        resultado.textContent = `Acesso criado. Senha inicial: ${cpfDigits.slice(-4)} (4 últimos dígitos do CPF).`;
+        resultado.style.display = '';
+
         carregarAba();
     } catch (err) {
         erroModal('modal-usuario-erro', err.message);
