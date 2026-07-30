@@ -17,7 +17,7 @@ from app.core.security import JWTError, create_access_token, decode_access_token
 from app.models import Usuario
 from app.models.cadastro import Funcao, FuncionarioFuncao, Funcionario, UsuarioLogin
 from app.schemas.auth import LoginRequest, MeResponse, TokenResponse
-from app.services.acesso import acesso_efetivo, modulos_disponiveis
+from app.services.acesso import acesso_efetivo, destino_login, modulos_disponiveis
 
 router = APIRouter(prefix="/auth", tags=["autenticacao"])
 
@@ -167,6 +167,7 @@ def get_me(
             funcoes=funcoes,
             acesso=acesso_efetivo(db, func.id),
             modulos=modulos_disponiveis(db, func.id),
+            modulo_padrao=destino_login(db, func.id),
         )
 
     # ── JWT antigo: sub = usuario.id ─────────────────────────────────────
@@ -182,6 +183,7 @@ def get_me(
     funcoes: list[str] = []
     acesso: dict = {}
     modulos: list = []
+    modulo_padrao = None
     func_id = None
 
     if func_by_re is not None:
@@ -196,6 +198,7 @@ def get_me(
         ).scalars().all())
         acesso = acesso_efetivo(db, func_by_re.id)
         modulos = modulos_disponiveis(db, func_by_re.id)
+        modulo_padrao = destino_login(db, func_by_re.id)
 
     return MeResponse(
         id=user.id,
@@ -205,6 +208,7 @@ def get_me(
         funcoes=funcoes,
         acesso=acesso,
         modulos=modulos,
+        modulo_padrao=modulo_padrao,
         perfil=user.perfil.value,
         primeiro_acesso=user.primeiro_acesso,
     )

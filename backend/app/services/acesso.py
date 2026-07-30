@@ -27,6 +27,23 @@ def acesso_efetivo(db: Session, funcionario_id: UUID) -> dict[str, dict[str, boo
     }
 
 
+def destino_login(db: Session, funcionario_id: UUID) -> str | None:
+    """Módulo em que a pessoa aterrissa ao entrar. None = tela de escolha.
+
+    Consulta a view vw_destino_login (migration 013), que já resolve a função
+    de referência (principal, ou a de menor nível na falta dela).
+    """
+    row = db.execute(
+        text(
+            "SELECT modulo_padrao "
+            "FROM vw_destino_login "
+            "WHERE funcionario_id = :fid"
+        ),
+        {"fid": funcionario_id},
+    ).fetchone()
+    return row.modulo_padrao if row is not None else None
+
+
 def modulos_disponiveis(db: Session, funcionario_id: UUID) -> list[ModuloDisponivel]:
     """Retorna os módulos que a pessoa pode abrir, consultando vw_modulos_usuario.
 

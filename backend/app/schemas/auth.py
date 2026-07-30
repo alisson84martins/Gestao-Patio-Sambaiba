@@ -45,6 +45,9 @@ class MeResponse(BaseModel):
         description='Acesso efetivo: {"alocacao": {"ler": true, "escrever": false}, ...}',
     )
     modulos: list[ModuloDisponivel] = Field(default_factory=list)
+    modulo_padrao: Optional[str] = Field(
+        None, description="Módulo de destino do login (vw_destino_login). Nulo = tela de escolha."
+    )
     # Sistema antigo (populated when logged in via usuario — transição)
     perfil: Optional[str] = None
     primeiro_acesso: bool = False
