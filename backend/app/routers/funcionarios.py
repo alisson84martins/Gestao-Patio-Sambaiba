@@ -90,7 +90,7 @@ def verificar_funcionario(
 
 # ─── LISTAGEM ─────────────────────────────────────────────────────────────────
 
-@router.get("", response_model=list[FuncionarioRead], summary="Lista funcionários")
+@router.get("", response_model=list[FuncionarioComFuncoes], summary="Lista funcionários com funções e status de login")
 def listar_funcionarios(
     _: GerenciaUsuarios,
     busca: Optional[str] = Query(None, max_length=80),
@@ -99,8 +99,11 @@ def listar_funcionarios(
     skip: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=500),
     db: Annotated[Session, Depends(get_db)] = None,
-) -> list[Funcionario]:
-    q = select(Funcionario)
+) -> list[FuncionarioComFuncoes]:
+    q = select(Funcionario).options(
+        joinedload(Funcionario.vinculos).joinedload(FuncionarioFuncao.funcao),
+        joinedload(Funcionario.login),
+    )
     if busca:
         termo = f"%{busca}%"
         q = q.where(Funcionario.nome.ilike(termo) | Funcionario.re.ilike(termo))
@@ -113,7 +116,15 @@ def listar_funcionarios(
             .where(Funcao.codigo == funcao.upper(), FuncionarioFuncao.ativo == True)
         )
     q = q.order_by(Funcionario.nome).offset(skip).limit(limit)
-    return db.execute(q).scalars().all()
+    funcionarios = db.execute(q).unique().scalars().all()
+    return [
+        FuncionarioComFuncoes(
+            **FuncionarioRead.model_validate(f).model_dump(),
+            vinculos=[FuncionarioFuncaoRead.model_validate(v) for v in f.vinculos],
+            tem_login=f.login is not None,
+        )
+        for f in funcionarios
+    ]
 
 
 # ─── DETALHE ──────────────────────────────────────────────────────────────────
