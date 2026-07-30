@@ -9,9 +9,9 @@ from app import __version__
 from app.core.config import get_settings
 from app.core.exception_handlers import register_exception_handlers
 from app.routers import (
-    alertas, alocacoes, auth, escalas, filas, health, importacao,
-    linhas, manutencao, motoristas, onibus, patio,
-    tipos_defeito, usuarios,
+    alertas, alocacoes, auth, escalas, filas, funcoes, funcionarios,
+    health, importacao, linhas, manutencao, motoristas, onibus, patio,
+    permissoes, tipos_defeito, usuarios,
 )
 
 settings = get_settings()
@@ -35,13 +35,16 @@ async def lifespan(app: FastAPI):
 
 tags_metadata = [
     {"name": "sistema", "description": "Health check e raiz da API"},
-    {"name": "autenticação", "description": "Login JWT (RE + senha) e dados do usuário corrente"},
+    {"name": "autenticacao", "description": "Login JWT (RE + senha) e dados do usuário corrente"},
+    {"name": "funcionários", "description": "Cadastro central de pessoas, funções e vínculos"},
+    {"name": "funções e recursos", "description": "Catálogos de funções e recursos do RBAC"},
+    {"name": "permissões", "description": "Pacote por função e overrides individuais"},
     {"name": "ônibus", "description": "Frota — CRUD com setor gerado pelo prefixo"},
     {"name": "motoristas", "description": "Cadastro de motoristas (separado de usuário)"},
     {"name": "linhas", "description": "Catálogo fechado de linhas E2 e AR2"},
     {"name": "tipos de defeito", "description": "Categorias de defeito para fichas de manutenção"},
     {"name": "filas / pátio", "description": "33 numéricas + posições especiais + manutenção"},
-    {"name": "usuários", "description": "Gestão de usuários do sistema (apenas ADMIN)"},
+    {"name": "usuários", "description": "Gestão de usuários do sistema (apenas ADMIN — legado)"},
     {"name": "alocações / pátio", "description": "Mover ônibus entre filas/posições"},
     {"name": "escala", "description": "Escala diária — manual ou via importação"},
     {"name": "alertas", "description": "PRESO (retido na rua) e AMOSTRAL (SPTRANS)"},
@@ -81,7 +84,11 @@ register_exception_handlers(app)
 # Sistema
 app.include_router(health.router)
 app.include_router(auth.router)
-# Catálogos
+# Cadastro central (Suite Coordenadoria — RBAC)
+app.include_router(funcionarios.router)
+app.include_router(funcoes.router)
+app.include_router(permissoes.router)
+# Catálogos legados
 app.include_router(onibus.router)
 app.include_router(motoristas.router)
 app.include_router(linhas.router)

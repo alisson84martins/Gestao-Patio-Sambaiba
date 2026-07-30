@@ -1,14 +1,16 @@
-"""Dependencies de autenticação para os endpoints."""
+"""Dependencies de autenticação e controle de acesso para os endpoints."""
 from typing import Annotated, Callable
 from uuid import UUID
 
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
+from sqlalchemy import select, text
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.core.security import JWTError, decode_access_token
 from app.models import Usuario
+from app.models.cadastro import Funcionario, UsuarioLogin
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/token", auto_error=True)
 
@@ -17,7 +19,12 @@ def get_current_user(
     token: Annotated[str, Depends(oauth2_scheme)],
     db: Annotated[Session, Depends(get_db)],
 ) -> Usuario:
-    """Decodifica o JWT do header Authorization e retorna o usuário do banco."""
+    """Decodifica o JWT e retorna o Usuario.
+
+    Compatível com os dois sistemas:
+    - JWT novo (sub = funcionario.id): busca Funcionario → Usuario pelo RE.
+    - JWT antigo (sub = usuario.id): busca Usuario diretamente.
+    """
     cred_exc = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Credenciais inválidas",
@@ -28,20 +35,123 @@ def get_current_user(
         sub = payload.get("sub")
         if sub is None:
             raise cred_exc
-        user_id = UUID(sub)
+        sub_id = UUID(sub)
     except (JWTError, ValueError):
         raise cred_exc
 
-    user = db.get(Usuario, user_id)
+    # Tenta encontrar como Usuario (JWT antigo)
+    user = db.get(Usuario, sub_id)
+    if user is not None:
+        if not user.ativo:
+            raise cred_exc
+        return user
+
+    # JWT novo: sub = funcionario.id → busca Usuario pelo RE (para compatibilidade)
+    func = db.get(Funcionario, sub_id)
+    if func is None:
+        raise cred_exc
+
+    user = db.execute(select(Usuario).where(Usuario.re == func.re)).scalar_one_or_none()
     if user is None or not user.ativo:
         raise cred_exc
     return user
 
 
+def get_current_funcionario(
+    token: Annotated[str, Depends(oauth2_scheme)],
+    db: Annotated[Session, Depends(get_db)],
+) -> Funcionario:
+    """Retorna o Funcionario autenticado (sistema novo).
+
+    Compatível com os dois JWTs:
+    - JWT novo (sub = funcionario.id): busca Funcionario diretamente.
+    - JWT antigo (sub = usuario.id): busca Usuario → Funcionario pelo RE.
+    """
+    cred_exc = HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Credenciais inválidas",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+    try:
+        payload = decode_access_token(token)
+        sub = payload.get("sub")
+        if sub is None:
+            raise cred_exc
+        sub_id = UUID(sub)
+    except (JWTError, ValueError):
+        raise cred_exc
+
+    # Tenta como Funcionario (JWT novo)
+    func = db.get(Funcionario, sub_id)
+    if func is not None:
+        ul = db.execute(
+            select(UsuarioLogin).where(UsuarioLogin.funcionario_id == func.id)
+        ).scalar_one_or_none()
+        if ul is not None and not ul.ativo:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Acesso desativado. Procure o administrador.",
+            )
+        return func
+
+    # Fallback: JWT antigo (sub = usuario.id) → busca Funcionario pelo RE
+    user = db.get(Usuario, sub_id)
+    if user is None or not user.ativo:
+        raise cred_exc
+
+    func = db.execute(
+        select(Funcionario).where(Funcionario.re == user.re)
+    ).scalar_one_or_none()
+    if func is None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Esta conta não tem cadastro no sistema novo. Procure o administrador.",
+        )
+    return func
+
+
+def exige(recurso: str, escrever: bool = False) -> Callable:
+    """Factory de dependency RBAC: 403 se a pessoa não tiver o acesso pedido.
+
+    Retorna Funcionario autenticado com acesso verificado.
+    Uso: Depends(exige("alocacao", escrever=True))
+    """
+    def checker(
+        token: Annotated[str, Depends(oauth2_scheme)],
+        db: Annotated[Session, Depends(get_db)],
+    ) -> Funcionario:
+        func = get_current_funcionario(token, db)
+
+        row = db.execute(
+            text(
+                "SELECT pode_ler, pode_escrever "
+                "FROM vw_acesso_efetivo "
+                "WHERE funcionario_id = :fid AND recurso = :rec"
+            ),
+            {"fid": func.id, "rec": recurso},
+        ).fetchone()
+
+        tem_acesso = row is not None and (row.pode_escrever if escrever else row.pode_ler)
+        if not tem_acesso:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Sem permissão para {'escrever em' if escrever else 'ler'} '{recurso}'",
+            )
+        return func
+
+    return checker
+
+
+# ─── Aliases legados — mantidos para os 14 routers existentes não quebrarem ──
+# Após validação completa do RBAC, serão atualizados um a um para usar exige().
+
+CurrentUser = Annotated[Usuario, Depends(get_current_user)]
+
+
 def require_admin(
     user: Annotated[Usuario, Depends(get_current_user)],
 ) -> Usuario:
-    """Garante que o usuário tem perfil ADMIN."""
+    """Garante que o usuário tem perfil ADMIN (sistema antigo)."""
     from app.models.enums import PerfilUsuarioEnum
     if user.perfil != PerfilUsuarioEnum.ADMIN:
         raise HTTPException(
@@ -52,13 +162,7 @@ def require_admin(
 
 
 def require_perfis(*perfis) -> Callable:
-    """Factory de dependency: exige que o usuário tenha um dos perfis informados.
-
-    Uso:
-        OperadorOuAdmin = Annotated[Usuario, Depends(require_perfis(
-            PerfilUsuarioEnum.OPERADOR_PATIO, PerfilUsuarioEnum.ADMIN
-        ))]
-    """
+    """Factory: exige um dos perfis informados (sistema antigo)."""
     def checker(user: Annotated[Usuario, Depends(get_current_user)]) -> Usuario:
         from app.models.enums import PerfilUsuarioEnum
         if user.perfil not in perfis:
@@ -70,10 +174,9 @@ def require_perfis(*perfis) -> Callable:
     return checker
 
 
-CurrentUser = Annotated[Usuario, Depends(get_current_user)]
 AdminUser = Annotated[Usuario, Depends(require_admin)]
 
-# Escrita no pátio: operadores e admins; motoristas e mecânicos só leem
+
 def _require_operador_ou_admin(
     user: Annotated[Usuario, Depends(get_current_user)],
 ) -> Usuario:
@@ -94,7 +197,6 @@ def _require_operador_ou_admin(
 OperadorOuAdmin = Annotated[Usuario, Depends(_require_operador_ou_admin)]
 
 
-# Manutenção: mecânicos, operadores, coordenadores e admins
 def _require_mecanico_ou_superior(
     user: Annotated[Usuario, Depends(get_current_user)],
 ) -> Usuario:
