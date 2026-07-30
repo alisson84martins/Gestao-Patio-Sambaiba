@@ -10,7 +10,7 @@ from sqlalchemy import select, text
 from sqlalchemy.orm import Session, joinedload
 
 from app.core.database import get_db
-from app.core.deps import AdminUser, CurrentUser
+from app.core.deps import exige
 from app.core.security import hash_password
 from app.models.cadastro import Funcao, FuncionarioFuncao, Funcionario, UsuarioLogin
 from app.schemas.cadastro import (
@@ -25,6 +25,10 @@ from app.schemas.cadastro import (
 )
 
 router = APIRouter(prefix="/funcionarios", tags=["funcionários"])
+
+# Gate RBAC: exige escrita em "usuarios" (não mais o perfil legado ADMIN,
+# que deixaria de fora quem foi criado inteiramente pelo sistema novo).
+GerenciaUsuarios = Annotated[Funcionario, Depends(exige("usuarios", escrever=True))]
 
 
 def _carregar_com_vinculos(db: Session, funcionario_id: UUID) -> Optional[Funcionario]:
@@ -47,7 +51,7 @@ def _carregar_com_vinculos(db: Session, funcionario_id: UUID) -> Optional[Funcio
     summary="Verifica se RE ou CPF já existe antes de criar",
 )
 def verificar_funcionario(
-    _: AdminUser,
+    _: GerenciaUsuarios,
     re: Optional[str] = Query(None, max_length=20),
     cpf: Optional[str] = Query(None, description="CPF com ou sem formatação"),
     db: Annotated[Session, Depends(get_db)] = None,
@@ -88,7 +92,7 @@ def verificar_funcionario(
 
 @router.get("", response_model=list[FuncionarioRead], summary="Lista funcionários")
 def listar_funcionarios(
-    _: AdminUser,
+    _: GerenciaUsuarios,
     busca: Optional[str] = Query(None, max_length=80),
     status_filtro: Optional[str] = Query(None, alias="status"),
     funcao: Optional[str] = Query(None, description="Código da função"),
@@ -121,7 +125,7 @@ def listar_funcionarios(
 )
 def detalhar_funcionario(
     funcionario_id: UUID,
-    _: AdminUser,
+    _: GerenciaUsuarios,
     db: Annotated[Session, Depends(get_db)] = None,
 ) -> FuncionarioComFuncoes:
     func = _carregar_com_vinculos(db, funcionario_id)
@@ -146,7 +150,7 @@ def detalhar_funcionario(
 )
 def criar_funcionario(
     dados: FuncionarioCreate,
-    _: AdminUser,
+    _: GerenciaUsuarios,
     db: Annotated[Session, Depends(get_db)] = None,
 ):
     # Trava de duplicata por RE
@@ -205,7 +209,7 @@ def criar_funcionario(
 def atualizar_funcionario(
     funcionario_id: UUID,
     dados: FuncionarioUpdate,
-    _: AdminUser,
+    _: GerenciaUsuarios,
     db: Annotated[Session, Depends(get_db)] = None,
 ):
     func = db.get(Funcionario, funcionario_id)
@@ -253,7 +257,7 @@ def atualizar_funcionario(
 def atribuir_funcao(
     funcionario_id: UUID,
     dados: FuncionarioFuncaoCreate,
-    _: AdminUser,
+    _: GerenciaUsuarios,
     db: Annotated[Session, Depends(get_db)] = None,
 ) -> FuncionarioFuncao:
     func = db.get(Funcionario, funcionario_id)
@@ -300,7 +304,7 @@ def atribuir_funcao(
 def encerrar_funcao(
     funcionario_id: UUID,
     funcao_id: UUID,
-    _: AdminUser,
+    _: GerenciaUsuarios,
     db: Annotated[Session, Depends(get_db)] = None,
 ) -> None:
     vinculo = db.execute(
@@ -330,7 +334,7 @@ def encerrar_funcao(
 )
 def criar_login(
     funcionario_id: UUID,
-    _: AdminUser,
+    _: GerenciaUsuarios,
     db: Annotated[Session, Depends(get_db)] = None,
 ) -> UsuarioLogin:
     func = db.get(Funcionario, funcionario_id)
@@ -367,7 +371,7 @@ def criar_login(
 def atualizar_login(
     funcionario_id: UUID,
     dados: UsuarioLoginAtivoUpdate,
-    _: AdminUser,
+    _: GerenciaUsuarios,
     db: Annotated[Session, Depends(get_db)] = None,
 ) -> UsuarioLogin:
     login = db.execute(

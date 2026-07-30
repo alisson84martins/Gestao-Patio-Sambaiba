@@ -7,12 +7,16 @@ from sqlalchemy import delete, select, text
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
-from app.core.deps import AdminUser
+from app.core.deps import exige
 from app.models.cadastro import Funcao, FuncaoPermissao, Funcionario
 from app.models.catalogos import Permissao
 from app.schemas.cadastro import PermissaoRecurso, PermissaoRecursoEfetivo
 
 router = APIRouter(prefix="/permissoes", tags=["permissões"])
+
+# Gate RBAC: exige escrita em "usuarios" (não mais o perfil legado ADMIN,
+# que deixaria de fora quem foi criado inteiramente pelo sistema novo).
+GerenciaUsuarios = Annotated[Funcionario, Depends(exige("usuarios", escrever=True))]
 
 
 # ─── PACOTE PADRÃO DA FUNÇÃO ─────────────────────────────────────────────────
@@ -24,7 +28,7 @@ router = APIRouter(prefix="/permissoes", tags=["permissões"])
 )
 def listar_permissoes_funcao(
     codigo: str,
-    _: AdminUser,
+    _: GerenciaUsuarios,
     db: Annotated[Session, Depends(get_db)] = None,
 ) -> list[FuncaoPermissao]:
     funcao = db.execute(
@@ -48,7 +52,7 @@ def listar_permissoes_funcao(
 def atualizar_permissoes_funcao(
     codigo: str,
     permissoes: list[PermissaoRecurso],
-    _: AdminUser,
+    _: GerenciaUsuarios,
     db: Annotated[Session, Depends(get_db)] = None,
 ) -> list[FuncaoPermissao]:
     funcao = db.execute(
@@ -84,7 +88,7 @@ def atualizar_permissoes_funcao(
 )
 def listar_acesso_funcionario(
     funcionario_id: UUID,
-    _: AdminUser,
+    _: GerenciaUsuarios,
     db: Annotated[Session, Depends(get_db)] = None,
 ) -> list[dict]:
     if db.get(Funcionario, funcionario_id) is None:
@@ -119,7 +123,7 @@ def listar_acesso_funcionario(
 def atualizar_acesso_funcionario(
     funcionario_id: UUID,
     permissoes: list[PermissaoRecurso],
-    _: AdminUser,
+    _: GerenciaUsuarios,
     db: Annotated[Session, Depends(get_db)] = None,
 ) -> list[dict]:
     func = db.get(Funcionario, funcionario_id)
