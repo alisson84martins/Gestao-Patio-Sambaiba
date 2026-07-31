@@ -50,7 +50,6 @@ const SELETOR_ANALISE =
 // ─── Estado ────────────────────────────────────────────────────────────────
 let catalogoTipos = [];
 let catalogoOrgaos = [];
-let motoristasCache = [];
 let dadosAtuais = null;
 let autosaveTimer = null;
 
@@ -444,10 +443,9 @@ async function carregarCatalogosOcorrencia() {
 
 async function carregarCatalogosPatio() {
     try {
-        const [onibus, linhas, motoristas] = await Promise.all([
+        const [onibus, linhas] = await Promise.all([
             apiGet('/onibus?limit=1000'),
             apiGet('/linhas?limit=500'),
-            apiGet('/motoristas?limit=1000'),
         ]);
 
         const dlPrefixos = document.getElementById('dl-prefixos');
@@ -464,27 +462,68 @@ async function carregarCatalogosPatio() {
             opt.textContent = l.nome;
             dlLinhas.appendChild(opt);
         });
-
-        motoristasCache = motoristas;
-        const dlMotoristas = document.getElementById('dl-motoristas');
-        motoristas.forEach(m => {
-            const opt = document.createElement('option');
-            opt.value = m.re;
-            opt.textContent = m.nome;
-            dlMotoristas.appendChild(opt);
-        });
     } catch (err) {
         // Autocomplete é conveniência, não bloqueio — a ocorrência continua editável sem ele.
         console.warn('[ocorrencia.form] catálogos do Pátio indisponíveis:', err);
     }
 }
 
-function initAutocompleteCondutor() {
-    document.getElementById('f-condutor-re').addEventListener('change', () => {
-        const re = document.getElementById('f-condutor-re').value.trim();
-        const encontrado = motoristasCache.find(m => m.re === re);
-        const campoNome = document.getElementById('f-condutor-nome');
-        if (encontrado && !campoNome.value) campoNome.value = encontrado.nome;
+/**
+ * Autocomplete de condutor/cobrador por RE ou nome, contra
+ * GET /funcionarios/busca (protegido por exige("ocorrencia") — funciona
+ * tanto pra Coordenador de Tráfego quanto pra Encarregado, que nem sempre
+ * tem acesso a "usuarios"). Busca ao digitar em qualquer um dos dois campos
+ * (RE ou nome); ao escolher uma sugestão, completa o outro campo sozinho.
+ */
+function initBuscaFuncionario({ inputReId, inputNomeId, datalistReId, datalistNomeId }) {
+    const inputRe = document.getElementById(inputReId);
+    const inputNome = document.getElementById(inputNomeId);
+    const datalistRe = document.getElementById(datalistReId);
+    const datalistNome = document.getElementById(datalistNomeId);
+    const cachePorRe = new Map();
+    let debounce = null;
+
+    async function buscarEPreencher(termo) {
+        if (!termo || termo.trim().length < 2) return;
+        let resultados = [];
+        try {
+            resultados = await apiGet(`/funcionarios/busca?q=${encodeURIComponent(termo.trim())}`);
+        } catch {
+            return; // autocomplete é conveniência — falha aqui não bloqueia o preenchimento
+        }
+        cachePorRe.clear();
+        resultados.forEach(r => cachePorRe.set(r.re, r));
+        datalistRe.innerHTML = resultados.map(r => `<option value="${r.re}">${escapeHtml(r.nome)}</option>`).join('');
+        datalistNome.innerHTML = resultados.map(r => `<option value="${escapeHtml(r.nome)}"></option>`).join('');
+    }
+
+    function agendarBusca(termo) {
+        clearTimeout(debounce);
+        debounce = setTimeout(() => buscarEPreencher(termo), 300);
+    }
+
+    inputRe.addEventListener('input', () => agendarBusca(inputRe.value));
+    inputRe.addEventListener('change', () => {
+        const encontrado = cachePorRe.get(inputRe.value.trim());
+        if (encontrado && !inputNome.value) inputNome.value = encontrado.nome;
+    });
+
+    inputNome.addEventListener('input', () => agendarBusca(inputNome.value));
+    inputNome.addEventListener('change', () => {
+        const nomeDigitado = inputNome.value.trim();
+        const encontrado = [...cachePorRe.values()].find(r => r.nome === nomeDigitado);
+        if (encontrado && !inputRe.value) inputRe.value = encontrado.re;
+    });
+}
+
+function initAutocompleteCondutorECobrador() {
+    initBuscaFuncionario({
+        inputReId: 'f-condutor-re', inputNomeId: 'f-condutor-nome',
+        datalistReId: 'dl-condutor-re', datalistNomeId: 'dl-condutor-nome',
+    });
+    initBuscaFuncionario({
+        inputReId: 'f-cobrador-re', inputNomeId: 'f-cobrador-nome',
+        datalistReId: 'dl-cobrador-re', datalistNomeId: 'dl-cobrador-nome',
     });
 }
 
@@ -792,7 +831,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
 
     await carregarCatalogosPatio();
-    initAutocompleteCondutor();
+    initAutocompleteCondutorECobrador();
 
     if (ocorrenciaId) {
         try {

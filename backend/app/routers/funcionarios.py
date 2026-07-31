@@ -16,6 +16,7 @@ from app.models.cadastro import Funcao, FuncionarioFuncao, Funcionario, UsuarioL
 from app.models.enums import PerfilUsuarioEnum
 from app.models.pessoas import Usuario
 from app.schemas.cadastro import (
+    FuncionarioBusca,
     FuncionarioComFuncoes,
     FuncionarioCreate,
     FuncionarioFuncaoCreate,
@@ -142,6 +143,44 @@ def verificar_funcionario(
             }
 
     return None
+
+
+# ─── BUSCA (autocomplete — deve vir ANTES de /{funcionario_id} no router) ─────
+# Gate mais permissivo que o resto do arquivo de propósito: quem registra
+# ocorrência (Coordenador de Tráfego, Encarregado) tem escrita em "ocorrencia"
+# mas nem sempre em "usuarios" — sem isso, autocompletar condutor/cobrador
+# no formulário de ocorrência ficava impossível pra metade de quem registra.
+
+@router.get(
+    "/busca",
+    response_model=list[FuncionarioBusca],
+    summary="Busca funcionários ativos por RE ou nome — autocomplete (ex.: condutor/cobrador em ocorrências)",
+)
+def buscar_funcionarios(
+    _: Annotated[Funcionario, Depends(exige("ocorrencia"))],
+    q: str = Query(..., min_length=2, max_length=80, description="Trecho do RE ou do nome"),
+    db: Annotated[Session, Depends(get_db)] = None,
+) -> list[FuncionarioBusca]:
+    termo = f"%{q.strip()}%"
+    funcionarios = db.execute(
+        select(Funcionario)
+        .options(joinedload(Funcionario.vinculos).joinedload(FuncionarioFuncao.funcao))
+        .where(
+            Funcionario.status == "ATIVO",
+            (Funcionario.re.ilike(termo) | Funcionario.nome.ilike(termo)),
+        )
+        .order_by(Funcionario.nome)
+        .limit(20)
+    ).unique().scalars().all()
+
+    return [
+        FuncionarioBusca(
+            re=f.re,
+            nome=f.nome,
+            funcoes=[v.funcao.nome for v in f.vinculos if v.ativo],
+        )
+        for f in funcionarios
+    ]
 
 
 # ─── LISTAGEM ─────────────────────────────────────────────────────────────────

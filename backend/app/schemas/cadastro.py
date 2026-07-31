@@ -119,6 +119,15 @@ class FuncionarioComFuncoes(FuncionarioRead):
     tem_login: bool = False
 
 
+# ─── BUSCA (autocomplete — ex.: condutor/cobrador no módulo Ocorrências) ──────
+
+class FuncionarioBusca(BaseModel):
+    """Resultado de busca para autocomplete. NUNCA inclui cpf, rg, cnh ou telefone."""
+    re: str
+    nome: str
+    funcoes: list[str] = []
+
+
 # ─── USUARIO_LOGIN ────────────────────────────────────────────────────────────
 
 class UsuarioLoginRead(ORMBase):
