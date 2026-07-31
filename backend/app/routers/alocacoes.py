@@ -45,6 +45,58 @@ def get_data_servico() -> date:
     return agora.date()
 
 
+# Faixa de posição usada só como estágio intermediário dentro de
+# _renumerar_fila — nunca aparece pra fora da transação. Bem acima de
+# qualquer posição real (mesmo com o bug de buracos, o pátio não passa de
+# algumas centenas de carros por fila).
+_OFFSET_TEMPORARIO = 1_000_000
+
+
+def _renumerar_fila(db: Session, fila_id: UUID) -> None:
+    """Renumera as alocações ATIVAS da fila em 1..N, sem buracos.
+
+    Ordena pela `posicao` atual (crescente) e reatribui sequencialmente.
+    NUNCA ordena por número do carro, id ou data de criação — a ordem
+    física em que o operador marcou (sobretudo no modo bloco, sentido
+    Volta, onde cada carro novo empurra os demais) é a informação que
+    importa, e é exatamente isso que a coluna `posicao` já registra. A
+    renumeração só tira os buracos; jamais reordena.
+
+    ⚠️ uq_alocacao_fila_posicao_ativa (migration 005) é um ÍNDICE ÚNICO
+    PARCIAL comum — não uma constraint DEFERRABLE. O PostgreSQL confere
+    unicidade a cada UPDATE, imediatamente, dentro da própria transação.
+    Reatribuir direto (ex.: 3→1 enquanto outra linha ainda está em 1)
+    colide. Por isso o deslocamento é em duas fases, cada uma pra uma
+    faixa que nunca colide com posição real:
+      1) desloca todas as ativas pra uma faixa temporária alta (nunca
+         ocupada por uma posição de verdade) — em qualquer ordem, sem
+         risco de colisão entre si nem com quem ainda não foi movido;
+      2) desloca da faixa temporária pra 1..N final — de novo sem
+         risco, porque nenhuma posição final pequena está mais ocupada
+         (todo mundo que ainda não foi processado está lá em cima).
+    with_for_update() trava as linhas da fila até o fim da transação —
+    mesma técnica que o sentido Volta do modo bloco já usa, pra evitar
+    duas requisições simultâneas renumerando a mesma fila.
+    """
+    ativas = db.execute(
+        select(AlocacaoPatio)
+        .where(AlocacaoPatio.fila_id == fila_id, AlocacaoPatio.ativa.is_(True))
+        .order_by(AlocacaoPatio.posicao.asc())
+        .with_for_update()
+    ).scalars().all()
+
+    if not ativas:
+        return
+
+    for indice, aloc in enumerate(ativas, start=1):
+        aloc.posicao = _OFFSET_TEMPORARIO + indice
+        db.flush()
+
+    for indice, aloc in enumerate(ativas, start=1):
+        aloc.posicao = indice
+        db.flush()
+
+
 @router.post("", response_model=AlocacaoPatioRead, status_code=status.HTTP_201_CREATED,
              summary="Aloca ônibus em fila/posição")
 def criar(payload: AlocacaoPatioCreate, user: OperadorOuAdmin, db: Annotated[Session, Depends(get_db)]):
@@ -56,6 +108,16 @@ def criar(payload: AlocacaoPatioCreate, user: OperadorOuAdmin, db: Annotated[Ses
         raise HTTPException(404, "Ônibus não encontrado")
     if not db.get(Fila, payload.fila_id):
         raise HTTPException(404, "Fila não encontrada")
+
+    # Fila de onde o ônibus está saindo (se houver) — o trigger
+    # fn_alocacao_unica_ativa vai desativar essa linha ao inserir a nova,
+    # deixando um buraco lá que também precisa ser renumerado.
+    fila_antiga_id = db.execute(
+        select(AlocacaoPatio.fila_id).where(
+            AlocacaoPatio.onibus_id == payload.onibus_id, AlocacaoPatio.ativa.is_(True)
+        )
+    ).scalar_one_or_none()
+
     a = AlocacaoPatio(
         **payload.model_dump(),
         alocado_por=user.id,
@@ -63,6 +125,12 @@ def criar(payload: AlocacaoPatioCreate, user: OperadorOuAdmin, db: Annotated[Ses
     )
     set_create_audit(a, user)
     db.add(a)
+    db.flush()  # roda o trigger de desativação antes de renumerar
+
+    _renumerar_fila(db, payload.fila_id)
+    if fila_antiga_id is not None and fila_antiga_id != payload.fila_id:
+        _renumerar_fila(db, fila_antiga_id)
+
     db.commit()
     db.refresh(a)
     return a
@@ -106,8 +174,11 @@ def desativar(aloc_id: UUID, user: OperadorOuAdmin, db: Annotated[Session, Depen
     a = db.get(AlocacaoPatio, aloc_id)
     if not a:
         raise HTTPException(404, "Alocação não encontrada")
+    fila_id = a.fila_id
     a.ativa = False
     set_update_audit(a, user)
+    db.flush()
+    _renumerar_fila(db, fila_id)
     db.commit()
     db.refresh(a)
     return a
@@ -187,6 +258,15 @@ def alocar_bloco(payload: AlocacaoBlocoCreate, user: OperadorOuAdmin,
         db.add(onibus)
         db.flush()  # obtém o id sem commitar ainda
 
+    # Fila de onde o ônibus está saindo (se houver) — o trigger
+    # fn_alocacao_unica_ativa desativa essa linha ao inserir a nova lá embaixo,
+    # deixando um buraco que também precisa ser renumerado.
+    fila_antiga_id = db.execute(
+        select(AlocacaoPatio.fila_id).where(
+            AlocacaoPatio.onibus_id == onibus.id, AlocacaoPatio.ativa.is_(True)
+        )
+    ).scalar_one_or_none()
+
     # 2) Resolve fila: tenta como número primeiro (ex: "5"), depois como nome (ex: "Lavador")
     fila = None
     fila_input = payload.fila.strip()
@@ -257,6 +337,10 @@ def alocar_bloco(payload: AlocacaoBlocoCreate, user: OperadorOuAdmin,
 
     # 5) Commit único — se qualquer passo acima falhou, transação inteira reverte
     try:
+        db.flush()  # roda o trigger de desativação antes de renumerar
+        _renumerar_fila(db, fila.id)
+        if fila_antiga_id is not None and fila_antiga_id != fila.id:
+            _renumerar_fila(db, fila_antiga_id)
         db.commit()
     except Exception as e:
         db.rollback()
