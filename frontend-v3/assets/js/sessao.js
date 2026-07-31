@@ -27,7 +27,7 @@ const PAGINA_INICIAL = {
     ADMINISTRACAO: 'cadastros.html',
 };
 
-const PAGINAS_PRONTAS = new Set(['PATIO', 'ADMINISTRACAO']);
+const PAGINAS_PRONTAS = new Set(['PATIO', 'ADMINISTRACAO', 'COORDENADORIA']);
 
 function _dadosSessao() {
     const raw = localStorage.getItem(USER_KEY);

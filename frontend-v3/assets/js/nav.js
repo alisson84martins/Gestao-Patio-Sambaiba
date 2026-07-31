@@ -19,6 +19,7 @@ const LINKS = [
     { href: 'alertas.html', texto: 'Alertas', recurso: 'alerta' },
     { href: 'manutencao.html', texto: 'Manutenção', recurso: 'manutencao' },
     { href: 'importacao.html', texto: 'Importação', recurso: 'escala' },
+    { href: 'ocorrencias.html', texto: 'Ocorrências', recurso: 'ocorrencia' },
     { href: 'cadastros.html', texto: 'Cadastros', recurso: 'usuarios' },
     { href: 'permissoes.html', texto: 'Permissões', recurso: 'usuarios' },
 ];
