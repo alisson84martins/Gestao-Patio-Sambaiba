@@ -24,6 +24,22 @@ def get_current_user(
     Compatível com os dois sistemas:
     - JWT novo (sub = funcionario.id): busca Funcionario → Usuario pelo RE.
     - JWT antigo (sub = usuario.id): busca Usuario diretamente.
+
+    ⚠️ DEPENDE de uma linha espelho em `usuario` para todo funcionario com
+    login — os 14 routers legados do Pátio (CurrentUser/AdminUser/etc.) só
+    conhecem `usuario`, não `Funcionario`. Sem o espelho, quem foi criado só
+    pelo fluxo novo (funcionario + usuario_login) cai no "func é not None
+    mas não existe usuario com esse RE" e toma 401 aqui — foi exatamente o
+    bug do Gerente Operacional cadastrado em 30/07 (v3.0-dev, fix(auth)
+    "cria espelho em usuario para contas criadas pelo fluxo novo").
+    O espelho é criado por POST /funcionarios/{id}/login (ver
+    _criar_ou_atualizar_espelho_usuario em app/routers/funcionarios.py) e
+    foi backfilled uma vez pela migration
+    database/migrations/014-espelho-usuario-transicao.sql.
+    Este fallback por RE sai quando os 14 routers legados migrarem para
+    `exige()`/Funcionario e a tabela `usuario` for aposentada — não antes,
+    porque não há "mágica" que resolva isso dentro da própria requisição
+    sem essa linha existir no banco.
     """
     cred_exc = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
