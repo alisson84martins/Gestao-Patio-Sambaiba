@@ -2706,3 +2706,60 @@ body {
     .oc-grid, .oc-checks-grid { grid-template-columns: 1fr; }
     .oc-header-bar { flex-direction: column; align-items: flex-start; }
 }
+
+/* ── Impressão do Relatório de Ocorrências (4 páginas) ────────────── */
+@media print {
+    .oc-print-page {
+        page-break-after: always;
+        font-family: Arial, Helvetica, sans-serif;
+        color: #000;
+        font-size: 11px;
+    }
+    .oc-print-page:last-child { page-break-after: auto; }
+
+    .oc-print-header {
+        text-align: center;
+        border-bottom: 2.5px solid #000;
+        padding-bottom: 4px;
+        margin-bottom: 8px;
+    }
+    .oc-print-empresa { font-size: 9px; color: #555; letter-spacing: 2px; text-transform: uppercase; }
+    .oc-print-titulo   { font-size: 16px; font-weight: 800; letter-spacing: 1px; margin: 2px 0; }
+    .oc-print-sub      { font-size: 9px; color: #666; }
+
+    .oc-print-section-titulo {
+        background: #000;
+        color: #fff;
+        padding: 3px 6px;
+        font-size: 10px;
+        font-weight: 800;
+        letter-spacing: 0.5px;
+        margin: 8px 0 4px;
+    }
+
+    .oc-print-grid {
+        display: grid;
+        grid-template-columns: repeat(2, 1fr);
+        gap: 2px 12px;
+        margin-bottom: 4px;
+    }
+    .oc-print-grid-3 { grid-template-columns: repeat(3, 1fr); }
+    .oc-print-field { border-bottom: 1px solid #ccc; padding: 2px 0; }
+    .oc-print-label  { font-size: 8px; color: #666; text-transform: uppercase; letter-spacing: 0.3px; display: block; }
+    .oc-print-valor  { font-size: 11px; font-weight: 600; }
+
+    .oc-print-texto { border: 1px solid #ccc; padding: 6px; min-height: 40px; font-size: 10.5px; white-space: pre-wrap; margin-bottom: 6px; }
+
+    .oc-print-bloco { border: 1px solid #999; padding: 6px 8px; margin-bottom: 6px; }
+    .oc-print-bloco-titulo { font-weight: 800; font-size: 10px; margin-bottom: 3px; border-bottom: 1px solid #ccc; padding-bottom: 2px; }
+
+    .oc-print-rodape {
+        margin-top: 10px;
+        border-top: 2px dashed #000;
+        padding-top: 6px;
+        font-size: 9px;
+        text-align: center;
+        color: #333;
+    }
+    .oc-print-rodape strong { font-size: 11px; display: block; margin-bottom: 2px; color: #000; }
+}
