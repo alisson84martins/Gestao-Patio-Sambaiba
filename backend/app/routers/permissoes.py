@@ -18,6 +18,9 @@ router = APIRouter(prefix="/permissoes", tags=["permissões"])
 # que deixaria de fora quem foi criado inteiramente pelo sistema novo).
 GerenciaUsuarios = Annotated[Funcionario, Depends(exige("usuarios", escrever=True))]
 
+# Leitura em "usuarios" — gerência só lê os pacotes de permissão, não edita.
+LeituraUsuarios = Annotated[Funcionario, Depends(exige("usuarios"))]
+
 
 # ─── PACOTE PADRÃO DA FUNÇÃO ─────────────────────────────────────────────────
 
@@ -28,7 +31,7 @@ GerenciaUsuarios = Annotated[Funcionario, Depends(exige("usuarios", escrever=Tru
 )
 def listar_permissoes_funcao(
     codigo: str,
-    _: GerenciaUsuarios,
+    _: LeituraUsuarios,
     db: Annotated[Session, Depends(get_db)] = None,
 ) -> list[FuncaoPermissao]:
     funcao = db.execute(
@@ -88,7 +91,7 @@ def atualizar_permissoes_funcao(
 )
 def listar_acesso_funcionario(
     funcionario_id: UUID,
-    _: GerenciaUsuarios,
+    _: LeituraUsuarios,
     db: Annotated[Session, Depends(get_db)] = None,
 ) -> list[dict]:
     if db.get(Funcionario, funcionario_id) is None:

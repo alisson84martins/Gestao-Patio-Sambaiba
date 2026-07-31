@@ -20,16 +20,20 @@
 
 import { requireAuth, getCurrentUser, logout } from './auth.js';
 import { apiGet, apiPost, apiPatch, apiDelete, ApiError } from './api.js';
-import { podeEscrever } from './sessao.js';
+import { podeEscrever, podeLer } from './sessao.js';
 
-// --- Guard: só quem escreve em "usuarios" ---
+// --- Guard: quem lê "usuarios" entra; quem só lê não edita (ver abrir()) ---
 if (!requireAuth()) {
     throw new Error('Sessao nao autenticada');
 }
-if (!podeEscrever('usuarios')) {
+if (!podeLer('usuarios')) {
     window.location.replace('patio.html');
-    throw new Error('Sem acesso de escrita ao recurso usuarios');
+    throw new Error('Sem acesso de leitura ao recurso usuarios');
 }
+
+// Gerência (GERENTE_GERAL/GERENTE_OPERACIONAL) só lê "usuarios" — entra,
+// olha os cadastros e permissões, mas não cria, edita nem exclui nada.
+const somenteLeitura = !podeEscrever('usuarios');
 
 // ─── Estado global da aba ────────────────────────────────────────
 let abaAtiva = 'usuarios';
@@ -50,6 +54,11 @@ document.addEventListener('DOMContentLoaded', () => {
     setupModais();
     carregarAba();
     carregarFuncoesCatalogo();
+
+    if (somenteLeitura) {
+        const btnNovo = document.getElementById('btn-novo');
+        if (btnNovo) btnNovo.style.display = 'none';
+    }
 });
 
 async function carregarFuncoesCatalogo() {
@@ -350,8 +359,26 @@ function setupModais() {
     });
 }
 
-function abrir(id) { document.getElementById(id)?.classList.add('open'); }
+function abrir(id) {
+    const modal = document.getElementById(id);
+    if (!modal) return;
+    modal.classList.add('open');
+    if (somenteLeitura) aplicarSomenteLeituraModal(modal);
+}
 function fechar(id) { document.getElementById(id)?.classList.remove('open'); }
+
+/**
+ * Desabilita todo campo e botão de ação dentro do modal, mantendo só o
+ * fechar/cancelar utilizáveis — usado quando a pessoa só tem leitura em
+ * "usuarios" (gerência): entra e olha o cadastro, não altera nada.
+ */
+function aplicarSomenteLeituraModal(modal) {
+    modal.querySelectorAll('input, select, textarea').forEach(el => { el.disabled = true; });
+    modal.querySelectorAll('button').forEach(el => {
+        if (el.classList.contains('modal-close') || el.id.startsWith('btn-cancelar-')) return;
+        el.style.display = 'none';
+    });
+}
 function erroModal(id, msg) {
     const el = document.getElementById(id);
     if (!el) return;

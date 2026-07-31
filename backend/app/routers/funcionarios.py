@@ -32,6 +32,10 @@ router = APIRouter(prefix="/funcionarios", tags=["funcionários"])
 # que deixaria de fora quem foi criado inteiramente pelo sistema novo).
 GerenciaUsuarios = Annotated[Funcionario, Depends(exige("usuarios", escrever=True))]
 
+# Leitura em "usuarios" — gerência (GERENTE_GERAL/GERENTE_OPERACIONAL) só lê:
+# entra em Cadastros e Permissões pra acompanhar, não cria/edita/exclui nada.
+LeituraUsuarios = Annotated[Funcionario, Depends(exige("usuarios"))]
+
 # Mapa de função (nova) → perfil legado (usuario.perfil, NOT NULL, 5 valores).
 # Usado só para satisfazer a constraint da linha espelho em `usuario` — ver
 # _criar_ou_atualizar_espelho_usuario(). Campo deprecado, sem efeito no RBAC.
@@ -103,7 +107,7 @@ def _carregar_com_vinculos(db: Session, funcionario_id: UUID) -> Optional[Funcio
     summary="Verifica se RE ou CPF já existe antes de criar",
 )
 def verificar_funcionario(
-    _: GerenciaUsuarios,
+    _: LeituraUsuarios,
     re: Optional[str] = Query(None, max_length=20),
     cpf: Optional[str] = Query(None, description="CPF com ou sem formatação"),
     db: Annotated[Session, Depends(get_db)] = None,
@@ -144,7 +148,7 @@ def verificar_funcionario(
 
 @router.get("", response_model=list[FuncionarioComFuncoes], summary="Lista funcionários com funções e status de login")
 def listar_funcionarios(
-    _: GerenciaUsuarios,
+    _: LeituraUsuarios,
     busca: Optional[str] = Query(None, max_length=80),
     status_filtro: Optional[str] = Query(None, alias="status"),
     funcao: Optional[str] = Query(None, description="Código da função"),
@@ -188,7 +192,7 @@ def listar_funcionarios(
 )
 def detalhar_funcionario(
     funcionario_id: UUID,
-    _: GerenciaUsuarios,
+    _: LeituraUsuarios,
     db: Annotated[Session, Depends(get_db)] = None,
 ) -> FuncionarioComFuncoes:
     func = _carregar_com_vinculos(db, funcionario_id)

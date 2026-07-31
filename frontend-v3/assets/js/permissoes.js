@@ -16,13 +16,16 @@
 
 import { requireAuth, getCurrentUser, logout } from './auth.js';
 import { apiGet, apiPut } from './api.js';
-import { podeEscrever } from './sessao.js';
+import { podeEscrever, podeLer } from './sessao.js';
 
 if (!requireAuth()) throw new Error('Não autenticado');
-if (!podeEscrever('usuarios')) {
+if (!podeLer('usuarios')) {
     window.location.replace('patio.html');
-    throw new Error('Sem acesso de escrita ao recurso usuarios');
+    throw new Error('Sem acesso de leitura ao recurso usuarios');
 }
+
+// Gerência só lê "usuarios" — vê as grades de permissão, não salva nada.
+const somenteLeitura = !podeEscrever('usuarios');
 
 const NOMES_MODULO = {
     PATIO: 'Pátio',
@@ -94,8 +97,8 @@ function renderGrid(container, valores, opts = {}) {
             html += `
                 <tr data-recurso="${r.codigo}" class="${excecao ? 'linha-excecao' : ''}">
                     <td class="permissoes-recurso-nome">${r.nome}</td>
-                    <td><label class="form-check"><input type="checkbox" class="chk-ler" ${v.pode_ler ? 'checked' : ''}><span class="form-check-label">Ler</span></label></td>
-                    <td><label class="form-check"><input type="checkbox" class="chk-escrever" ${v.pode_escrever ? 'checked' : ''}><span class="form-check-label">Escrever</span></label></td>
+                    <td><label class="form-check"><input type="checkbox" class="chk-ler" ${v.pode_ler ? 'checked' : ''} ${somenteLeitura ? 'disabled' : ''}><span class="form-check-label">Ler</span></label></td>
+                    <td><label class="form-check"><input type="checkbox" class="chk-escrever" ${v.pode_escrever ? 'checked' : ''} ${somenteLeitura ? 'disabled' : ''}><span class="form-check-label">Escrever</span></label></td>
                 </tr>`;
         }
         html += '</tbody></table>';
@@ -157,7 +160,7 @@ async function selecionarFuncao(codigo, btnEl) {
         const pacote = await pacoteFuncao(codigo);
         const valores = new Map(pacote.map(p => [p.recurso, { pode_ler: p.pode_ler, pode_escrever: p.pode_escrever }]));
         renderGrid(grid, valores);
-        document.getElementById('btn-salvar-funcao').style.display = '';
+        document.getElementById('btn-salvar-funcao').style.display = somenteLeitura ? 'none' : '';
     } catch (err) {
         grid.innerHTML = `<div class="patio-loading" style="color:var(--accent)">Erro ao carregar: ${err.message}</div>`;
     }
@@ -270,7 +273,7 @@ async function selecionarPessoa(funcionarioId, elResultado) {
             excecoes,
             onChange: (container) => atualizarMarcacaoExcecao(container),
         });
-        document.getElementById('btn-salvar-pessoa').style.display = '';
+        document.getElementById('btn-salvar-pessoa').style.display = somenteLeitura ? 'none' : '';
     } catch (err) {
         grid.innerHTML = `<div class="patio-loading" style="color:var(--accent)">Erro ao carregar: ${err.message}</div>`;
     }

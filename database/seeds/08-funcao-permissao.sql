@@ -31,8 +31,8 @@
 --  Função                | aloc | esca | aler | manu | frot | fisc | ocor | coor | rela | usua
 --  ----------------------|------|------|------|------|------|------|------|------|------|-----
 --  ADMIN                 |  ✍  |  ✍  |  ✍  |  ✍  |  ✍  |  ✍  |  ✍  |  ✍  |  ✍  |  ✍
---  GERENTE_GERAL         |  👁  |  👁  |  👁  |  👁  |  👁  |  👁  |  👁  |  👁  |  👁  |  ⭕
---  GERENTE_OPERACIONAL   |  👁  |  ✍  |  👁  |  👁  |  👁  |  👁  |  👁  |  ✍  |  👁  |  ⭕
+--  GERENTE_GERAL         |  👁  |  👁  |  👁  |  👁  |  👁  |  👁  |  👁  |  👁  |  👁  |  👁
+--  GERENTE_OPERACIONAL   |  👁  |  ✍  |  👁  |  👁  |  👁  |  👁  |  👁  |  ✍  |  👁  |  👁
 --  ENCARREGADO           |  ✍  |  ✍  |  ✍  |  👁  |  👁  |  👁  |  ✍  |  👁  |  👁  |  ⭕
 --  COORDENADOR_TRAFEGO   |  ✍  |  ✍  |  ✍  |  👁  |  👁  |  ✍  |  ✍  |  ✍  |  👁  |  ✍
 --  FISCAL                |  👁  |  👁  |  ✍  |  ⭕  |  👁  |  ✍  |  ⭕  |  ⭕  |  ⭕  |  ⭕
@@ -45,7 +45,7 @@
 --
 -- QUEM VÊ QUAL MÓDULO NA TELA DE ESCOLHA (consequência direta da matriz):
 --   ADMIN / COORDENADOR_TRAFEGO ..... Pátio · Coordenadoria · Fiscalização · Administração
---   GERENTE_GERAL / OPERACIONAL ..... Pátio · Coordenadoria · Fiscalização   (só acompanha)
+--   GERENTE_GERAL / OPERACIONAL ..... Pátio · Coordenadoria · Fiscalização · Administração (só acompanha, inclusive Cadastros/Permissões)
 --   ENCARREGADO ..................... Pátio · Coordenadoria · Fiscalização
 --   FISCAL .......................... Pátio · Fiscalização
 --   PLANTONISTA ..................... Pátio · Fiscalização
@@ -70,6 +70,11 @@
 --   7. Alerta PRESO e Ocorrência seguem SEPARADOS. PRESO continua sendo alerta
 --      operacional do pátio (carro retido, alta rotatividade); ocorrência é o
 --      registro analítico da coordenação. Nada muda no fluxo em produção.
+--   8. GERÊNCIA VÊ TODOS OS MÓDULOS (31/07, correção): Gerente Geral e
+--      Gerente Operacional ganham LEITURA em "usuarios" — sem isso não
+--      apareciam o cartão Administração nem as telas de Cadastros e
+--      Permissões. Só leitura: quem edita cadastro e permissão continua
+--      sendo ADMIN e Coordenador de Tráfego.
 -- ============================================================================
 
 BEGIN;
@@ -94,14 +99,14 @@ SELECT fn.id, m.recurso, m.pode_ler, m.pode_escrever
     ('GERENTE_GERAL','alerta',TRUE,FALSE),     ('GERENTE_GERAL','manutencao',TRUE,FALSE),
     ('GERENTE_GERAL','frota',TRUE,FALSE),      ('GERENTE_GERAL','fiscalizacao',TRUE,FALSE),
     ('GERENTE_GERAL','coordenacao',TRUE,FALSE),('GERENTE_GERAL','relatorios',TRUE,FALSE),
-    ('GERENTE_GERAL','ocorrencia',TRUE,FALSE),
+    ('GERENTE_GERAL','ocorrencia',TRUE,FALSE), ('GERENTE_GERAL','usuarios',TRUE,FALSE),
 
     -- ── GERENTE_OPERACIONAL — leitura + escrita em escala e coordenação ─────
     ('GERENTE_OPERACIONAL','alocacao',TRUE,FALSE),   ('GERENTE_OPERACIONAL','escala',TRUE,TRUE),
     ('GERENTE_OPERACIONAL','alerta',TRUE,FALSE),     ('GERENTE_OPERACIONAL','manutencao',TRUE,FALSE),
     ('GERENTE_OPERACIONAL','frota',TRUE,FALSE),      ('GERENTE_OPERACIONAL','fiscalizacao',TRUE,FALSE),
     ('GERENTE_OPERACIONAL','coordenacao',TRUE,TRUE), ('GERENTE_OPERACIONAL','relatorios',TRUE,FALSE),
-    ('GERENTE_OPERACIONAL','ocorrencia',TRUE,FALSE),
+    ('GERENTE_OPERACIONAL','ocorrencia',TRUE,FALSE), ('GERENTE_OPERACIONAL','usuarios',TRUE,FALSE),
 
     -- ── ENCARREGADO — opera pátio, escala e alertas ─────────────────────────
     ('ENCARREGADO','alocacao',TRUE,TRUE),    ('ENCARREGADO','escala',TRUE,TRUE),
@@ -154,7 +159,7 @@ COMMIT;
 -- ============================================================================
 -- CONFERÊNCIA
 -- ============================================================================
--- Total de linhas gravadas (esperado: 73):
+-- Total de linhas gravadas (esperado: 75):
 --   SELECT count(*) FROM funcao_permissao;
 --
 -- Matriz montada por função (leitura humana):
