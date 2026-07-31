@@ -10,8 +10,8 @@ from app.core.config import get_settings
 from app.core.exception_handlers import register_exception_handlers
 from app.routers import (
     alertas, alocacoes, auth, escalas, filas, funcoes, funcionarios,
-    health, importacao, linhas, manutencao, motoristas, onibus, patio,
-    permissoes, tipos_defeito, usuarios,
+    health, importacao, linhas, manutencao, motoristas, ocorrencias, onibus,
+    patio, permissoes, tipos_defeito, usuarios,
 )
 
 settings = get_settings()
@@ -51,6 +51,7 @@ tags_metadata = [
     {"name": "manutenção", "description": "Fichas de defeito e serviços"},
     {"name": "pátio (visão consolidada)", "description": "Estado completo + remanejamento + busca por frota"},
     {"name": "importação Excel", "description": "Upload de planilha .xlsx para criar escalas em massa"},
+    {"name": "ocorrências", "description": "Suite Coordenadoria — relatório de ocorrências, mensagem do sinistro e anexos"},
 ]
 
 app = FastAPI(
@@ -103,3 +104,6 @@ app.include_router(manutencao.router)
 app.include_router(patio.router)
 # Importação
 app.include_router(importacao.router)
+# Suite Coordenadoria — ocorrências (uploads são servidos por rota própria
+# do router, protegida por exige("ocorrencia") — nunca por StaticFiles público)
+app.include_router(ocorrencias.router)
