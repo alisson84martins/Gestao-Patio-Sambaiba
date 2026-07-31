@@ -17,6 +17,11 @@ from app.models.enums import (
     TipoFilaEnum,
 )
 from app.models.frota import AlocacaoPatio, Fila, Onibus
+from app.models.ocorrencia import (
+    Ocorrencia, OcorrenciaAnalise, OcorrenciaAnexo, OcorrenciaAutoridade,
+    OcorrenciaAvaria, OcorrenciaTestemunha, OcorrenciaVeiculoTerceiro,
+    OcorrenciaVitima, OrgaoAutoridade, TipoOcorrencia,
+)
 from app.models.operacoes import Alerta, Escala, FichaManutencao, ImportacaoEscala
 from app.models.pessoas import Motorista, Usuario
 
@@ -32,4 +37,8 @@ __all__ = [
     "PerfilUsuarioEnum", "TipoFilaEnum", "TipoAlertaEnum",
     "StatusFichaEnum", "TipoEscalaEnum", "OrigemEscalaEnum",
     "StatusImportacaoEnum",
+    # Coordenadoria — ocorrências
+    "TipoOcorrencia", "OrgaoAutoridade", "Ocorrencia", "OcorrenciaAnalise",
+    "OcorrenciaVeiculoTerceiro", "OcorrenciaAvaria", "OcorrenciaVitima",
+    "OcorrenciaTestemunha", "OcorrenciaAutoridade", "OcorrenciaAnexo",
 ]
