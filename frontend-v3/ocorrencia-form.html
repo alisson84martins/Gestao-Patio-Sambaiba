@@ -1,0 +1,485 @@
+<!DOCTYPE html>
+<!--
+  Sistema de Gestão de Pátio Sambaíba — V3
+  Suite Coordenadoria — Relatório de Ocorrências (formulário)
+  Ordem fiel ao papel: Capa → Veículos → Análise → Testemunhas
+  Desenvolvido por Alisson Martins
+  © 2026 — Todos os direitos reservados
+-->
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="theme-color" content="#0a0a0a">
+    <title>Ocorrência — Sambaíba V3</title>
+
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700;800&family=Barlow+Condensed:wght@400;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="assets/css/style.css">
+</head>
+<body>
+
+<header class="app-header">
+    <div class="app-header-brand">
+        <img class="app-header-logo" src="assets/img/sambaiba-logo.jpg" alt="Eu amo Sambaíba">
+        <div class="app-header-titles">
+            <div class="app-header-empresa">Sambaíba</div>
+            <div class="app-header-title">COORDENADORIA</div>
+        </div>
+    </div>
+
+    <div class="app-header-user">
+        <div class="app-user-info">
+            <div class="app-user-name" id="user-name">—</div>
+            <div class="app-user-meta" id="user-meta">—</div>
+        </div>
+        <button class="btn-logout" id="btn-logout" title="Sair">Sair</button>
+    </div>
+</header>
+
+<nav class="app-nav"></nav>
+<script type="module" src="./assets/js/nav.js"></script>
+
+<main class="patio-main">
+
+    <div class="oc-header-bar">
+        <div>
+            <div class="oc-header-titulo" id="oc-titulo">Nova Ocorrência</div>
+            <div class="oc-autosave-status" id="oc-autosave-status">Preencha os campos para começar</div>
+        </div>
+        <div class="oc-header-acoes">
+            <button type="button" class="btn btn-ghost" id="btn-imprimir" style="display:none">🖨️ Imprimir</button>
+            <button type="button" class="btn btn-ghost" id="btn-sinistro" style="display:none">📨 Mensagem do Sinistro</button>
+            <button type="button" class="btn btn-primary" id="btn-finalizar" style="display:none">✔ Finalizar</button>
+        </div>
+    </div>
+
+    <div id="oc-erro-geral" style="display:none;color:var(--accent);font-size:0.85rem;margin-bottom:12px"></div>
+
+    <!-- Abas do formulário -->
+    <div class="oc-tabs remanejo-filtros" id="oc-tabs">
+        <button type="button" class="filtro-btn active" data-tab="capa">1. Capa</button>
+        <button type="button" class="filtro-btn" data-tab="veiculos">2. Veículos</button>
+        <button type="button" class="filtro-btn" data-tab="analise">3. Análise</button>
+        <button type="button" class="filtro-btn" data-tab="testemunhas">4. Testemunhas</button>
+    </div>
+
+    <!-- ================================================================ -->
+    <!-- TAB 1 — CAPA                                                      -->
+    <!-- ================================================================ -->
+    <section class="oc-tab-section active" id="tab-capa">
+        <div class="oc-card">
+            <div class="oc-card-titulo">Identificação da ocorrência</div>
+            <div class="oc-grid" style="margin-top:12px">
+                <div class="form-group">
+                    <label class="form-label" for="f-tipo">Tipo de Ocorrência <span style="color:var(--accent)">*</span></label>
+                    <select class="form-select" id="f-tipo" name="tipo_ocorrencia_id" required>
+                        <option value="">Selecione…</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label class="form-label" for="f-data">Data do Acidente <span style="color:var(--accent)">*</span></label>
+                    <input type="date" class="form-input" id="f-data" name="data_ocorrencia" required>
+                </div>
+                <div class="form-group">
+                    <label class="form-label" for="f-hora">Horário <span style="color:var(--accent)">*</span></label>
+                    <input type="time" class="form-input" id="f-hora" name="hora_ocorrencia" required>
+                </div>
+            </div>
+        </div>
+
+        <div class="oc-card">
+            <div class="oc-card-titulo">Nosso veículo</div>
+            <div class="oc-grid" style="margin-top:12px">
+                <div class="form-group">
+                    <label class="form-label" for="f-prefixo">Prefixo <span style="color:var(--accent)">*</span></label>
+                    <input type="text" class="form-input" id="f-prefixo" name="prefixo" list="dl-prefixos" required autocomplete="off">
+                    <datalist id="dl-prefixos"></datalist>
+                </div>
+                <div class="form-group">
+                    <label class="form-label" for="f-placa">Placa</label>
+                    <input type="text" class="form-input" id="f-placa" name="placa" maxlength="10" autocomplete="off">
+                </div>
+                <div class="form-group">
+                    <label class="form-label" for="f-linha">Linha</label>
+                    <input type="text" class="form-input" id="f-linha" name="linha_codigo" list="dl-linhas" autocomplete="off">
+                    <datalist id="dl-linhas"></datalist>
+                </div>
+            </div>
+        </div>
+
+        <div class="oc-card">
+            <div class="oc-card-titulo">Condutor</div>
+            <div class="oc-grid" style="margin-top:12px">
+                <div class="form-group">
+                    <label class="form-label" for="f-condutor-re">RE do Condutor</label>
+                    <input type="text" class="form-input" id="f-condutor-re" name="condutor_re" list="dl-motoristas" maxlength="20" autocomplete="off">
+                    <datalist id="dl-motoristas"></datalist>
+                </div>
+                <div class="form-group">
+                    <label class="form-label" for="f-condutor-nome">Nome do Condutor</label>
+                    <input type="text" class="form-input" id="f-condutor-nome" name="condutor_nome" maxlength="120" autocomplete="off">
+                </div>
+                <div class="form-group">
+                    <label class="form-label" for="f-condutor-funcao">Função</label>
+                    <input type="text" class="form-input" id="f-condutor-funcao" name="condutor_funcao" maxlength="40">
+                </div>
+                <div class="form-group">
+                    <label class="form-label" for="f-direcao-defensiva">Direção Defensiva</label>
+                    <select class="form-select" id="f-direcao-defensiva" name="direcao_defensiva" data-tipo="bool3">
+                        <option value="">Não informado</option>
+                        <option value="true">Sim</option>
+                        <option value="false">Não</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label class="form-label" for="f-condutor-cnh">CNH Nº</label>
+                    <input type="text" class="form-input" id="f-condutor-cnh" name="condutor_cnh" maxlength="20">
+                </div>
+                <div class="form-group">
+                    <label class="form-label" for="f-condutor-rg">RG Nº</label>
+                    <input type="text" class="form-input" id="f-condutor-rg" name="condutor_rg" maxlength="20">
+                </div>
+                <div class="form-group">
+                    <label class="form-label" for="f-condutor-cpf">CPF Nº</label>
+                    <input type="text" class="form-input" id="f-condutor-cpf" name="condutor_cpf" maxlength="14">
+                </div>
+            </div>
+        </div>
+
+        <div class="oc-card">
+            <div class="oc-card-titulo">Cobrador</div>
+            <div class="oc-grid" style="margin-top:12px">
+                <div class="form-group">
+                    <label class="form-label" for="f-cobrador-re">RE do Cobrador</label>
+                    <input type="text" class="form-input" id="f-cobrador-re" name="cobrador_re" maxlength="20" autocomplete="off">
+                </div>
+                <div class="form-group">
+                    <label class="form-label" for="f-cobrador-nome">Nome do Cobrador</label>
+                    <input type="text" class="form-input" id="f-cobrador-nome" name="cobrador_nome" maxlength="120" autocomplete="off">
+                </div>
+            </div>
+        </div>
+
+        <div class="oc-card">
+            <div class="oc-card-titulo">Velocidades e atendimento</div>
+            <div class="oc-grid" style="margin-top:12px">
+                <div class="form-group">
+                    <label class="form-label" for="f-vel-via">Velocidade da Via (km/h)</label>
+                    <input type="number" class="form-input" id="f-vel-via" name="velocidade_via" inputmode="numeric" min="0" max="300">
+                </div>
+                <div class="form-group">
+                    <label class="form-label" for="f-vel-onibus">Velocidade do Ônibus (km/h)</label>
+                    <input type="number" class="form-input" id="f-vel-onibus" name="velocidade_onibus" inputmode="numeric" min="0" max="300">
+                </div>
+                <div class="form-group">
+                    <label class="form-label" for="f-foi-local">Foi ao Local?</label>
+                    <select class="form-select" id="f-foi-local" name="foi_ao_local" data-tipo="bool3">
+                        <option value="">Não informado</option>
+                        <option value="true">Sim</option>
+                        <option value="false">Não</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label class="form-label" for="f-confirmado">Confirmado?</label>
+                    <select class="form-select" id="f-confirmado" name="confirmado" data-tipo="bool3">
+                        <option value="">Não informado</option>
+                        <option value="true">Sim</option>
+                        <option value="false">Não</option>
+                    </select>
+                </div>
+            </div>
+        </div>
+
+        <div class="oc-card">
+            <div class="oc-card-titulo">Marcadores da via</div>
+            <div class="oc-checks-grid" style="margin-top:12px">
+                <label class="form-check"><input type="checkbox" name="via_urbana"><span class="form-check-label">Via Urbana</span></label>
+                <label class="form-check"><input type="checkbox" name="via_rodoviaria"><span class="form-check-label">Via Rodoviária</span></label>
+                <label class="form-check"><input type="checkbox" name="area_interna"><span class="form-check-label">Área Interna</span></label>
+                <label class="form-check"><input type="checkbox" name="corredor"><span class="form-check-label">Corredor</span></label>
+                <label class="form-check"><input type="checkbox" name="tem_fotos"><span class="form-check-label">Fotos</span></label>
+                <label class="form-check"><input type="checkbox" name="monitoramento"><span class="form-check-label">Monitoramento</span></label>
+            </div>
+            <div class="form-group" style="margin-top:8px">
+                <label class="form-label" for="f-sentido">Sentido</label>
+                <input type="text" class="form-input" id="f-sentido" name="sentido" list="dl-sentidos" placeholder="Ex: TP-TS" maxlength="40">
+                <datalist id="dl-sentidos">
+                    <option value="TP-TS"></option>
+                    <option value="TS-TP"></option>
+                    <option value="TS"></option>
+                    <option value="TP"></option>
+                </datalist>
+            </div>
+        </div>
+
+        <div class="oc-card">
+            <div class="oc-card-titulo">Local</div>
+            <div class="oc-grid" style="margin-top:12px">
+                <div class="form-group oc-grid-full">
+                    <label class="form-label" for="f-local">Local do Acidente</label>
+                    <input type="text" class="form-input" id="f-local" name="local_ocorrido" maxlength="200">
+                </div>
+                <div class="form-group">
+                    <label class="form-label" for="f-numero-local">Nº</label>
+                    <input type="text" class="form-input" id="f-numero-local" name="numero_local" maxlength="20">
+                </div>
+                <div class="form-group">
+                    <label class="form-label" for="f-bairro">Bairro</label>
+                    <input type="text" class="form-input" id="f-bairro" name="bairro" maxlength="80">
+                </div>
+                <div class="form-group">
+                    <label class="form-label" for="f-cidade">Cidade</label>
+                    <input type="text" class="form-input" id="f-cidade" name="cidade" maxlength="80" value="São Paulo">
+                </div>
+            </div>
+        </div>
+
+        <div class="oc-card">
+            <div class="oc-card-titulo">Contagem e manutenção</div>
+            <div class="oc-grid" style="margin-top:12px">
+                <div class="form-group">
+                    <label class="form-label" for="f-qtd-acidentes">Quant. Acidentes</label>
+                    <input type="number" class="form-input" id="f-qtd-acidentes" name="quant_acidentes" min="0">
+                </div>
+                <div class="form-group">
+                    <label class="form-label" for="f-isentos">Isentos</label>
+                    <input type="number" class="form-input" id="f-isentos" name="isentos" min="0">
+                </div>
+                <div class="form-group">
+                    <label class="form-label" for="f-culpados">Culpados</label>
+                    <input type="number" class="form-input" id="f-culpados" name="culpados" min="0">
+                </div>
+                <div class="form-group">
+                    <label class="form-label" for="f-prob-mecanico">Problemas Mecânicos?</label>
+                    <select class="form-select" id="f-prob-mecanico" name="problemas_mecanicos" data-tipo="bool3">
+                        <option value="">Não informado</option>
+                        <option value="true">Sim</option>
+                        <option value="false">Não</option>
+                    </select>
+                </div>
+                <div class="form-group oc-grid-full">
+                    <label class="form-label" for="f-prob-mecanico-qual">Qual?</label>
+                    <input type="text" class="form-input" id="f-prob-mecanico-qual" name="problemas_mecanicos_qual">
+                </div>
+                <div class="form-group">
+                    <label class="form-label" for="f-avisou-manutencao">Condutor avisou a manutenção?</label>
+                    <select class="form-select" id="f-avisou-manutencao" name="condutor_avisou_manutencao" data-tipo="bool3">
+                        <option value="">Não informado</option>
+                        <option value="true">Sim</option>
+                        <option value="false">Não</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label class="form-label" for="f-avisado-nome">Nome de quem avisou</label>
+                    <input type="text" class="form-input" id="f-avisado-nome" name="manutencao_avisado_nome" maxlength="120">
+                </div>
+            </div>
+        </div>
+
+        <div class="oc-card">
+            <div class="oc-card-titulo">Descrições</div>
+            <div class="form-group" style="margin-top:12px">
+                <label class="form-label" for="f-desc-coordenador">Descrição do Coordenador</label>
+                <textarea class="form-textarea" id="f-desc-coordenador" name="descricao_coordenador" rows="4"></textarea>
+            </div>
+            <div class="form-group">
+                <label class="form-label" for="f-desc-motorista">Descrição do Motorista</label>
+                <textarea class="form-textarea" id="f-desc-motorista" name="descricao_motorista" rows="4"></textarea>
+            </div>
+            <div class="form-group">
+                <label class="form-label" for="f-desc-terceiro">Descrição do Terceiro</label>
+                <textarea class="form-textarea" id="f-desc-terceiro" name="descricao_terceiro" rows="4"></textarea>
+            </div>
+        </div>
+    </section>
+
+    <!-- ================================================================ -->
+    <!-- TAB 2 — VEÍCULOS                                                  -->
+    <!-- ================================================================ -->
+    <section class="oc-tab-section" id="tab-veiculos">
+        <div class="oc-card">
+            <div class="oc-card-header">
+                <div class="oc-card-titulo">Veículos de terceiro</div>
+                <button type="button" class="btn btn-ghost" id="btn-add-veiculo">+ Adicionar veículo</button>
+            </div>
+            <div id="lista-veiculos"><div class="oc-vazio">Nenhum veículo de terceiro envolvido.</div></div>
+        </div>
+
+        <div class="oc-card">
+            <div class="oc-card-titulo">Avarias do nosso veículo — por região</div>
+            <div id="lista-avarias" style="margin-top:8px"></div>
+        </div>
+    </section>
+
+    <!-- ================================================================ -->
+    <!-- TAB 3 — ANÁLISE                                                   -->
+    <!-- ================================================================ -->
+    <section class="oc-tab-section" id="tab-analise">
+        <div class="oc-card">
+            <div class="oc-card-titulo">Tipo de colisão / acidente</div>
+            <div class="oc-grid" id="grid-analise-tipo" style="margin-top:12px"></div>
+        </div>
+        <div class="oc-card">
+            <div class="oc-card-titulo">Perfil da via / pista</div>
+            <div class="oc-grid" id="grid-analise-via" style="margin-top:12px"></div>
+        </div>
+        <div class="oc-card">
+            <div class="oc-card-titulo">Perfil de sinalização</div>
+            <div class="oc-grid" id="grid-analise-sinalizacao" style="margin-top:12px"></div>
+        </div>
+        <div class="oc-card">
+            <div class="oc-card-titulo">Perfil do local</div>
+            <div class="oc-grid" id="grid-analise-local" style="margin-top:12px"></div>
+        </div>
+
+        <div class="oc-card">
+            <div class="oc-card-header">
+                <div class="oc-card-titulo">Anexos — croqui, fotos e B.O.</div>
+            </div>
+            <div id="anexo-aviso-sem-id" class="oc-vazio">Salve a ocorrência (preencha a Capa) para anexar arquivos.</div>
+            <div id="anexo-upload-area" style="display:none">
+                <div class="oc-grid" style="align-items:end">
+                    <div class="form-group">
+                        <label class="form-label" for="f-anexo-tipo">Tipo do anexo</label>
+                        <select class="form-select" id="f-anexo-tipo">
+                            <option value="CROQUI">Croqui</option>
+                            <option value="FOTO_ACIDENTE">Foto do acidente</option>
+                            <option value="FOTO_RELATORIO">Foto do relatório</option>
+                            <option value="BO_PDF">PDF do B.O.</option>
+                            <option value="OUTRO">Outro</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <div class="file-input-wrap">
+                            <label class="file-input-label" id="anexo-file-label" for="f-anexo-arquivo">📎 Escolher arquivo (JPEG, PNG ou PDF — máx 10 MB)</label>
+                            <input type="file" class="file-input-real" id="f-anexo-arquivo" accept="image/jpeg,image/png,application/pdf">
+                        </div>
+                    </div>
+                </div>
+                <button type="button" class="btn btn-primary" id="btn-upload-anexo" style="margin-top:8px">Enviar anexo</button>
+                <div id="anexo-erro" style="display:none;color:var(--accent);font-size:0.85rem;margin-top:8px"></div>
+                <div id="lista-anexos" style="margin-top:14px"></div>
+            </div>
+        </div>
+    </section>
+
+    <!-- ================================================================ -->
+    <!-- TAB 4 — TESTEMUNHAS                                               -->
+    <!-- ================================================================ -->
+    <section class="oc-tab-section" id="tab-testemunhas">
+        <div class="oc-card">
+            <div class="oc-card-header">
+                <div class="oc-card-titulo">Testemunhas</div>
+                <button type="button" class="btn btn-ghost" id="btn-add-testemunha">+ Adicionar testemunha</button>
+            </div>
+            <div id="lista-testemunhas"><div class="oc-vazio">Nenhuma testemunha registrada.</div></div>
+        </div>
+
+        <div class="oc-card">
+            <div class="oc-card-header">
+                <div class="oc-card-titulo">Pessoas vitimadas</div>
+                <button type="button" class="btn btn-ghost" id="btn-add-vitima">+ Adicionar vítima</button>
+            </div>
+            <div id="lista-vitimas"><div class="oc-vazio">Nenhuma vítima registrada.</div></div>
+        </div>
+
+        <div class="oc-card">
+            <div class="oc-card-header">
+                <div class="oc-card-titulo">Autoridades no local</div>
+                <button type="button" class="btn btn-ghost" id="btn-add-autoridade">+ Adicionar autoridade</button>
+            </div>
+            <div id="lista-autoridades"><div class="oc-vazio">Nenhuma autoridade registrada.</div></div>
+        </div>
+
+        <div class="oc-card">
+            <div class="oc-card-titulo">Ocorrência policial</div>
+            <div class="oc-grid" style="margin-top:12px">
+                <div class="form-group">
+                    <label class="form-label" for="f-ocorrencia-policial">Houve ocorrência policial?</label>
+                    <select class="form-select" id="f-ocorrencia-policial" name="ocorrencia_policial" data-tipo="bool3-strict">
+                        <option value="false">Não</option>
+                        <option value="true">Sim</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label class="form-label" for="f-viatura">Viatura Nº</label>
+                    <input type="text" class="form-input" id="f-viatura" name="viatura_numero" maxlength="30">
+                </div>
+                <div class="form-group">
+                    <label class="form-label" for="f-bpm">BPM</label>
+                    <input type="text" class="form-input" id="f-bpm" name="bpm" maxlength="30">
+                </div>
+                <div class="form-group">
+                    <label class="form-label" for="f-cia">CIA</label>
+                    <input type="text" class="form-input" id="f-cia" name="cia" maxlength="30">
+                </div>
+                <div class="form-group">
+                    <label class="form-label" for="f-distrito">Distrito</label>
+                    <input type="text" class="form-input" id="f-distrito" name="distrito" maxlength="60">
+                </div>
+                <div class="form-group">
+                    <label class="form-label" for="f-numero-to">Nº TO</label>
+                    <input type="text" class="form-input" id="f-numero-to" name="numero_to" maxlength="40">
+                </div>
+                <div class="form-group">
+                    <label class="form-label" for="f-numero-bo">Nº BO</label>
+                    <input type="text" class="form-input" id="f-numero-bo" name="numero_bo" maxlength="40">
+                </div>
+                <div class="form-group">
+                    <label class="form-label" for="f-protocolo">Protocolo</label>
+                    <input type="text" class="form-input" id="f-protocolo" name="protocolo" maxlength="60">
+                </div>
+                <div class="form-group">
+                    <label class="form-label" for="f-policia-tecnica">Houve Polícia Técnica?</label>
+                    <select class="form-select" id="f-policia-tecnica" name="houve_policia_tecnica" data-tipo="bool3-strict">
+                        <option value="false">Não</option>
+                        <option value="true">Sim</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label class="form-label" for="f-perito">Nome do Perito</label>
+                    <input type="text" class="form-input" id="f-perito" name="nome_perito" maxlength="120">
+                </div>
+            </div>
+        </div>
+
+        <div class="oc-card">
+            <div class="oc-card-titulo">Fechamento</div>
+            <div class="oc-grid" style="margin-top:12px">
+                <div class="form-group oc-grid-full">
+                    <label class="form-label" for="f-observacoes">Observações</label>
+                    <textarea class="form-textarea" id="f-observacoes" name="observacoes" rows="3"></textarea>
+                </div>
+                <div class="form-group">
+                    <label class="form-label" for="f-controlador">Relatórios entregues ao Controlador de acesso</label>
+                    <input type="text" class="form-input" id="f-controlador" name="controlador_acesso" maxlength="120" placeholder="Nome de quem recebeu">
+                </div>
+            </div>
+        </div>
+    </section>
+
+</main>
+
+<!-- ========================================================= -->
+<!-- Modal Mensagem do Sinistro                                 -->
+<!-- ========================================================= -->
+<div class="modal-overlay" id="modal-sinistro">
+    <div class="modal">
+        <button type="button" class="modal-close" id="modal-sinistro-fechar">✕</button>
+        <div class="modal-title">Mensagem do Grupo do Sinistro</div>
+        <div id="sinistro-carregando" class="oc-vazio">Gerando mensagem…</div>
+        <div id="sinistro-conteudo" style="display:none">
+            <div class="oc-mensagem-box" id="sinistro-texto"></div>
+            <button type="button" class="btn btn-primary btn-full" id="btn-sinistro-copiar">📋 Copiar</button>
+            <button type="button" class="btn btn-ghost btn-full btn-modal-stack" id="btn-sinistro-compartilhar">📤 Compartilhar</button>
+        </div>
+        <div id="sinistro-erro" style="display:none;color:var(--accent);font-size:0.85rem;margin-top:8px"></div>
+    </div>
+</div>
+
+<!-- Área de impressão — oculta em tela, visível ao imprimir -->
+<div id="print-content"></div>
+
+<script type="module" src="./assets/js/ocorrencia.form.js"></script>
+</body>
+</html>
