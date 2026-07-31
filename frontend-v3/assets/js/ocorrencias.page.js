@@ -9,7 +9,9 @@
 
 import { requireAuth, getCurrentUser, logout } from './auth.js';
 import { apiGet, ApiError } from './api.js';
-import { podeEscrever } from './sessao.js';
+import { podeEscrever, podeLer } from './sessao.js';
+import { imprimirOcorrencia } from './ocorrencia.imprimir.js';
+import { abrirMensagemSinistro } from './ocorrencia.sinistro.js';
 
 if (!requireAuth()) {
     throw new Error('Sessão não autenticada — interrompendo carga da página');
@@ -148,6 +150,8 @@ function renderLista(itens) {
         return;
     }
 
+    const mostrarAcoes = podeLer('ocorrencia');
+
     const linhas = itens.map(item => `
         <tr data-id="${item.id}" style="border-bottom:1px solid var(--surface2);cursor:pointer"
             onmouseover="this.style.background='var(--surface2)'"
@@ -164,6 +168,13 @@ function renderLista(itens) {
                 ${indicador('📎', item.qtd_anexos, 'Anexos')}
             </td>
             <td style="padding:8px 12px">${badgeStatus(item.status)}</td>
+            ${mostrarAcoes ? `
+            <td style="padding:8px 12px;white-space:nowrap" onclick="event.stopPropagation()">
+                <button type="button" class="btn-acao-lista" data-acao="imprimir" data-id="${item.id}"
+                        title="Imprimir" aria-label="Imprimir ocorrência ${item.numero}">🖨️</button>
+                <button type="button" class="btn-acao-lista" data-acao="sinistro" data-id="${item.id}"
+                        title="Mensagem do sinistro" aria-label="Mensagem do sinistro da ocorrência ${item.numero}">📨</button>
+            </td>` : ''}
         </tr>
     `).join('');
 
@@ -180,6 +191,7 @@ function renderLista(itens) {
                     <th style="padding:8px 12px">Bairro</th>
                     <th style="padding:8px 12px">Indicadores</th>
                     <th style="padding:8px 12px">Status</th>
+                    ${mostrarAcoes ? '<th style="padding:8px 12px">Ações</th>' : ''}
                 </tr>
             </thead>
             <tbody>${linhas}</tbody>
@@ -191,6 +203,36 @@ function renderLista(itens) {
             window.location.href = `ocorrencia-form.html?id=${tr.dataset.id}`;
         });
     });
+
+    secao.querySelectorAll('.btn-acao-lista').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const id = btn.dataset.id;
+            if (btn.dataset.acao === 'imprimir') {
+                imprimirLinha(id);
+            } else if (btn.dataset.acao === 'sinistro') {
+                abrirMensagemSinistro(id);
+            }
+        });
+    });
+}
+
+/**
+ * Imprime uma ocorrência direto da lista — busca a versão completa (a
+ * listagem só traz o resumo da view) e reaproveita ocorrencia.imprimir.js,
+ * o mesmo módulo usado no formulário. Sem isso o Alisson tinha que abrir
+ * o formulário inteiro só pra reimprimir uma ocorrência de ontem.
+ */
+async function imprimirLinha(ocorrenciaId) {
+    const elErro = document.getElementById('ocorrencias-erro-acao');
+    elErro.style.display = 'none';
+    try {
+        const completa = await apiGet(`/ocorrencias/${ocorrenciaId}`);
+        imprimirOcorrencia(completa);
+    } catch (err) {
+        elErro.textContent = `Erro ao preparar impressão: ${err.message}`;
+        elErro.style.display = 'block';
+    }
 }
 
 function escapeHtml(str) {

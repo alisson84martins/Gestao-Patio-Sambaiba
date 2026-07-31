@@ -60,6 +60,7 @@
     </div>
 
     <div id="ocorrencias-resumo" style="color:var(--muted);font-size:0.8rem;margin-bottom:8px"></div>
+    <div id="ocorrencias-erro-acao" style="display:none;color:var(--accent);font-size:0.85rem;margin-bottom:8px"></div>
 
     <section id="ocorrencias-lista" aria-live="polite">
         <div class="patio-loading">Carregando…</div>
@@ -71,6 +72,27 @@
     </div>
 
 </main>
+
+<!-- ========================================================= -->
+<!-- Modal Mensagem do Sinistro — reaproveitado por             -->
+<!-- ocorrencia.sinistro.js, o mesmo módulo usado no formulário -->
+<!-- ========================================================= -->
+<div class="modal-overlay" id="modal-sinistro">
+    <div class="modal">
+        <button type="button" class="modal-close" id="modal-sinistro-fechar">✕</button>
+        <div class="modal-title">Mensagem do Grupo do Sinistro</div>
+        <div id="sinistro-carregando" class="oc-vazio">Gerando mensagem…</div>
+        <div id="sinistro-conteudo" style="display:none">
+            <div class="oc-mensagem-box" id="sinistro-texto"></div>
+            <button type="button" class="btn btn-primary btn-full" id="btn-sinistro-copiar">📋 Copiar</button>
+            <button type="button" class="btn btn-ghost btn-full btn-modal-stack" id="btn-sinistro-compartilhar">📤 Compartilhar</button>
+        </div>
+        <div id="sinistro-erro" style="display:none;color:var(--accent);font-size:0.85rem;margin-top:8px"></div>
+    </div>
+</div>
+
+<!-- Área de impressão — oculta em tela, visível ao imprimir -->
+<div id="print-content"></div>
 
 <script type="module" src="./assets/js/ocorrencias.page.js"></script>
 </body>

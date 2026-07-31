@@ -2760,6 +2760,26 @@ body {
 
 .oc-vazio { color: var(--muted); font-size: 0.85rem; padding: 8px 0; }
 
+/* Ações por linha na lista de ocorrências (imprimir/sinistro) — alvo de
+   toque de pelo menos 40px, sem depender de hover (é usado no celular,
+   em pé, no pátio). */
+.btn-acao-lista {
+    min-width: 40px;
+    min-height: 40px;
+    padding: 6px;
+    margin-right: 4px;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    font-size: 1.1rem;
+    line-height: 1;
+    cursor: pointer;
+}
+
+.btn-acao-lista:active {
+    background: var(--border);
+}
+
 .oc-mensagem-box {
     background: var(--surface2);
     border: 1px solid var(--border);
