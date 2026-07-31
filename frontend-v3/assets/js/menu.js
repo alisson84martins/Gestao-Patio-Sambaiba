@@ -131,13 +131,23 @@ function _todosOnibus(filas) {
         for (const o of fila.onibus || []) {
             lista.push({
                 ...o,
-                fila_nome:   fila.fila_nome,
-                fila_tipo:   fila.fila_tipo,
-                fila_numero: fila.fila_numero,
+                fila_nome:       fila.fila_nome,
+                fila_tipo:       fila.fila_tipo,
+                fila_numero:     fila.fila_numero,
+                fila_abreviacao: fila.fila_abreviacao,
             });
         }
     }
     return lista.sort((a, b) => a.numero_frota - b.numero_frota);
+}
+
+/** Rótulo curto da fila pro impresso: abreviação quando existir, senão o nome. */
+function _rotuloFilaImpresso(o) {
+    if (o.fila_abreviacao) return o.fila_abreviacao;
+    if (o.fila_tipo === 'NUMERICA' && o.fila_numero != null) {
+        return String(o.fila_numero).padStart(2, '0');
+    }
+    return o.fila_nome || '—';
 }
 
 /** "04:30:00" → "04:30". Retorna "—" se vazio. */
@@ -228,12 +238,22 @@ function _print(html) {
     window.print();
 }
 
+/*
+ * Impressão do pátio — layout aprovado 31/07/2026.
+ * Quem lê: o motorista, em pé, de longe, procurando o número do carro
+ * dele pra saber em que fila está. Por isso CARRO e FILA saem no mesmo
+ * tamanho/peso (19px negrito) — são os dois que ele lê — e a posição
+ * (informação secundária) sai pequena e cinza, colada depois da fila.
+ * Não existe coluna POS. Ver PROMPT-CORRECOES-PATIO.md seção 3.
+ */
 function imprimirPatio(filas) {
-    const ROWS_PER_COL  = 42;
+    const ROWS_PER_COL  = 28;
     const COLS_PER_PAGE = 4;
-    const ROWS_PER_PAGE = ROWS_PER_COL * COLS_PER_PAGE; // 168 por folha
+    const ROWS_PER_PAGE = ROWS_PER_COL * COLS_PER_PAGE; // 112 por folha
 
-    const todos = _todosOnibus(filas); // ordenado por frota, com fila_nome/tipo/numero
+    // _todosOnibus já ordena por número do carro (crescente) — é assim que
+    // o motorista busca, não pela fila.
+    const todos = _todosOnibus(filas);
 
     // Fallback: se setor não vier do backend, infere pelo prefixo do número
     function _setorOf(o) {
@@ -244,21 +264,15 @@ function imprimirPatio(filas) {
     const e2  = todos.filter(o => _setorOf(o) === 'E2');
     const ar2 = todos.filter(o => _setorOf(o) === 'AR2');
 
-    const meta = `${_dataHoje()} às ${_horaAgora()}`;
-
-    function _filaLabel(o) {
-        if (o.fila_tipo === 'NUMERICA' && o.fila_numero != null) {
-            return `Fila ${String(o.fila_numero).padStart(2, '0')}`;
-        }
-        return o.fila_nome || '—';
-    }
+    const dataHora = `${_dataHoje()} · ${_horaAgora()}`;
 
     function buildRow(o) {
         const preso = o.alerta_tipo === 'PRESO';
+        const rotuloFila = _rotuloFilaImpresso(o);
+        const posicao = o.posicao ?? '';
         return `<tr${preso ? ' class="pt-row-preso"' : ''}>
-            <td class="pt-td-frota">${o.numero_frota}</td>
-            <td class="pt-td-fila">${_filaLabel(o)}${preso ? ' ⚠' : ''}</td>
-            <td class="pt-td-pos">${o.posicao ?? '—'}</td>
+            <td class="pt-td-carro">${o.numero_frota}</td>
+            <td class="pt-td-fila">${rotuloFila}${preso ? ' ⚠' : ''} <span class="pt-td-pos">${posicao}</span></td>
         </tr>`;
     }
 
@@ -272,9 +286,8 @@ function imprimirPatio(filas) {
             const pageItems = lista.slice(p * ROWS_PER_PAGE, (p + 1) * ROWS_PER_PAGE);
             html += `<div class="pt-page">
                 <div class="pt-page-header">
-                    <div class="pt-empresa">Sambaíba Transportes Urbanos</div>
-                    <div class="pt-setor-titulo">SETOR ${setor}</div>
-                    <div class="pt-meta">${meta} · ${total} veículos</div>
+                    <span class="pt-setor-titulo">SETOR ${setor}</span>
+                    <span class="pt-page-meta">${dataHora} · pág. ${p + 1} de ${numPages}</span>
                 </div>
                 <div class="pt-grid">`;
 
@@ -282,13 +295,18 @@ function imprimirPatio(filas) {
                 const colItems = pageItems.slice(c * ROWS_PER_COL, (c + 1) * ROWS_PER_COL);
                 html += `<table class="pt-table">
                     <thead><tr>
-                        <th>Carro</th><th>Fila</th><th>Pos.</th>
+                        <th class="pt-th-carro">Carro</th><th>Fila</th>
                     </tr></thead>
                     <tbody>${colItems.map(buildRow).join('')}</tbody>
                 </table>`;
             }
 
-            html += `</div></div>`;
+            html += `</div>
+                <div class="pt-page-footer">
+                    <span>${pageItems.length} de ${total} carros do setor ${setor}</span>
+                    <span>Gestão de Pátio · Sambaíba G3</span>
+                </div>
+            </div>`;
         }
         return html;
     }

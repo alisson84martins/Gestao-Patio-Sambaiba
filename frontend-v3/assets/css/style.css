@@ -1434,9 +1434,17 @@ body {
     background: var(--surface);
 }
 
-/* ── Impressão ─────────────────────────────────────────────────── */
+/* ── Impressão do pátio — layout aprovado 31/07/2026 ──────────────
+   Quem lê: o motorista, de pé, de longe, procurando o número do carro
+   dele. CARRO e FILA saem no mesmo tamanho/peso (19px negrito) — são os
+   dois que ele lê. A posição é secundária: pequena e cinza, colada
+   depois do texto da fila. Não existe coluna POS.
+   Regra que não pode ser violada: nada pode transbordar nem sobrepor a
+   coluna vizinha — overflow:hidden em toda célula como rede de
+   segurança; se não couber, a fonte reduz, nunca vaza.
+   Ver PROMPT-CORRECOES-PATIO.md seção 3. ────────────────────────── */
 @media print {
-    @page { margin: 8mm; size: A4 portrait; }
+    @page { margin: 10mm; size: A4 portrait; }
     body > *:not(#print-content) { display: none !important; }
     #print-content { display: block !important; }
 
@@ -1445,48 +1453,87 @@ body {
     .pt-page:last-child { page-break-after: auto; }
 
     .pt-page-header {
-        text-align: center;
-        border-bottom: 2.5px solid #000;
+        display: flex;
+        justify-content: space-between;
+        align-items: baseline;
+        border-bottom: 2px solid #000;
         padding-bottom: 4px;
-        margin-bottom: 6px;
+        margin-bottom: 8px;
     }
-    .pt-empresa  { font-size: 8px; color: #555; letter-spacing: 2px; text-transform: uppercase; }
-    .pt-setor-titulo { font-size: 18px; font-weight: 800; letter-spacing: 3px; margin: 2px 0; }
-    .pt-meta     { font-size: 8px; color: #888; }
+    .pt-setor-titulo { font-size: 15px; font-weight: 800; letter-spacing: 2px; }
+    .pt-page-meta    { font-size: 9px; color: #666; }
 
-    /* Grade de 4 colunas */
+    /* Grade de 4 colunas — gap generoso é o que sobrou de espaço pra
+       coluna do CARRO ficar com largura fixa em vez de 1fr. */
     .pt-grid {
         display: grid;
         grid-template-columns: repeat(4, 1fr);
-        gap: 3px;
+        gap: 0 12px;
         align-items: start;
     }
 
-    .pt-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+    .pt-table {
+        width: 100%;
+        border-collapse: collapse;
+        table-layout: fixed;
+        font-variant-numeric: tabular-nums;
+    }
     .pt-table th {
-        background: #000;
-        color: #fff;
-        padding: 3px 4px;
-        text-align: center;
-        font-size: 8px;
-        font-weight: 800;
+        text-align: left;
+        font-size: 10px;
+        font-weight: 700;
+        color: #666;
+        text-transform: uppercase;
         letter-spacing: 0.5px;
-        border: 1px solid #000;
-    }
-    .pt-table td {
-        padding: 2px 4px;
-        border: 1px solid #ccc;
-        text-align: center;
-        white-space: nowrap;
+        padding: 0 0 3px;
+        border-bottom: 1px solid #000;
         overflow: hidden;
+        white-space: nowrap;
     }
-    .pt-table tr:nth-child(even) td { background: #f0f0f0; }
-    .pt-td-frota { font-weight: 800; font-size: 12px; }
-    .pt-td-fila  { font-size: 10px; }
-    .pt-td-pos   { font-size: 10px; font-weight: 600; }
-    .pt-row-preso .pt-td-frota { color: #cc0000; font-weight: 800; }
-    .pt-row-preso td { background: #ffe0e0 !important; }
-    .pt-row-preso .pt-td-fila { color: #cc0000; font-weight: 800; }
+    /* Largura fixa (nunca 1fr — é o que sobra de espaço pra caber a
+       quarta coluna na folha). Em table-layout:fixed a largura declarada
+       do cabeçalho já inclui o padding da coluna, então não é só "46px
+       de dígito": ~44px pros 4 dígitos em negrito 19px (Arial bold ≈
+       0.556em por dígito) + 9px da divisória = ~54px. Cortar isso mais
+       apertado é o tipo de coisa que vaza — ver a regra que não pode
+       ser violada, no topo deste bloco. */
+    .pt-th-carro, .pt-td-carro { width: 54px; }
+
+    .pt-table td {
+        font-size: 19px;
+        font-weight: 700;
+        line-height: 1.25;
+        padding: 2.5px 0;
+        border-bottom: 0.5px solid #ddd;
+        overflow: hidden;
+        white-space: nowrap;
+        text-overflow: ellipsis;
+    }
+    .pt-td-carro {
+        border-right: 0.5px solid #999;
+        padding-right: 9px;
+    }
+    .pt-td-fila {
+        padding-left: 9px;
+    }
+    .pt-td-pos {
+        font-size: 10px;
+        font-weight: 400;
+        color: #888;
+    }
+
+    .pt-row-preso .pt-td-carro,
+    .pt-row-preso .pt-td-fila { color: #cc0000; }
+
+    .pt-page-footer {
+        display: flex;
+        justify-content: space-between;
+        margin-top: 8px;
+        padding-top: 4px;
+        border-top: 1px solid #ccc;
+        font-size: 9px;
+        color: #666;
+    }
 }
 
 @media screen {
