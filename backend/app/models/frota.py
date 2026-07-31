@@ -51,6 +51,8 @@ class Fila(Base):
     tipo: Mapped[TipoFilaEnum] = mapped_column(tipo_fila_pg, nullable=False)
     numero: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     nome: Mapped[str] = mapped_column(String(50), nullable=False)
+    # Rótulo curto pra espaço apertado (impressão, chips). Nulo = usa o nome.
+    abreviacao: Mapped[Optional[str]] = mapped_column(String(6), nullable=True)
     ordem_exibicao: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     ativa: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
 

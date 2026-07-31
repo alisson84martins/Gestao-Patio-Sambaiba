@@ -47,6 +47,7 @@
         <button class="filtro-btn" data-tab="onibus">Ônibus</button>
         <button class="filtro-btn" data-tab="motoristas">Motoristas</button>
         <button class="filtro-btn" data-tab="linhas">Linhas</button>
+        <button class="filtro-btn" data-tab="filas">Filas</button>
         <button class="filtro-btn" data-tab="tipos-defeito">Tipos de Defeito</button>
         <button class="btn btn-primary" id="btn-novo" style="margin-left:auto">+ Novo</button>
     </div>
@@ -249,6 +250,44 @@
         <button type="button" class="btn btn-primary btn-full" id="btn-salvar-linha">Salvar</button>
         <button type="button" class="btn btn-danger btn-full btn-modal-stack" id="btn-excluir-linha" style="display:none">Excluir Linha</button>
         <button type="button" class="btn btn-ghost btn-full btn-modal-stack" id="btn-cancelar-linha">Cancelar</button>
+    </div>
+</div>
+
+<!-- ========================================================= -->
+<!-- Modal Fila — só edição do apelido/abreviação; catálogo de   -->
+<!-- filas (nome, tipo, número) vem das migrations, não daqui.  -->
+<!-- ========================================================= -->
+<div class="modal-overlay" id="modal-fila">
+    <div class="modal">
+        <button type="button" class="modal-close" id="modal-fila-fechar">✕</button>
+        <div class="modal-title" id="modal-fila-titulo">Fila</div>
+
+        <input type="hidden" id="fila-id">
+
+        <div class="form-group">
+            <label class="form-label">Nome</label>
+            <div id="fila-nome-display" style="padding:8px 12px;background:var(--surface-2);border-radius:4px;color:#888"></div>
+        </div>
+
+        <div class="form-group">
+            <label class="form-label" for="fila-abreviacao">
+                Abreviação <span style="color:#888;font-size:0.8rem;font-weight:400"> — rótulo curto pra impressão e chips; em branco usa o nome</span>
+            </label>
+            <input type="text" class="form-input" id="fila-abreviacao" placeholder="Ex: COQ" maxlength="6" style="text-transform:uppercase">
+        </div>
+
+        <div class="form-group" id="fila-ativa-group">
+            <label class="form-label" for="fila-ativa">Status</label>
+            <select class="form-select" id="fila-ativa">
+                <option value="true">Ativa</option>
+                <option value="false">Inativa</option>
+            </select>
+        </div>
+
+        <div id="modal-fila-erro" style="display:none;color:var(--accent);font-size:0.85rem;margin-bottom:0.75rem;"></div>
+
+        <button type="button" class="btn btn-primary btn-full" id="btn-salvar-fila">Salvar</button>
+        <button type="button" class="btn btn-ghost btn-full btn-modal-stack" id="btn-cancelar-fila">Cancelar</button>
     </div>
 </div>
 

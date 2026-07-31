@@ -37,6 +37,7 @@ class FilaBase(BaseModel):
     tipo: TipoFilaEnum
     numero: Optional[int] = Field(None, ge=1, le=33)
     nome: str = Field(..., max_length=50)
+    abreviacao: Optional[str] = Field(None, max_length=6, description="Rótulo curto — impressão, chips. Nulo usa o nome.")
     ordem_exibicao: int = 0
     ativa: bool = True
 
@@ -47,6 +48,7 @@ class FilaCreate(FilaBase):
 
 class FilaUpdate(BaseModel):
     nome: Optional[str] = Field(None, max_length=50)
+    abreviacao: Optional[str] = Field(None, max_length=6)
     ordem_exibicao: Optional[int] = None
     ativa: Optional[bool] = None
 

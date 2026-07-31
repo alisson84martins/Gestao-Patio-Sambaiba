@@ -3,9 +3,13 @@
  * ---------------------------------------
  * Tela de gestão de entidades base, acesso restrito a quem escreve em "usuarios".
  *
- * Abas: Funcionários | Ônibus | Motoristas | Linhas | Tipos de Defeito
+ * Abas: Funcionários | Ônibus | Motoristas | Linhas | Filas | Tipos de Defeito
  * (a chave interna da primeira aba continua 'usuarios' — só o rótulo mudou —
- * pra não precisar tocar no roteamento das outras 4 abas, que não mudam.)
+ * pra não precisar tocar no roteamento das outras abas, que não mudam.)
+ *
+ * A aba Filas é só leitura + edição da abreviação/status — o catálogo de
+ * filas (nome, tipo, número) vem das migrations, não se cria fila nova
+ * por aqui (botão "+ Novo" some nessa aba).
  *
  * Cada aba segue o mesmo padrão:
  *   carregar() → renderTabela() → clicar linha → abrirModal() → salvar()
@@ -54,12 +58,16 @@ document.addEventListener('DOMContentLoaded', () => {
     setupModais();
     carregarAba();
     carregarFuncoesCatalogo();
-
-    if (somenteLeitura) {
-        const btnNovo = document.getElementById('btn-novo');
-        if (btnNovo) btnNovo.style.display = 'none';
-    }
+    atualizarVisibilidadeBtnNovo();
 });
+
+// Filas são um catálogo fixo (seedado pelas migrations) — esta tela só
+// edita a abreviação/status de uma fila existente, nunca cria uma nova.
+function atualizarVisibilidadeBtnNovo() {
+    const btnNovo = document.getElementById('btn-novo');
+    if (!btnNovo) return;
+    btnNovo.style.display = (somenteLeitura || abaAtiva === 'filas') ? 'none' : '';
+}
 
 async function carregarFuncoesCatalogo() {
     try {
@@ -91,6 +99,7 @@ function setupTabs() {
             document.getElementById('cadastros-busca').value = '';
             buscaAtual = '';
             carregarAba();
+            atualizarVisibilidadeBtnNovo();
         });
     });
 
@@ -134,6 +143,7 @@ async function fetchAba(aba) {
         case 'onibus':       return await apiGet('/onibus?limit=1000');
         case 'motoristas':   return await apiGet('/motoristas?limit=1000');
         case 'linhas':       return await apiGet('/linhas?limit=500');
+        case 'filas':        return await apiGet('/filas?limit=200');
         case 'tipos-defeito':return await apiGet('/tipos-defeito?limit=200');
         default: return [];
     }
@@ -162,6 +172,9 @@ function renderTabela(dados) {
             break;
         case 'linhas':
             html = tabelaLinhas(dados);
+            break;
+        case 'filas':
+            html = tabelaFilas(dados);
             break;
         case 'tipos-defeito':
             html = tabelaTiposDefeito(dados);
@@ -296,6 +309,30 @@ function tabelaLinhas(dados) {
     return _table(['Código', 'Nome', 'Setor', 'Status'], linhas);
 }
 
+function _nomeTipoFila(tipo) {
+    const mapa = {
+        NUMERICA: 'Numérica', ESPECIAL: 'Especial',
+        ESPECIAL_REMOTA: 'Fora da garagem', MANUTENCAO: 'Manutenção',
+    };
+    return mapa[tipo] || tipo;
+}
+
+function tabelaFilas(dados) {
+    const ordenadas = [...dados].sort((a, b) => {
+        if (a.tipo !== b.tipo) return a.tipo.localeCompare(b.tipo);
+        return (a.ordem_exibicao ?? 0) - (b.ordem_exibicao ?? 0);
+    });
+    const linhas = ordenadas.map(f => _tr(f.id, [
+        `<strong>${f.numero != null ? String(f.numero).padStart(2, '0') : f.nome}</strong>`,
+        _nomeTipoFila(f.tipo),
+        f.abreviacao
+            ? `<span style="font-family:var(--mono)">${f.abreviacao}</span>`
+            : '<span style="color:var(--muted)">— usa o nome —</span>',
+        f.ativa ? _badge('Ativa', 'verde') : _badge('Inativa', 'cinza'),
+    ])).join('');
+    return _table(['Fila', 'Tipo', 'Abreviação', 'Status'], linhas);
+}
+
 function tabelaTiposDefeito(dados) {
     const linhas = dados.map(t => _tr(t.id, [
         t.nome,
@@ -342,6 +379,14 @@ function setupModais() {
     });
     document.getElementById('btn-salvar-linha').addEventListener('click', salvarLinha);
     document.getElementById('btn-excluir-linha').addEventListener('click', excluirLinha);
+
+    // Fila
+    document.getElementById('modal-fila-fechar').addEventListener('click', () => fechar('modal-fila'));
+    document.getElementById('btn-cancelar-fila').addEventListener('click', () => fechar('modal-fila'));
+    document.getElementById('modal-fila').addEventListener('click', e => {
+        if (e.target.id === 'modal-fila') fechar('modal-fila');
+    });
+    document.getElementById('btn-salvar-fila').addEventListener('click', salvarFila);
 
     // Tipo de defeito
     document.getElementById('modal-tipo-fechar').addEventListener('click', () => fechar('modal-tipo-defeito'));
@@ -404,6 +449,7 @@ function abrirModalEditar(item) {
         case 'onibus':       abrirModalOnibus(item);      break;
         case 'motoristas':   abrirModalMotorista(item);   break;
         case 'linhas':       abrirModalLinha(item);       break;
+        case 'filas':        abrirModalFila(item);        break;
         case 'tipos-defeito':abrirModalTipoDefeito(item); break;
     }
 }
@@ -740,6 +786,38 @@ async function excluirLinha() {
         carregarAba();
     } catch (err) {
         erroModal('modal-linha-erro', err.message);
+    }
+}
+
+// ─── MODAL FILA — só edita abreviação e status; catálogo (nome/tipo/número)
+// vem das migrations, não se cria fila nova por aqui ──────────────
+function abrirModalFila(f) {
+    document.getElementById('modal-fila-titulo').textContent = `Fila — ${f.nome}`;
+    document.getElementById('fila-id').value = f.id;
+    document.getElementById('fila-nome-display').textContent =
+        `${f.nome} (${_nomeTipoFila(f.tipo)}${f.numero != null ? ' nº ' + f.numero : ''})`;
+    document.getElementById('fila-abreviacao').value = f.abreviacao || '';
+    document.getElementById('fila-ativa').value = String(f.ativa ?? true);
+
+    erroModal('modal-fila-erro', '');
+    abrir('modal-fila');
+    document.getElementById('fila-abreviacao').focus();
+}
+
+async function salvarFila() {
+    const id = document.getElementById('fila-id').value;
+    if (!id) return;
+    erroModal('modal-fila-erro', '');
+
+    const abreviacao = document.getElementById('fila-abreviacao').value.trim().toUpperCase();
+    const ativa = document.getElementById('fila-ativa').value === 'true';
+
+    try {
+        await apiPatch(`/filas/${id}`, { abreviacao: abreviacao || null, ativa });
+        fechar('modal-fila');
+        carregarAba();
+    } catch (err) {
+        erroModal('modal-fila-erro', err.message);
     }
 }
 

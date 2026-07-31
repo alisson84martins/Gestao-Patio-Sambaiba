@@ -35,6 +35,7 @@ class PatioFilaInfo(BaseModel):
     fila_nome: str
     fila_tipo: TipoFilaEnum
     fila_numero: Optional[int] = None
+    fila_abreviacao: Optional[str] = None
     onibus: list[PatioOnibusInfo] = []
 
 

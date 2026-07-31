@@ -59,6 +59,7 @@ def patio_completo(
             Alerta.tipo,                                                 # 13
             FichaManutencao.status,                                      # 14
             AlocacaoPatio.id,                                            # 15
+            Fila.abreviacao,                                             # 16
         )
         .select_from(Fila)
         .outerjoin(AlocacaoPatio, and_(
@@ -131,6 +132,7 @@ def patio_completo(
                 fila_nome=r[1],
                 fila_tipo=r[2],
                 fila_numero=r[3],
+                fila_abreviacao=r[16],
                 onibus=[],
             )
             ordem.append(fila_id)
