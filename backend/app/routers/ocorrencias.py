@@ -166,11 +166,11 @@ def detalhar(ocorrencia_id: UUID, _: LeituraOcorrencia, db: Annotated[Session, D
     status_code=status.HTTP_201_CREATED,
     summary="Cria ocorrência como RASCUNHO",
 )
-def criar(payload: OcorrenciaCreate, func: EscritaOcorrencia, db: Annotated[Session, Depends(get_db)]):
+def criar(payload: OcorrenciaCreate, usuario: EscritaOcorrencia, db: Annotated[Session, Depends(get_db)]):
     if db.get(TipoOcorrencia, payload.tipo_ocorrencia_id) is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Tipo de ocorrência não encontrado")
 
-    nova = Ocorrencia(**payload.model_dump(), status="RASCUNHO", registrado_por=func.id)
+    nova = Ocorrencia(**payload.model_dump(), status="RASCUNHO", registrado_por=usuario.id)
     db.add(nova)
     db.commit()
     db.refresh(nova)
@@ -185,7 +185,7 @@ def criar(payload: OcorrenciaCreate, func: EscritaOcorrencia, db: Annotated[Sess
     summary="Atualização parcial da capa; listas de filhas enviadas substituem a coleção inteira",
 )
 def atualizar(
-    ocorrencia_id: UUID, payload: OcorrenciaUpdate, func: EscritaOcorrencia, db: Annotated[Session, Depends(get_db)]
+    ocorrencia_id: UUID, payload: OcorrenciaUpdate, usuario: EscritaOcorrencia, db: Annotated[Session, Depends(get_db)]
 ):
     oc = db.get(Ocorrencia, ocorrencia_id)
     if oc is None or oc.excluida_em is not None:
@@ -230,7 +230,7 @@ def atualizar(
             oc.autoridades.append(OcorrenciaAutoridade(**item.model_dump()))
 
     oc.atualizado_em = datetime.now(timezone.utc)
-    oc.atualizado_por = func.id
+    oc.atualizado_por = usuario.id
     db.commit()
 
     return _carregar_completa(db, ocorrencia_id)
@@ -243,7 +243,7 @@ def atualizar(
     response_model=OcorrenciaRead,
     summary="Muda status para FINALIZADA e grava finalizada_em",
 )
-def finalizar(ocorrencia_id: UUID, func: EscritaOcorrencia, db: Annotated[Session, Depends(get_db)]):
+def finalizar(ocorrencia_id: UUID, usuario: EscritaOcorrencia, db: Annotated[Session, Depends(get_db)]):
     oc = db.get(Ocorrencia, ocorrencia_id)
     if oc is None or oc.excluida_em is not None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Ocorrência não encontrada")
@@ -252,7 +252,7 @@ def finalizar(ocorrencia_id: UUID, func: EscritaOcorrencia, db: Annotated[Sessio
     oc.status = "FINALIZADA"
     oc.finalizada_em = agora
     oc.atualizado_em = agora
-    oc.atualizado_por = func.id
+    oc.atualizado_por = usuario.id
     db.commit()
     db.refresh(oc)
     return oc
@@ -265,14 +265,14 @@ def finalizar(ocorrencia_id: UUID, func: EscritaOcorrencia, db: Annotated[Sessio
     response_model=OcorrenciaRead,
     summary="Soft delete — grava excluida_em, nunca apaga a linha",
 )
-def deletar(ocorrencia_id: UUID, func: EscritaOcorrencia, db: Annotated[Session, Depends(get_db)]):
+def deletar(ocorrencia_id: UUID, usuario: EscritaOcorrencia, db: Annotated[Session, Depends(get_db)]):
     oc = db.get(Ocorrencia, ocorrencia_id)
     if oc is None or oc.excluida_em is not None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Ocorrência não encontrada")
 
     oc.excluida_em = datetime.now(timezone.utc)
     oc.atualizado_em = oc.excluida_em
-    oc.atualizado_por = func.id
+    oc.atualizado_por = usuario.id
     db.commit()
     db.refresh(oc)
     return oc
@@ -309,7 +309,7 @@ def mensagem_sinistro(ocorrencia_id: UUID, _: LeituraOcorrencia, db: Annotated[S
 )
 async def upload_anexo(
     ocorrencia_id: UUID,
-    func: EscritaOcorrencia,
+    usuario: EscritaOcorrencia,
     db: Annotated[Session, Depends(get_db)],
     arquivo: Annotated[UploadFile, File(description="image/jpeg, image/png ou application/pdf — máx 10 MB")],
     tipo: Annotated[str, Form(description="FOTO_ACIDENTE | FOTO_RELATORIO | CROQUI | BO_PDF | OUTRO")],
@@ -346,7 +346,7 @@ async def upload_anexo(
         mime_type=arquivo.content_type,
         tamanho_bytes=len(conteudo),
         descricao=descricao,
-        enviado_por=func.id,
+        enviado_por=usuario.id,
     )
     db.add(anexo)
     db.commit()
