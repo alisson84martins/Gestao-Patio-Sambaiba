@@ -601,9 +601,22 @@ function atualizarTitulo(numero) {
     document.getElementById('oc-titulo').textContent = numero ? `Ocorrência #${numero}` : 'Nova Ocorrência';
 }
 
+/**
+ * Destrava Imprimir e Mensagem do Sinistro — os botões já nascem visíveis
+ * no HTML (ver ocorrencia-form.html), só desabilitados com um title
+ * explicando o porquê. Uma função escondida é fácil de descobrir clicando;
+ * uma que nunca aparece, não — por isso nunca usamos display:none aqui.
+ */
 function mostrarControlesPosCriacao() {
-    document.getElementById('btn-imprimir').style.display = '';
-    document.getElementById('btn-sinistro').style.display = '';
+    const btnImprimir = document.getElementById('btn-imprimir');
+    const btnSinistro = document.getElementById('btn-sinistro');
+    btnImprimir.disabled = false;
+    btnImprimir.removeAttribute('title');
+    btnImprimir.setAttribute('aria-disabled', 'false');
+    btnSinistro.disabled = false;
+    btnSinistro.removeAttribute('title');
+    btnSinistro.setAttribute('aria-disabled', 'false');
+
     document.getElementById('anexo-aviso-sem-id').style.display = 'none';
     document.getElementById('anexo-upload-area').style.display = somenteLeitura ? 'none' : '';
 }
