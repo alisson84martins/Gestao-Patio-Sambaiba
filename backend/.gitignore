@@ -52,3 +52,7 @@ logs/
 # Banco local de teste
 *.db
 *.sqlite
+
+# Uploads — anexos de ocorrência (fotos, croqui, PDF do B.O.) ficam só no
+# servidor, nunca no repositório (dado pessoal de terceiro em alguns casos)
+uploads/

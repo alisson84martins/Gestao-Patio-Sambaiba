@@ -5,11 +5,14 @@ escala. O router só lê catálogos do Pátio (onibus, linhas, motoristas) —
 essa leitura acontece no FRONTEND para autocompletar prefixo/linha/condutor,
 que chegam aqui sempre como texto, nunca FK.
 """
+import logging
 from datetime import date, datetime, timezone
+from pathlib import Path
 from typing import Annotated, Optional
-from uuid import UUID
+from uuid import UUID, uuid4
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
+from fastapi.responses import FileResponse
 from sqlalchemy import select, text
 from sqlalchemy.orm import Session, joinedload, selectinload
 
@@ -17,21 +20,32 @@ from app.core.database import get_db
 from app.core.deps import exige
 from app.models.cadastro import Funcionario
 from app.models.ocorrencia import (
-    Ocorrencia, OcorrenciaAnalise, OcorrenciaAutoridade, OcorrenciaAvaria,
-    OcorrenciaTestemunha, OcorrenciaVeiculoTerceiro, OcorrenciaVitima,
-    OrgaoAutoridade, TipoOcorrencia,
+    Ocorrencia, OcorrenciaAnalise, OcorrenciaAnexo, OcorrenciaAutoridade,
+    OcorrenciaAvaria, OcorrenciaTestemunha, OcorrenciaVeiculoTerceiro,
+    OcorrenciaVitima, OrgaoAutoridade, TipoOcorrencia,
 )
 from app.schemas.ocorrencia import (
-    MensagemSinistroResponse, OcorrenciaCatalogos, OcorrenciaCompleta,
-    OcorrenciaCreate, OcorrenciaListaResponse, OcorrenciaRead,
-    OcorrenciaResumo, OcorrenciaUpdate,
+    MensagemSinistroResponse, OcorrenciaAnexoRead, OcorrenciaCatalogos,
+    OcorrenciaCompleta, OcorrenciaCreate, OcorrenciaListaResponse,
+    OcorrenciaRead, OcorrenciaResumo, OcorrenciaUpdate,
 )
 from app.services.mensagem_sinistro import gerar_mensagem_sinistro
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/ocorrencias", tags=["ocorrências"])
 
 LeituraOcorrencia = Annotated[Funcionario, Depends(exige("ocorrencia"))]
 EscritaOcorrencia = Annotated[Funcionario, Depends(exige("ocorrencia", escrever=True))]
+
+TIPOS_ANEXO = {"FOTO_ACIDENTE", "FOTO_RELATORIO", "CROQUI", "BO_PDF", "OUTRO"}
+ANEXO_MIME_PERMITIDOS = {"image/jpeg", "image/png", "application/pdf"}
+ANEXO_TAMANHO_MAXIMO = 10 * 1024 * 1024  # 10 MB
+
+# Relativo ao diretório de trabalho do processo (backend/) — mesmo padrão
+# usado pelos scripts do projeto. Criado sob demanda, nunca versionado
+# (backend/.gitignore cobre uploads/).
+UPLOAD_ROOT = Path("uploads") / "ocorrencias"
 
 
 def _carregar_completa(db: Session, ocorrencia_id: UUID) -> Optional[Ocorrencia]:
@@ -283,3 +297,109 @@ def mensagem_sinistro(ocorrencia_id: UUID, _: LeituraOcorrencia, db: Annotated[S
         coordenador_re=coordenador.re if coordenador else "",
     )
     return MensagemSinistroResponse(texto=texto)
+
+
+# ─── ANEXOS ───────────────────────────────────────────────────────────────────
+
+@router.post(
+    "/{ocorrencia_id}/anexos",
+    response_model=OcorrenciaAnexoRead,
+    status_code=status.HTTP_201_CREATED,
+    summary="Upload de foto, croqui ou PDF do B.O.",
+)
+async def upload_anexo(
+    ocorrencia_id: UUID,
+    func: EscritaOcorrencia,
+    db: Annotated[Session, Depends(get_db)],
+    arquivo: Annotated[UploadFile, File(description="image/jpeg, image/png ou application/pdf — máx 10 MB")],
+    tipo: Annotated[str, Form(description="FOTO_ACIDENTE | FOTO_RELATORIO | CROQUI | BO_PDF | OUTRO")],
+    descricao: Annotated[Optional[str], Form()] = None,
+):
+    oc = db.get(Ocorrencia, ocorrencia_id)
+    if oc is None or oc.excluida_em is not None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Ocorrência não encontrada")
+
+    if tipo not in TIPOS_ANEXO:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, detail=f"Tipo de anexo inválido: {tipo}")
+
+    if arquivo.content_type not in ANEXO_MIME_PERMITIDOS:
+        raise HTTPException(
+            status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+            detail=f"Formato não suportado: {arquivo.content_type}. Envie JPEG, PNG ou PDF.",
+        )
+
+    conteudo = await arquivo.read()
+    if len(conteudo) > ANEXO_TAMANHO_MAXIMO:
+        raise HTTPException(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail="Arquivo muito grande (máx 10 MB)")
+
+    pasta = UPLOAD_ROOT / str(ocorrencia_id)
+    pasta.mkdir(parents=True, exist_ok=True)
+    extensao = Path(arquivo.filename or "").suffix
+    nome_arquivo = f"{uuid4()}{extensao}"
+    (pasta / nome_arquivo).write_bytes(conteudo)
+
+    anexo = OcorrenciaAnexo(
+        ocorrencia_id=ocorrencia_id,
+        tipo=tipo,
+        caminho=f"ocorrencias/{ocorrencia_id}/{nome_arquivo}",
+        nome_original=arquivo.filename,
+        mime_type=arquivo.content_type,
+        tamanho_bytes=len(conteudo),
+        descricao=descricao,
+        enviado_por=func.id,
+    )
+    db.add(anexo)
+    db.commit()
+    db.refresh(anexo)
+    return anexo
+
+
+@router.get(
+    "/{ocorrencia_id}/anexos/{anexo_id}/arquivo",
+    summary="Baixa o arquivo do anexo — protegido pelo mesmo acesso 'ocorrencia' (nunca público)",
+)
+def baixar_anexo(
+    ocorrencia_id: UUID, anexo_id: UUID, _: LeituraOcorrencia, db: Annotated[Session, Depends(get_db)]
+):
+    anexo = db.execute(
+        select(OcorrenciaAnexo).where(
+            OcorrenciaAnexo.id == anexo_id, OcorrenciaAnexo.ocorrencia_id == ocorrencia_id
+        )
+    ).scalar_one_or_none()
+    if anexo is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Anexo não encontrado")
+
+    caminho_disco = Path("uploads") / anexo.caminho
+    if not caminho_disco.is_file():
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Arquivo não encontrado no servidor")
+
+    return FileResponse(
+        caminho_disco, media_type=anexo.mime_type or "application/octet-stream",
+        filename=anexo.nome_original or caminho_disco.name,
+    )
+
+
+@router.delete(
+    "/{ocorrencia_id}/anexos/{anexo_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Remove arquivo e registro",
+)
+def deletar_anexo(
+    ocorrencia_id: UUID, anexo_id: UUID, _: EscritaOcorrencia, db: Annotated[Session, Depends(get_db)]
+) -> None:
+    anexo = db.execute(
+        select(OcorrenciaAnexo).where(
+            OcorrenciaAnexo.id == anexo_id, OcorrenciaAnexo.ocorrencia_id == ocorrencia_id
+        )
+    ).scalar_one_or_none()
+    if anexo is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Anexo não encontrado")
+
+    caminho_disco = Path("uploads") / anexo.caminho
+    try:
+        caminho_disco.unlink(missing_ok=True)
+    except OSError:
+        logger.warning("Não foi possível remover o arquivo do anexo %s do disco", anexo_id)
+
+    db.delete(anexo)
+    db.commit()
