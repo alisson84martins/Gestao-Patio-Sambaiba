@@ -1513,10 +1513,25 @@ body {
         border-right: 0.5px solid #999;
         padding-right: 9px;
     }
+    /* Rótulo e posição em flex: a posição tem largura própria (flex:none) e
+       NUNCA encolhe nem é cortada pelo overflow:hidden da célula — quem
+       encolhe (com reticências) é o rótulo da fila, se precisar. A rede de
+       segurança contra transbordo não pode comer informação por engano. */
     .pt-td-fila {
         padding-left: 9px;
+        display: flex;
+        align-items: baseline;
+        gap: 4px;
+    }
+    .pt-td-fila-rotulo {
+        flex: 1 1 auto;
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
     }
     .pt-td-pos {
+        flex: 0 0 auto;
         font-size: 10px;
         font-weight: 400;
         color: #888;

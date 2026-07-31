@@ -270,9 +270,13 @@ function imprimirPatio(filas) {
         const preso = o.alerta_tipo === 'PRESO';
         const rotuloFila = _rotuloFilaImpresso(o);
         const posicao = o.posicao ?? '';
+        // Rótulo e posição em spans separados dentro da célula (ver .pt-td-fila
+        // no CSS): quem encolhe quando o espaço aperta é o rótulo da fila
+        // (text-overflow:ellipsis), nunca a posição — ela tem largura própria,
+        // fora do encolhimento.
         return `<tr${preso ? ' class="pt-row-preso"' : ''}>
             <td class="pt-td-carro">${o.numero_frota}</td>
-            <td class="pt-td-fila">${rotuloFila}${preso ? ' ⚠' : ''} <span class="pt-td-pos">${posicao}</span></td>
+            <td class="pt-td-fila"><span class="pt-td-fila-rotulo">${rotuloFila}${preso ? ' ⚠' : ''}</span><span class="pt-td-pos">${posicao}</span></td>
         </tr>`;
     }
 
