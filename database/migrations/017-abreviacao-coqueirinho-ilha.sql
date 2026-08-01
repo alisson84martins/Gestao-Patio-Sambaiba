@@ -1,0 +1,56 @@
+-- ============================================================================
+-- MIGRATION 017 — Abreviação das especiais que faltaram: Coqueirinho e Ilha
+-- ----------------------------------------------------------------------------
+-- BANCO:  gestao_frota_sambaiba (produção) / gestao_patio_sambaiba (dev)
+-- DATA:   2026-07-31
+-- AUTOR:  Alisson Martins
+-- DEPENDE DE: 016-abreviacao-fila.sql (cria a coluna fila.abreviacao)
+-- ----------------------------------------------------------------------------
+-- POR QUÊ
+--   A 016 partiu de 6 posições especiais. A conferência em produção mostrou
+--   OITO: `Coqueirinho` e `Ilha` também existem, estão ativas e em uso
+--   (2 e 3 carros no momento da checagem) — e ficaram sem abreviação.
+--
+--   Sem abreviação, `_rotuloFilaImpresso()` cai no nome inteiro. "Coqueirinho"
+--   tem 11 caracteres e sai a 19px negrito no impresso: ocupa a célula toda e
+--   empurra o número da posição para fora. Era candidata direta ao bug de
+--   "posição some nas filas especiais".
+--
+-- ⚠️ COLISÃO DE RÓTULO — decisão de Alisson (31/07/2026)
+--   Coqueiro e Coqueirinho são posições vizinhas e distintas. Usar `COQ` nas
+--   duas faria o motorista ler o mesmo rótulo e ir para o lugar errado.
+--   Por isso: Coqueiro = COQ (inalterado) · Coqueirinho = COQP.
+--
+-- NATUREZA: aditiva, só dados. Idempotente — `WHERE abreviacao IS NULL`
+-- preserva qualquer ajuste manual feito depois.
+-- COMO RODAR:
+--   sudo -u postgres psql -d gestao_frota_sambaiba -c "SET ROLE sambaiba;" \
+--        -f 017-abreviacao-coqueirinho-ilha.sql
+-- ============================================================================
+
+UPDATE fila SET abreviacao = 'COQP' WHERE nome = 'Coqueirinho' AND abreviacao IS NULL;
+UPDATE fila SET abreviacao = 'ILHA' WHERE nome = 'Ilha'        AND abreviacao IS NULL;
+
+-- ============================================================================
+-- CONFERÊNCIA
+-- ============================================================================
+--   Toda fila ESPECIAL ativa precisa ter abreviação (esperado: 0 linhas):
+--     SELECT nome FROM fila
+--      WHERE tipo = 'ESPECIAL' AND ativa AND abreviacao IS NULL;
+--
+--   Nenhuma abreviação pode se repetir entre filas ativas (esperado: 0 linhas):
+--     SELECT abreviacao, count(*), string_agg(nome, ' / ')
+--       FROM fila WHERE ativa AND abreviacao IS NOT NULL
+--      GROUP BY abreviacao HAVING count(*) > 1;
+--
+--   Estado final esperado das 8 especiais:
+--     Coqueiro/COQ · Laje/LAJE · Lavador/LAV · Bomba/BOMBA ·
+--     Elétricos/ELE · Fundão/FUN · Coqueirinho/COQP · Ilha/ILHA
+-- ============================================================================
+
+-- ============================================================================
+-- ROLLBACK
+-- ============================================================================
+-- UPDATE fila SET abreviacao = NULL WHERE nome IN ('Coqueirinho','Ilha');
+-- (Seguro: a coluna é só exibição, com fallback para o nome.)
+-- ============================================================================
