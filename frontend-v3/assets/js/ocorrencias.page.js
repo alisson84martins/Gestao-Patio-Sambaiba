@@ -9,9 +9,10 @@
 
 import { requireAuth, getCurrentUser, logout } from './auth.js';
 import { apiGet, ApiError } from './api.js';
-import { podeEscrever, podeLer } from './sessao.js';
+import { podeEscrever, podeLer, usuario, temFuncao } from './sessao.js';
 import { imprimirOcorrencia } from './ocorrencia.imprimir.js';
 import { abrirMensagemSinistro } from './ocorrencia.sinistro.js';
+import { confirmarExclusaoOcorrencia } from './ocorrencia.excluir.js';
 
 if (!requireAuth()) {
     throw new Error('Sessão não autenticada — interrompendo carga da página');
@@ -142,6 +143,17 @@ function indicador(icone, qtd, titulo) {
     return `<span title="${titulo}" style="margin-right:8px;white-space:nowrap">${icone} ${qtd}</span>`;
 }
 
+/**
+ * Regra de Alisson (01/08/2026): só o autor exclui a própria ocorrência;
+ * só ADMIN exclui a de outro. `coordenador_re` vem da mesma view que já
+ * mostra o nome do coordenador — RE é o identificador de pessoa que a
+ * sessão já carrega (não precisa expor o UUID de registrado_por na
+ * listagem só pra essa checagem).
+ */
+function podeExcluir(item) {
+    return podeEscrever('ocorrencia') && (item.coordenador_re === usuario()?.re || temFuncao('ADMIN'));
+}
+
 function renderLista(itens) {
     const secao = document.getElementById('ocorrencias-lista');
 
@@ -174,6 +186,9 @@ function renderLista(itens) {
                         title="Imprimir" aria-label="Imprimir ocorrência ${item.numero}">🖨️</button>
                 <button type="button" class="btn-acao-lista" data-acao="sinistro" data-id="${item.id}"
                         title="Mensagem do sinistro" aria-label="Mensagem do sinistro da ocorrência ${item.numero}">📨</button>
+                ${podeExcluir(item) ? `
+                <button type="button" class="btn-acao-lista" data-acao="excluir" data-id="${item.id}"
+                        title="Excluir" aria-label="Excluir ocorrência ${item.numero}">🗑️</button>` : ''}
             </td>` : ''}
         </tr>
     `).join('');
@@ -208,10 +223,13 @@ function renderLista(itens) {
         btn.addEventListener('click', (e) => {
             e.stopPropagation();
             const id = btn.dataset.id;
+            const item = itens.find(i => String(i.id) === String(id));
             if (btn.dataset.acao === 'imprimir') {
                 imprimirLinha(id);
             } else if (btn.dataset.acao === 'sinistro') {
                 abrirMensagemSinistro(id);
+            } else if (btn.dataset.acao === 'excluir' && item) {
+                confirmarExclusaoOcorrencia(item, () => carregarLista());
             }
         });
     });

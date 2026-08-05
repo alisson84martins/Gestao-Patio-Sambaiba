@@ -51,6 +51,8 @@
                     title="Salve a ocorrência para imprimir" aria-disabled="true">🖨️ Imprimir</button>
             <button type="button" class="btn btn-ghost" id="btn-sinistro" disabled
                     title="Salve a ocorrência para gerar a mensagem" aria-disabled="true">📨 Mensagem do Sinistro</button>
+            <button type="button" class="btn btn-danger" id="btn-excluir" disabled
+                    title="Salve a ocorrência para poder excluir" aria-disabled="true">🗑️ Excluir</button>
             <button type="button" class="btn btn-primary" id="btn-finalizar" style="display:none">✔ Finalizar</button>
         </div>
     </div>
@@ -479,6 +481,21 @@
             <button type="button" class="btn btn-ghost btn-full btn-modal-stack" id="btn-sinistro-compartilhar">📤 Compartilhar</button>
         </div>
         <div id="sinistro-erro" style="display:none;color:var(--accent);font-size:0.85rem;margin-top:8px"></div>
+    </div>
+</div>
+
+<!-- ========================================================= -->
+<!-- Modal Excluir Ocorrência                                    -->
+<!-- ========================================================= -->
+<div class="modal-overlay" id="modal-excluir-oc">
+    <div class="modal">
+        <button type="button" class="modal-close" id="modal-excluir-oc-fechar">✕</button>
+        <div class="modal-title">Excluir ocorrência?</div>
+        <p style="color:var(--muted);font-size:0.85rem;margin-bottom:10px">A ocorrência sai da lista e das consultas. Isso não é desfeito pela tela.</p>
+        <div id="excluir-oc-resumo" style="font-weight:700;margin-bottom:14px"></div>
+        <div id="excluir-oc-erro" style="display:none;color:var(--accent);font-size:0.85rem;margin-bottom:10px"></div>
+        <button type="button" class="btn btn-danger btn-full" id="btn-excluir-oc-confirmar">🗑️ Excluir</button>
+        <button type="button" class="btn btn-ghost btn-full btn-modal-stack" id="btn-excluir-oc-cancelar">Cancelar</button>
     </div>
 </div>
 

@@ -394,6 +394,10 @@ class OcorrenciaRead(OcorrenciaBase, ORMBase):
     numero: int
     status: StatusOcorrencia
     registrado_por: Optional[UUID] = None
+    # Só preenchido por GET /{id} (ver detalhar()) — é o que o formulário usa
+    # pra mostrar "Registrada por <nome> — somente leitura" quando quem abre
+    # não é o autor nem ADMIN. Nos demais endpoints fica None.
+    registrado_por_nome: Optional[str] = None
     criado_em: datetime
     atualizado_em: Optional[datetime] = None
     atualizado_por: Optional[UUID] = None
@@ -429,6 +433,12 @@ class OcorrenciaResumo(BaseModel):
     qtd_testemunhas: int = 0
     qtd_autoridades: int = 0
     qtd_anexos: int = 0
+    coordenador_nome: Optional[str] = None
+    # RE, não o UUID de registrado_por — a view já expõe os dois nomes de
+    # coluna prontos (coordenador_nome/coordenador_re) e o frontend já usa
+    # RE como identificador de pessoa (mesmo padrão do cabeçalho). Evita
+    # expor o UUID interno numa listagem só pra decidir "é meu ou não".
+    coordenador_re: Optional[str] = None
 
 
 class OcorrenciaListaResponse(BaseModel):

@@ -48,6 +48,40 @@ ANEXO_TAMANHO_MAXIMO = 10 * 1024 * 1024  # 10 MB
 UPLOAD_ROOT = Path("uploads") / "ocorrencias"
 
 
+def _eh_admin(db: Session, funcionario_id: UUID) -> bool:
+    """Checa a função pelo modelo RBAC (funcionario_funcao → funcao), não
+    pelo campo legado `usuario.perfil` — este está em aposentadoria (ver
+    SISTEMA-EM-PRODUCAO.md, pendências)."""
+    row = db.execute(
+        text(
+            "SELECT 1 FROM funcionario_funcao ff "
+            "JOIN funcao f ON f.id = ff.funcao_id "
+            "WHERE ff.funcionario_id = :fid AND ff.ativo AND f.codigo = 'ADMIN'"
+        ),
+        {"fid": funcionario_id},
+    ).first()
+    return row is not None
+
+
+def _exige_autoria(oc: Ocorrencia, usuario: Funcionario, db: Session) -> None:
+    """Só o autor mexe na própria ocorrência. ADMIN é a única exceção.
+    Regra de Alisson (01/08/2026): ocorrência é documento assinado por quem
+    registrou — outro coordenador não altera nem apaga o que não é dele.
+
+    Ocorrência antiga com registrado_por nulo cai direto no 403 (a menos
+    que quem peça seja ADMIN) — falhar fechado é o certo aqui, não dá pra
+    provar autoria de um registro que nunca gravou quem o criou.
+    """
+    if oc.registrado_por == usuario.id:
+        return
+    if _eh_admin(db, usuario.id):
+        return
+    raise HTTPException(
+        status.HTTP_403_FORBIDDEN,
+        detail="Esta ocorrência foi registrada por outro coordenador",
+    )
+
+
 def _carregar_completa(db: Session, ocorrencia_id: UUID) -> Optional[Ocorrencia]:
     """Carrega a ocorrência com todas as filhas.
 
@@ -134,7 +168,8 @@ def listar(
             f"""
             SELECT id, numero, data_ocorrencia, hora_ocorrencia, tipo_codigo, tipo_nome,
                    prefixo, linha_codigo, bairro, status,
-                   qtd_vitimas, qtd_testemunhas, qtd_autoridades, qtd_anexos
+                   qtd_vitimas, qtd_testemunhas, qtd_autoridades, qtd_anexos,
+                   coordenador_nome, coordenador_re
               FROM coordenadoria.vw_ocorrencia_resumo
             {_FILTROS_SQL}
              ORDER BY data_ocorrencia DESC, hora_ocorrencia DESC
@@ -155,6 +190,9 @@ def detalhar(ocorrencia_id: UUID, _: LeituraOcorrencia, db: Annotated[Session, D
     oc = _carregar_completa(db, ocorrencia_id)
     if oc is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Ocorrência não encontrada")
+    if oc.registrado_por:
+        autor = db.get(Funcionario, oc.registrado_por)
+        oc.registrado_por_nome = autor.nome if autor else None
     return oc
 
 
@@ -190,6 +228,7 @@ def atualizar(
     oc = db.get(Ocorrencia, ocorrencia_id)
     if oc is None or oc.excluida_em is not None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Ocorrência não encontrada")
+    _exige_autoria(oc, usuario, db)
 
     dados_capa = payload.model_dump(
         exclude_unset=True,
@@ -269,6 +308,7 @@ def deletar(ocorrencia_id: UUID, usuario: EscritaOcorrencia, db: Annotated[Sessi
     oc = db.get(Ocorrencia, ocorrencia_id)
     if oc is None or oc.excluida_em is not None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Ocorrência não encontrada")
+    _exige_autoria(oc, usuario, db)
 
     oc.excluida_em = datetime.now(timezone.utc)
     oc.atualizado_em = oc.excluida_em

@@ -142,10 +142,15 @@ def _novo_tipo_teste():
     )
 
 
-def _nova_ocorrencia_teste(tipo):
+def _nova_ocorrencia_teste(tipo, registrado_por=None):
     """Ocorrência com todos os NOT NULL preenchidos — construída direto em
     Python, sem passar pelo flush do SQLAlchemy, então os defaults das
-    colunas booleanas (default=False no model) não se aplicam sozinhos."""
+    colunas booleanas (default=False no model) não se aplicam sozinhos.
+
+    `registrado_por` default = o próprio usuário fake usado pelos testes
+    de fumaça (leitura e escrita), pra _exige_autoria() (item 2) deixar
+    passar sem precisar simular a checagem de ADMIN aqui — isso é testado
+    à parte em test_ocorrencias_autoria.py."""
     return Ocorrencia(
         id=uuid4(),
         numero=1,
@@ -163,6 +168,7 @@ def _nova_ocorrencia_teste(tipo):
         monitoramento=False,
         ocorrencia_policial=False,
         houve_policia_tecnica=False,
+        registrado_por=registrado_por if registrado_por is not None else _USUARIO_FAKE.id,
         criado_em=datetime.now(timezone.utc),
     )
 

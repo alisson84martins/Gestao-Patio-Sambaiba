@@ -15,10 +15,11 @@
 import { requireAuth, getCurrentUser, logout } from './auth.js';
 import { apiGet, apiPost, apiPatch, apiDelete, ApiError } from './api.js';
 import { API_BASE_URL, TOKEN_KEY } from './config.js';
-import { podeEscrever, podeLer } from './sessao.js';
+import { podeEscrever, podeLer, usuario, temFuncao } from './sessao.js';
 import { ANALISE_GRUPOS, REGIOES_AVARIA, TIPOS_ANEXO, DANOS_VEICULO } from './ocorrencia.vocabulario.js';
 import { imprimirOcorrencia } from './ocorrencia.imprimir.js';
 import { abrirMensagemSinistro } from './ocorrencia.sinistro.js';
+import { confirmarExclusaoOcorrencia } from './ocorrencia.excluir.js';
 
 if (!requireAuth()) {
     throw new Error('Sessão não autenticada — interrompendo carga da página');
@@ -28,7 +29,10 @@ if (!podeLer('ocorrencia')) {
     throw new Error('Sem acesso de leitura ao recurso ocorrencia');
 }
 
-const somenteLeitura = !podeEscrever('ocorrencia');
+// `let`, não `const` — vira true também quando a ocorrência já existe e
+// não é desta pessoa (nem ADMIN). Ver podeAgirNestaOcorrencia() e o boot,
+// que resolve isso ANTES de montar os campos e ligar o autosave.
+let somenteLeitura = !podeEscrever('ocorrencia');
 
 const params = new URLSearchParams(window.location.search);
 let ocorrenciaId = params.get('id');
@@ -103,6 +107,16 @@ function lerAnalise() {
 
 function algumaAnaliseTemDado() {
     return Object.values(lerAnalise()).some(v => v !== null && v !== '');
+}
+
+/**
+ * Regra de Alisson (01/08/2026): cada coordenador só mexe no que
+ * registrou; só ADMIN edita/exclui a de outro. Ocorrência nova (sem
+ * dados ainda) sempre pode — quem cria é sempre o autor.
+ */
+function podeAgirNestaOcorrencia(dados) {
+    if (!dados) return true;
+    return dados.registrado_por === usuario()?.funcionario_id || temFuncao('ADMIN');
 }
 
 function escapeHtml(str) {
@@ -569,7 +583,7 @@ async function salvarAgora() {
             const criada = await apiPost('/ocorrencias', capa);
             ocorrenciaId = criada.id;
             history.replaceState(null, '', `ocorrencia-form.html?id=${ocorrenciaId}`);
-            mostrarControlesPosCriacao();
+            mostrarControlesPosCriacao(true);
         }
         const atualizada = await apiPatch(`/ocorrencias/${ocorrenciaId}`, payloadAtualizacao());
         dadosAtuais = atualizada;
@@ -607,7 +621,7 @@ function atualizarTitulo(numero) {
  * explicando o porquê. Uma função escondida é fácil de descobrir clicando;
  * uma que nunca aparece, não — por isso nunca usamos display:none aqui.
  */
-function mostrarControlesPosCriacao() {
+function mostrarControlesPosCriacao(podeAgir = true) {
     const btnImprimir = document.getElementById('btn-imprimir');
     const btnSinistro = document.getElementById('btn-sinistro');
     btnImprimir.disabled = false;
@@ -616,6 +630,19 @@ function mostrarControlesPosCriacao() {
     btnSinistro.disabled = false;
     btnSinistro.removeAttribute('title');
     btnSinistro.setAttribute('aria-disabled', 'false');
+
+    // Excluir some (não fica só desabilitado) quando a ocorrência é de
+    // outra pessoa — item 2i do prompt: em vez do botão, a nota de
+    // "somente leitura" já aparece no status (ver preencherTudo).
+    const btnExcluir = document.getElementById('btn-excluir');
+    if (podeAgir) {
+        btnExcluir.style.display = '';
+        btnExcluir.disabled = false;
+        btnExcluir.removeAttribute('title');
+        btnExcluir.setAttribute('aria-disabled', 'false');
+    } else {
+        btnExcluir.style.display = 'none';
+    }
 
     document.getElementById('anexo-aviso-sem-id').style.display = 'none';
     document.getElementById('anexo-upload-area').style.display = somenteLeitura ? 'none' : '';
@@ -646,15 +673,14 @@ function preencherTudo(dados) {
     renderAnexos(dados.anexos || []);
 
     atualizarTitulo(dados.numero);
-    mostrarControlesPosCriacao();
+    const podeAgir = podeAgirNestaOcorrencia(dados);
+    mostrarControlesPosCriacao(podeAgir);
     atualizarBotaoFinalizar(dados.status);
-    marcarStatus('Tudo salvo', 'salvo');
-}
-
-async function carregarOcorrenciaExistente(id) {
-    const dados = await apiGet(`/ocorrencias/${id}`);
-    dadosAtuais = dados;
-    preencherTudo(dados);
+    if (podeAgir) {
+        marcarStatus('Tudo salvo', 'salvo');
+    } else {
+        marcarStatus(`Registrada por ${dados.registrado_por_nome || 'outro coordenador'} — somente leitura`);
+    }
 }
 
 function definirPadroesNovaOcorrencia() {
@@ -703,6 +729,21 @@ function initAcoesFinais() {
     document.getElementById('btn-sinistro').addEventListener('click', () => {
         if (!ocorrenciaId) return;
         abrirMensagemSinistro(ocorrenciaId);
+    });
+}
+
+function initExclusao() {
+    document.getElementById('btn-excluir').addEventListener('click', () => {
+        if (!ocorrenciaId || !dadosAtuais) return;
+        confirmarExclusaoOcorrencia(
+            {
+                id: ocorrenciaId,
+                numero: dadosAtuais.numero,
+                data_ocorrencia: dadosAtuais.data_ocorrencia,
+                tipo_nome: dadosAtuais.tipo_ocorrencia?.nome,
+            },
+            () => { window.location.href = 'ocorrencias.html'; },
+        );
     });
 }
 
@@ -829,10 +870,26 @@ function initUploadAnexo() {
 
 document.addEventListener('DOMContentLoaded', async () => {
     initHeader();
+
+    // Busca a ocorrência (se houver id) ANTES de montar os campos e ligar
+    // o autosave — é o único jeito de saber se esta pessoa pode agir nela
+    // (autora ou ADMIN) a tempo de decidir se o formulário nasce travado.
+    if (ocorrenciaId) {
+        try {
+            dadosAtuais = await apiGet(`/ocorrencias/${ocorrenciaId}`);
+        } catch (err) {
+            if (err instanceof ApiError && err.status === 401) return;
+            mostrarErroGeral(`Erro ao carregar ocorrência: ${err.message}`);
+            return;
+        }
+        if (!podeAgirNestaOcorrencia(dadosAtuais)) somenteLeitura = true;
+    }
+
     initTabs();
     initBotoesAdicionar();
     initFinalizar();
     initAcoesFinais();
+    initExclusao();
     initUploadAnexo();
 
     try {
@@ -846,14 +903,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     await carregarCatalogosPatio();
     initAutocompleteCondutorECobrador();
 
-    if (ocorrenciaId) {
-        try {
-            await carregarOcorrenciaExistente(ocorrenciaId);
-        } catch (err) {
-            if (err instanceof ApiError && err.status === 401) return;
-            mostrarErroGeral(`Erro ao carregar ocorrência: ${err.message}`);
-            return;
-        }
+    if (ocorrenciaId && dadosAtuais) {
+        preencherTudo(dadosAtuais);
     } else {
         definirPadroesNovaOcorrencia();
         marcarStatus('Preencha tipo, data, hora e prefixo para começar a salvar');
