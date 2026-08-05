@@ -8,6 +8,42 @@
  * seria o tipo de coisa que desalinha silenciosamente com o tempo.
  */
 
+// Espelha o seed de coordenadoria.tipo_ocorrencia (migration 012) — usado
+// pela impressão (item 6) pra montar a matriz "todas as opções com
+// quadradinho" (3A) da Capa. O formulário continua lendo os tipos da API
+// (GET /ocorrencias/catalogos), que é a fonte de verdade; esta lista é só
+// pros rótulos fixos do impresso, que precisa mostrar as 12 opções mesmo
+// que a ocorrência só tenha uma marcada.
+export const TIPOS_OCORRENCIA = [
+    ['ACIDENTE_COM_VITIMA', 'Acidente com Vítima'],
+    ['ACIDENTE_SEM_VITIMA', 'Acidente sem Vítima'],
+    ['ATROPELAMENTO', 'Atropelamento'],
+    ['QUEDA_DE_PASSAGEIRO', 'Queda de Passageiro'],
+    ['INCIDENTE', 'Incidente'],
+    ['VANDALISMO', 'Vandalismo'],
+    ['AVARIA_NO_PATIO', 'Avaria no Pátio'],
+    ['FURTO_DE_EQUIPAMENTOS', 'Furto de Equipamentos'],
+    ['CHOQUE', 'Choque'],
+    ['FURTO_DE_VEICULOS', 'Furto de Veículos'],
+    ['INCENDIO_DO_VEICULO', 'Incêndio do Veículo'],
+    ['OUTROS', 'Outros'],
+];
+
+// "Registro / local" do papel: 6 marcadores booleanos da via (colunas de
+// coordenadoria.ocorrencia) + o sentido, que no papel também é só duas
+// caixinhas (TP-TS / TS-TP) apesar de no banco ser texto livre — ver
+// SENTIDO_OPCOES logo abaixo.
+export const REGISTRO_LOCAL = [
+    ['via_urbana', 'Via Urbana'],
+    ['via_rodoviaria', 'Via Rodoviária'],
+    ['area_interna', 'Área Interna'],
+    ['corredor', 'Corredor'],
+    ['tem_fotos', 'Fotos'],
+    ['monitoramento', 'Monitoramento'],
+];
+
+export const SENTIDO_OPCOES = ['TP-TS', 'TS-TP'];
+
 export const ANALISE_GRUPOS = [
     {
         titulo: 'Tipo de colisão / acidente',

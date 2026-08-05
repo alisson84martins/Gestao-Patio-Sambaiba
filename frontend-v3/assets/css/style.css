@@ -2866,59 +2866,110 @@ body.modal-open {
     }
 }
 
-/* ── Impressão do Relatório de Ocorrências (4 páginas) ────────────── */
+/* ── Impressão do Relatório de Ocorrências (4 páginas) ──────────────
+   Fiel a _handoff-claude/MOCKUP-impressao-ocorrencia.html, aprovado por
+   Alisson em 01/08/2026 (1C híbrido · 2B seção vazia vira linha de aviso
+   · 3A todas as opções com quadradinho · 5A quatro páginas fixas).
+   Nomes de classe com prefixo oc-print- (o mockup usa nomes curtos tipo
+   .folha/.f/.val — aqui prefixados pra não colidir com o resto da folha
+   de estilo, que é compartilhada com telas bem diferentes).
+   Não mexe no @media print do pátio (linha 1489) nem reusa @page daqui —
+   já herda margin:10mm/size:A4 de lá. ────────────────────────────── */
 @media print {
-    .oc-print-page {
-        page-break-after: always;
+    .oc-print-folha {
+        width: 210mm;
+        min-height: 297mm;
+        padding: 9mm 10mm;
+        margin: 0;
+        background: #fff;
+        position: relative;
         font-family: Arial, Helvetica, sans-serif;
         color: #000;
-        font-size: 11px;
+        page-break-after: always;
+        -webkit-print-color-adjust: exact;
+        print-color-adjust: exact;
     }
-    .oc-print-page:last-child { page-break-after: auto; }
+    .oc-print-folha:last-child { page-break-after: auto; }
 
-    .oc-print-header {
-        text-align: center;
-        border-bottom: 2.5px solid #000;
-        padding-bottom: 4px;
-        margin-bottom: 8px;
+    .oc-print-cab { display: flex; align-items: flex-end; gap: 10px; border-bottom: 3px solid #000; padding-bottom: 3px; }
+    .oc-print-logo { font-size: 15px; font-weight: 700; line-height: .95; font-family: Georgia, serif; }
+    .oc-print-logo .oc-print-eu { font-size: 11px; display: block; }
+    .oc-print-cab h1 { flex: 1; margin: 0; font-size: 19px; letter-spacing: .5px; text-align: center; }
+    .oc-print-num { font-size: 12px; font-weight: 700; }
+    .oc-print-num span { display: inline-block; min-width: 60px; border-bottom: 1px solid #000; text-align: center; }
+    .oc-print-subcab { display: flex; justify-content: space-between; font-size: 8.5px; color: #666; padding: 2px 0 5px; }
+
+    .oc-print-faixa {
+        background: #e8e8e8;
+        border-top: 1px solid #000; border-bottom: 1px solid #000;
+        font-size: 9.5px; font-weight: 700; letter-spacing: .6px;
+        text-align: center; padding: 1.5px 0; margin: 7px 0 4px;
+        text-transform: uppercase;
     }
-    .oc-print-empresa { font-size: 9px; color: #555; letter-spacing: 2px; text-transform: uppercase; }
-    .oc-print-titulo   { font-size: 16px; font-weight: 800; letter-spacing: 1px; margin: 2px 0; }
-    .oc-print-sub      { font-size: 9px; color: #666; }
+    .oc-print-sub { font-size: 10px; font-weight: 700; margin: 6px 0 2px; }
 
-    .oc-print-section-titulo {
-        background: #000;
-        color: #fff;
-        padding: 3px 6px;
-        font-size: 10px;
-        font-weight: 800;
-        letter-spacing: 0.5px;
-        margin: 8px 0 4px;
+    .oc-print-linhas { display: flex; flex-wrap: wrap; gap: 0 14px; }
+    .oc-print-f { display: flex; align-items: baseline; gap: 4px; font-size: 9px; padding: 2.5px 0; flex: 1 1 auto; }
+    .oc-print-f > .oc-print-rot { color: #000; white-space: nowrap; }
+    .oc-print-f > .oc-print-val {
+        flex: 1 1 auto; min-width: 40px;
+        border-bottom: 1px solid #000;
+        font-size: 10.5px; font-weight: 700; padding: 0 3px 1px;
+        min-height: 13px;
+    }
+    .oc-print-w100 { flex-basis: 100%; }
+    .oc-print-w50  { flex-basis: 46%; }
+    .oc-print-w33  { flex-basis: 30%; }
+    .oc-print-w25  { flex-basis: 21%; }
+
+    .oc-print-opts { display: flex; flex-wrap: wrap; gap: 2px 10px; align-items: center; font-size: 8.5px; padding: 1.5px 0; }
+    .oc-print-opts > .oc-print-rot { font-weight: 700; font-size: 8.5px; min-width: 108px; }
+    .oc-print-op { display: inline-flex; align-items: center; gap: 3px; white-space: nowrap; }
+    .oc-print-bx {
+        width: 8px; height: 8px; border: 1px solid #000;
+        display: inline-block; position: relative; flex: none;
+    }
+    .oc-print-bx.on { background: #000; }
+    .oc-print-bx.on::after {
+        content: '×'; color: #fff; position: absolute; inset: 0;
+        font-size: 8px; line-height: 8px; text-align: center; font-weight: 700;
+    }
+    .oc-print-op.marcado { font-weight: 700; }
+
+    .oc-print-mtz { display: flex; align-items: flex-start; gap: 6px; border-bottom: .5px dotted #bbb; padding: 2px 0; }
+    .oc-print-mtz > .oc-print-rot { font-size: 8.5px; font-weight: 700; width: 118px; flex: none; padding-top: 1px; }
+    .oc-print-mtz > .oc-print-ops { display: flex; flex-wrap: wrap; gap: 2px 9px; font-size: 8.5px; }
+
+    .oc-print-txt {
+        border: 1px solid #000; padding: 4px 5px; font-size: 9.5px;
+        line-height: 1.45; min-height: 34px; white-space: pre-wrap;
+    }
+    .oc-print-vazio { font-size: 9px; color: #666; font-style: italic; padding: 3px 0; }
+
+    .oc-print-bloco { border: 1px solid #000; padding: 4px 6px 5px; margin-bottom: 5px; }
+    .oc-print-bloco-tit {
+        font-size: 9px; font-weight: 700; text-transform: uppercase;
+        letter-spacing: .4px; border-bottom: .5px solid #999; margin-bottom: 2px; padding-bottom: 1px;
     }
 
-    .oc-print-grid {
-        display: grid;
-        grid-template-columns: repeat(2, 1fr);
-        gap: 2px 12px;
-        margin-bottom: 4px;
+    .oc-print-corte { border-top: 1px dashed #000; margin: 8px 0 5px; position: relative; }
+    .oc-print-corte::before { content: '✂'; position: absolute; left: 0; top: -7px; background: #fff; padding-right: 4px; font-size: 10px; }
+    .oc-print-comunicacao { display: flex; gap: 10px; align-items: center; border: 1px solid #000; padding: 5px 7px; font-size: 8.5px; line-height: 1.4; }
+
+    .oc-print-assinaturas { display: flex; gap: 26px; margin-top: 14px; }
+    .oc-print-assinaturas > div { flex: 1; text-align: center; font-size: 8.5px; }
+    .oc-print-assinaturas .oc-print-risco { border-top: 1px solid #000; padding-top: 2px; margin-top: 22px; }
+    .oc-print-assinaturas .oc-print-nome { font-size: 9.5px; font-weight: 700; }
+
+    .oc-print-pe {
+        position: absolute; left: 10mm; right: 10mm; bottom: 5mm;
+        display: flex; justify-content: space-between;
+        font-size: 7.5px; color: #666; border-top: .5px solid #ccc; padding-top: 2px;
     }
-    .oc-print-grid-3 { grid-template-columns: repeat(3, 1fr); }
-    .oc-print-field { border-bottom: 1px solid #ccc; padding: 2px 0; }
-    .oc-print-label  { font-size: 8px; color: #666; text-transform: uppercase; letter-spacing: 0.3px; display: block; }
-    .oc-print-valor  { font-size: 11px; font-weight: 600; }
 
-    .oc-print-texto { border: 1px solid #ccc; padding: 6px; min-height: 40px; font-size: 10.5px; white-space: pre-wrap; margin-bottom: 6px; }
-
-    .oc-print-bloco { border: 1px solid #999; padding: 6px 8px; margin-bottom: 6px; }
-    .oc-print-bloco-titulo { font-weight: 800; font-size: 10px; margin-bottom: 3px; border-bottom: 1px solid #ccc; padding-bottom: 2px; }
-
-    .oc-print-rodape {
-        margin-top: 10px;
-        border-top: 2px dashed #000;
-        padding-top: 6px;
-        font-size: 9px;
-        text-align: center;
-        color: #333;
+    .oc-print-croqui {
+        border: 1px solid #000; height: 62mm;
+        background-image: linear-gradient(#ddd 1px, transparent 1px), linear-gradient(90deg, #ddd 1px, transparent 1px);
+        background-size: 5mm 5mm;
     }
-    .oc-print-rodape strong { font-size: 11px; display: block; margin-bottom: 2px; color: #000; }
 }
