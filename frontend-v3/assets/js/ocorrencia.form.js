@@ -89,6 +89,10 @@ function lerCapaEFechamento() {
         if (el.closest(SELETOR_EXCLUIR_TOPO)) return;
         dados[el.name] = lerValorCampo(el);
     });
+    // O campo "Qual?" fica escondido mas mantém o texto digitado (pra não
+    // sumir se a pessoa voltar pra Outros) — só não vai no salvamento
+    // quando o tipo selecionado não é Outros.
+    if (!tipoSelecionadoEhOutros()) dados.tipo_outros_descricao = null;
     return dados;
 }
 
@@ -140,6 +144,24 @@ function initHeader() {
         logout();
         window.location.replace('index.html');
     });
+}
+
+// ─── Tipo "Outros" — campo de texto livre ─────────────────────────────────
+// Compara sempre pelo código do catálogo, nunca pelo nome nem pela posição
+// na lista (o nome é editável em cadastros e a posição pode mudar).
+function tipoSelecionadoEhOutros() {
+    const tipoId = document.getElementById('f-tipo').value;
+    const tipo = catalogoTipos.find(t => t.id === tipoId);
+    return tipo?.codigo === 'OUTROS';
+}
+
+function atualizarVisibilidadeTipoOutros() {
+    const grupo = document.getElementById('f-tipo-outros-grupo');
+    if (grupo) grupo.style.display = tipoSelecionadoEhOutros() ? '' : 'none';
+}
+
+function initTipoOutros() {
+    document.getElementById('f-tipo').addEventListener('change', atualizarVisibilidadeTipoOutros);
 }
 
 // ─── Abas ─────────────────────────────────────────────────────────────────
@@ -657,6 +679,7 @@ function atualizarBotaoFinalizar(status) {
 
 function preencherTudo(dados) {
     preencherCapaEFechamento(dados);
+    atualizarVisibilidadeTipoOutros();
     preencherAvarias(dados.avarias);
     if (dados.analise) {
         document.querySelectorAll(SELETOR_ANALISE).forEach(el => preencherValorCampo(el, dados.analise[el.name]));
@@ -886,6 +909,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
 
     initTabs();
+    initTipoOutros();
     initBotoesAdicionar();
     initFinalizar();
     initAcoesFinais();

@@ -65,6 +65,9 @@ class Ocorrencia(Base):
         PG_UUID(as_uuid=True), ForeignKey(f"{SCHEMA}.tipo_ocorrencia.id"), nullable=False
     )
     status: Mapped[str] = mapped_column(String(15), nullable=False, default="RASCUNHO")
+    # Só preenchido quando tipo_ocorrencia.codigo == 'OUTROS' — texto do
+    # registro, não do catálogo (migration 018).
+    tipo_outros_descricao: Mapped[Optional[str]] = mapped_column(String(120), nullable=True)
 
     # ── Quando ────────────────────────────────────────────────────────────
     data_ocorrencia: Mapped[date] = mapped_column(Date, nullable=False)

@@ -30,13 +30,24 @@ def _linha(rotulo: str, valor) -> Optional[str]:
     return f"{rotulo}: {valor}"
 
 
+def _nome_tipo_exibicao(ocorrencia) -> str:
+    """'Outros — <descrição>' quando o tipo é OUTROS e o coordenador
+    escreveu qual; senão só o nome do tipo do catálogo."""
+    tipo = ocorrencia.tipo_ocorrencia
+    if not tipo:
+        return ""
+    if tipo.codigo == "OUTROS" and ocorrencia.tipo_outros_descricao:
+        return f"{tipo.nome} — {ocorrencia.tipo_outros_descricao}"
+    return tipo.nome
+
+
 def _bloco_cabecalho(ocorrencia) -> str:
     """Bloco fixo: identificação da Sambaíba + tipo + coletivo/linha + local.
 
     Sempre aparece por completo (linhas em branco quando o dado não existe) —
     é a moldura que o grupo do sinistro espera ver em toda mensagem.
     """
-    tipo_nome = ocorrencia.tipo_ocorrencia.nome if ocorrencia.tipo_ocorrencia else ""
+    tipo_nome = _nome_tipo_exibicao(ocorrencia)
     local = ocorrencia.local_ocorrido or ""
     if ocorrencia.numero_local:
         local_linha = f"Local do Ocorrido: {local}  N° {ocorrencia.numero_local}"

@@ -14,6 +14,7 @@ from app.services.mensagem_sinistro import gerar_mensagem_sinistro
 @dataclass
 class _Tipo:
     nome: str
+    codigo: str = "INCIDENTE"
 
 
 @dataclass
@@ -65,6 +66,7 @@ class _Ocorrencia:
     data_ocorrencia: date
     hora_ocorrencia: time
     prefixo: str
+    tipo_outros_descricao: str = ""
     linha_codigo: str = ""
     condutor_re: str = ""
     cobrador_re: str = ""
@@ -165,3 +167,37 @@ def test_local_sem_numero_nao_imprime_marcador_n():
     texto = gerar_mensagem_sinistro(oc)
     assert "Local do Ocorrido: Rua Fictícia\n" in texto
     assert "N°" not in texto.split("\n\n")[0]
+
+
+def test_tipo_outros_mostra_descricao_no_cabecalho():
+    """Item 3: tipo OUTROS com descrição escrita pelo coordenador aparece
+    como 'Outros — <descrição>' em vez de só 'Outros'."""
+    oc = _ocorrencia_minima()
+    oc.tipo_ocorrencia = _Tipo("Outros", codigo="OUTROS")
+    oc.tipo_outros_descricao = "Vazamento de óleo na garagem"
+
+    texto = gerar_mensagem_sinistro(oc)
+
+    assert "*Ocorrência - Outros — Vazamento de óleo na garagem*" in texto
+
+
+def test_tipo_outros_sem_descricao_mostra_so_o_nome():
+    oc = _ocorrencia_minima()
+    oc.tipo_ocorrencia = _Tipo("Outros", codigo="OUTROS")
+    oc.tipo_outros_descricao = ""
+
+    texto = gerar_mensagem_sinistro(oc)
+
+    assert "*Ocorrência - Outros*" in texto
+
+
+def test_tipo_diferente_de_outros_ignora_descricao_residual():
+    """Se o front mandar tipo_outros_descricao "sobrando" (não deveria,
+    ver ocorrencia.form.js), o back não mistura no nome de um tipo comum."""
+    oc = _ocorrencia_minima()
+    oc.tipo_outros_descricao = "Texto que não devia aparecer"
+
+    texto = gerar_mensagem_sinistro(oc)
+
+    assert "*Ocorrência - Incidente*" in texto
+    assert "Texto que não devia aparecer" not in texto

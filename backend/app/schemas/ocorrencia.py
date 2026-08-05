@@ -241,6 +241,9 @@ class OcorrenciaAnexoRead(ORMBase):
 
 class OcorrenciaBase(BaseModel):
     tipo_ocorrencia_id: UUID
+    # Preenchido só quando o tipo escolhido tem código OUTROS — ver
+    # tipo_outros_descricao no model e migration 018.
+    tipo_outros_descricao: Optional[str] = Field(None, max_length=120)
     data_ocorrencia: date
     hora_ocorrencia: time
     prefixo: str = Field(..., max_length=10)
@@ -316,6 +319,7 @@ class OcorrenciaUpdate(BaseModel):
     a seção inteira de uma vez, não um merge campo a campo.
     """
     tipo_ocorrencia_id: Optional[UUID] = None
+    tipo_outros_descricao: Optional[str] = Field(None, max_length=120)
     data_ocorrencia: Optional[date] = None
     hora_ocorrencia: Optional[time] = None
     prefixo: Optional[str] = Field(None, max_length=10)
