@@ -20,6 +20,7 @@ import { ANALISE_GRUPOS, REGIOES_AVARIA, TIPOS_ANEXO, DANOS_VEICULO } from './oc
 import { imprimirOcorrencia } from './ocorrencia.imprimir.js';
 import { abrirMensagemSinistro } from './ocorrencia.sinistro.js';
 import { confirmarExclusaoOcorrencia } from './ocorrencia.excluir.js';
+import { aplicarMascara } from './mascaras.js';
 
 if (!requireAuth()) {
     throw new Error('Sessão não autenticada — interrompendo carga da página');
@@ -144,6 +145,17 @@ function initHeader() {
         logout();
         window.location.replace('index.html');
     });
+}
+
+// ─── Máscaras dos campos fixos da Capa ─────────────────────────────────────
+// Os campos gerados a partir de CAMPOS_VEICULO/TESTEMUNHA/VITIMA já ganham
+// a máscara no renderizador (ver `campo.mascara` em renderListaDinamica);
+// os únicos campos de máscara que vivem direto no HTML da Capa são estes.
+function initMascarasCapa() {
+    aplicarMascara(document.getElementById('f-placa'), 'placa');
+    aplicarMascara(document.getElementById('f-condutor-cnh'), 'cnh');
+    aplicarMascara(document.getElementById('f-condutor-rg'), 'rg');
+    aplicarMascara(document.getElementById('f-condutor-cpf'), 'cpf');
 }
 
 // ─── Tipo "Outros" — campo de texto livre ─────────────────────────────────
@@ -308,6 +320,10 @@ function renderListaDinamica({ containerId, itens, campos, titulo, vazio, rerend
         const card = el.closest('[data-idx]');
         const idx = Number(card.dataset.idx);
         const campo = campos.find(c => c.name === el.dataset.campo);
+        // Máscara primeiro: reformata o valor antes do listener abaixo ler
+        // o que vai pro estado — grava sempre o valor formatado, como
+        // aparece na tela (nunca bloqueia o input, só avisa).
+        if (campo.mascara) aplicarMascara(el, campo.mascara);
         const evento = el.tagName === 'SELECT' ? 'change' : 'input';
         el.addEventListener(evento, () => {
             let valor = el.value === '' ? null : el.value;
@@ -334,43 +350,43 @@ const CAMPOS_VEICULO = [
     { name: 'danos', label: 'Danos', tipo: 'select', opcoes: DANOS_VEICULO },
     { name: 'marca', label: 'Marca' },
     { name: 'modelo', label: 'Modelo' },
-    { name: 'ano', label: 'Ano', tamanho: 9 },
+    { name: 'ano', label: 'Ano', tamanho: 9, mascara: 'ano' },
     { name: 'cor', label: 'Cor' },
-    { name: 'placa', label: 'Placa' },
+    { name: 'placa', label: 'Placa', mascara: 'placa' },
     { name: 'cidade_placa', label: 'Cidade (placa)' },
-    { name: 'estado_placa', label: 'UF', tamanho: 2 },
-    { name: 'renavam', label: 'Renavam' },
+    { name: 'estado_placa', label: 'UF', tamanho: 2, mascara: 'uf' },
+    { name: 'renavam', label: 'Renavam', mascara: 'renavam' },
     { name: 'proprietario', label: 'Proprietário/Motorista' },
-    { name: 'fones', label: 'Fones' },
+    { name: 'fones', label: 'Fones', mascara: 'telefone-multi' },
     { name: 'email', label: 'E-mail' },
     { name: 'endereco', label: 'Endereço', full: true },
     { name: 'cidade', label: 'Cidade' },
-    { name: 'rg', label: 'RG' },
-    { name: 'cpf', label: 'CPF' },
-    { name: 'cnh', label: 'CNH' },
+    { name: 'rg', label: 'RG', mascara: 'rg' },
+    { name: 'cpf', label: 'CPF', mascara: 'cpf' },
+    { name: 'cnh', label: 'CNH', mascara: 'cnh' },
     { name: 'seguradora', label: 'Seguradora' },
-    { name: 'seguradora_fone', label: 'Fone seguradora' },
+    { name: 'seguradora_fone', label: 'Fone seguradora', mascara: 'telefone' },
     { name: 'sinistro_numero', label: 'Sinistro Nº' },
     { name: 'partes_avariadas', label: 'Partes avariadas', tipo: 'textarea', full: true },
 ];
 
 const CAMPOS_TESTEMUNHA = [
     { name: 'nome', label: 'Nome', full: true },
-    { name: 'rg', label: 'RG' },
+    { name: 'rg', label: 'RG', mascara: 'rg' },
     { name: 'endereco', label: 'Endereço' },
     { name: 'numero', label: 'Nº' },
     { name: 'bairro', label: 'Bairro' },
     { name: 'cidade', label: 'Cidade' },
-    { name: 'fone1', label: 'Fone 1' },
-    { name: 'fone2', label: 'Fone 2' },
+    { name: 'fone1', label: 'Fone 1', mascara: 'telefone' },
+    { name: 'fone2', label: 'Fone 2', mascara: 'telefone' },
 ];
 
 const CAMPOS_VITIMA = [
     { name: 'nome', label: 'Nome', full: true },
-    { name: 'rg', label: 'RG' },
-    { name: 'cpf', label: 'CPF' },
+    { name: 'rg', label: 'RG', mascara: 'rg' },
+    { name: 'cpf', label: 'CPF', mascara: 'cpf' },
     { name: 'idade', label: 'Idade', tipo: 'number' },
-    { name: 'fone', label: 'Fone' },
+    { name: 'fone', label: 'Fone', mascara: 'telefone' },
     { name: 'endereco', label: 'Endereço' },
     { name: 'numero', label: 'Nº' },
     { name: 'bairro', label: 'Bairro' },
@@ -379,7 +395,7 @@ const CAMPOS_VITIMA = [
     { name: 'destino_socorro', label: 'Socorrida para' },
     { name: 'contato_parentesco', label: 'Parentesco do contato' },
     { name: 'contato_nome', label: 'Nome do contato' },
-    { name: 'contato_fone', label: 'Fone do contato' },
+    { name: 'contato_fone', label: 'Fone do contato', mascara: 'telefone' },
     { name: 'dados_pessoais', label: 'Dados pessoais (observações)', tipo: 'textarea', full: true },
 ];
 
@@ -933,6 +949,10 @@ document.addEventListener('DOMContentLoaded', async () => {
         definirPadroesNovaOcorrencia();
         marcarStatus('Preencha tipo, data, hora e prefixo para começar a salvar');
     }
+
+    // Depois de preencherTudo — se estiver editando, o campo já vem com
+    // valor e a máscara valida de cara, sem esperar o primeiro toque.
+    initMascarasCapa();
 
     ligarAutosaveGenerico();
 });

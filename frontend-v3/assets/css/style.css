@@ -163,6 +163,19 @@ body {
     cursor: not-allowed;
 }
 
+/* Aviso de máscara (mascaras.js) — avisa sem nunca bloquear salvamento. */
+.form-input.mascara-invalida {
+    border-color: var(--accent2);
+}
+
+.mascara-aviso {
+    display: block;
+    color: var(--accent2);
+    font-size: 11px;
+    margin-top: 4px;
+    min-height: 0;
+}
+
 /* Bloco da senha com botão "olho" pra mostrar/esconder */
 .password-wrap {
     position: relative;
