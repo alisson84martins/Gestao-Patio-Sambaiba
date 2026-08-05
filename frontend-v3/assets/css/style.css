@@ -991,6 +991,12 @@ body {
     display: flex;
 }
 
+/* Trava a rolagem do fundo enquanto um modal está aberto — sem isso o
+   dedo "vaza" pro conteúdo atrás do overlay no celular. */
+body.modal-open {
+    overflow: hidden;
+}
+
 .modal {
     background: var(--surface);
     border-radius: 16px 16px 0 0;
@@ -1000,6 +1006,16 @@ body {
     padding: 20px;
     animation: slideUp 0.25s ease;
     will-change: transform;
+    /* Sem limite de altura o modal ancorado embaixo (align-items:flex-end)
+       estourava a tela no celular: o topo saía da área visível e não
+       havia como rolar até ele — sobrava o fundo preto de 85%.
+       dvh acompanha a barra de endereço abrindo/fechando; vh fica como
+       fallback pra navegador que não suporta dvh. */
+    max-height: 90vh;
+    max-height: 90dvh;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    padding-bottom: calc(20px + env(safe-area-inset-bottom));
 }
 
 @keyframes slideUp {
@@ -1092,6 +1108,10 @@ body {
     display: flex;
     padding: 0 16px;
     gap: 2px;
+    /* Quem acumula função (ADMIN, gerência) vê os 8 links + "trocar
+       módulo" — não cabe em 360-414px. Rola em vez de cortar. */
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
 }
 
 .app-nav-link {
@@ -2691,8 +2711,16 @@ body {
 .oc-tabs {
     display: flex;
     gap: 4px;
-    flex-wrap: wrap;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: thin;
     margin-bottom: 16px;
+    padding-bottom: 4px;
+}
+
+.oc-tabs .filtro-btn {
+    flex: 0 0 auto;
 }
 
 .oc-tab-section { display: none; }
@@ -2760,12 +2788,12 @@ body {
 
 .oc-vazio { color: var(--muted); font-size: 0.85rem; padding: 8px 0; }
 
-/* Ações por linha na lista de ocorrências (imprimir/sinistro) — alvo de
-   toque de pelo menos 40px, sem depender de hover (é usado no celular,
+/* Ações por linha na lista de ocorrências (imprimir/sinistro/excluir) —
+   alvo de toque de 44px, sem depender de hover (é usado no celular,
    em pé, no pátio). */
 .btn-acao-lista {
-    min-width: 40px;
-    min-height: 40px;
+    min-width: 44px;
+    min-height: 44px;
     padding: 6px;
     margin-right: 4px;
     background: var(--surface2);
@@ -2797,6 +2825,32 @@ body {
 @media (max-width: 640px) {
     .oc-grid, .oc-checks-grid { grid-template-columns: 1fr; }
     .oc-header-bar { flex-direction: column; align-items: flex-start; }
+}
+
+/* ============================================================
+   RESPONSIVIDADE MOBILE — alvo de toque (varredura de 01/08/2026)
+   Formulário é preenchido em pé, no local do acidente. Botão pequeno
+   demais custa dado real. Só ajusta o padding vertical — mantém o
+   texto centralizado sem precisar reescrever cada componente em flex.
+   ============================================================ */
+@media (max-width: 640px) {
+    .btn,
+    .filtro-btn,
+    .btn-menu-dots,
+    .permissoes-funcao-btn {
+        padding-top: 13px;
+        padding-bottom: 13px;
+    }
+
+    .menu-dots-item,
+    .menu-dots-subitem {
+        padding-top: 12px;
+        padding-bottom: 12px;
+    }
+
+    .form-check {
+        padding: 6px 0;
+    }
 }
 
 /* ── Impressão do Relatório de Ocorrências (4 páginas) ────────────── */

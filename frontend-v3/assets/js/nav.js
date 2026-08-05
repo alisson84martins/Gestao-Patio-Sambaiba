@@ -12,6 +12,7 @@
  */
 
 import { podeLer, modulos } from './sessao.js';
+import './modal.util.js';
 
 const LINKS = [
     { href: 'patio.html', texto: 'Pátio', recurso: 'alocacao' },
