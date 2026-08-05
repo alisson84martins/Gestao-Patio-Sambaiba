@@ -243,23 +243,38 @@ def atualizar(
     if payload.analise is not None:
         oc.analise = OcorrenciaAnalise(ocorrencia_id=oc.id, **payload.analise.model_dump())
 
+    # ⚠️ Cada .clear() precisa de um db.flush() ANTES do append de itens
+    # novos. veiculos_terceiro, avarias, vitimas e testemunhas têm
+    # UniqueConstraint(ocorrencia_id, ordem|regiao) — e o flush do
+    # SQLAlchemy roda inserts/updates ANTES de deletes por padrão. Sem o
+    # flush no meio, substituir um item que já existia (ordem/região
+    # repetida — o caso normal de editar um veículo/vítima já salvo)
+    # tenta inserir a linha nova antes de apagar a antiga e colide na
+    # unique constraint: IntegrityError → 409, a edição não salva e some
+    # da mensagem do sinistro. Reproduzido isoladamente (SQLite em
+    # memória) antes de corrigir — era essa a causa real do item 4, não
+    # falta de dado no payload nem bug em _bloco_terceiro/_bloco_vitima.
     if payload.veiculos_terceiro is not None:
         oc.veiculos_terceiro.clear()
+        db.flush()
         for item in payload.veiculos_terceiro:
             oc.veiculos_terceiro.append(OcorrenciaVeiculoTerceiro(**item.model_dump()))
 
     if payload.avarias is not None:
         oc.avarias.clear()
+        db.flush()
         for item in payload.avarias:
             oc.avarias.append(OcorrenciaAvaria(**item.model_dump()))
 
     if payload.vitimas is not None:
         oc.vitimas.clear()
+        db.flush()
         for item in payload.vitimas:
             oc.vitimas.append(OcorrenciaVitima(**item.model_dump()))
 
     if payload.testemunhas is not None:
         oc.testemunhas.clear()
+        db.flush()
         for item in payload.testemunhas:
             oc.testemunhas.append(OcorrenciaTestemunha(**item.model_dump()))
 
