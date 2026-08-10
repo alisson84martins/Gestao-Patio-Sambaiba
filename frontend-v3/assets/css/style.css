@@ -176,6 +176,14 @@ body {
     min-height: 0;
 }
 
+/* Autopreenchimento (ocorrencia.form.js) — marca discreta de onde veio o
+   valor (cadastro central ou ocorrência anterior). Cor separada da de
+   mascara-invalida (accent2/vermelho) pra não parecer erro. Some no
+   primeiro input do usuário naquele campo — ver marcarAutopreenchido(). */
+.form-input.oc-autopreenchido {
+    border-left: 2px solid var(--accent4);
+}
+
 /* Bloco da senha com botão "olho" pra mostrar/esconder */
 .password-wrap {
     position: relative;

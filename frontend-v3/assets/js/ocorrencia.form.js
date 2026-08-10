@@ -63,6 +63,11 @@ let vitimas = [];
 let testemunhas = [];
 let autoridades = [];
 
+// numero_frota (4 dígitos) → placa — montado em carregarCatalogosPatio().
+// Cache local pro autopreenchimento do prefixo não depender de rede no
+// caso comum (ver autopreencherVeiculo()).
+let mapaPlacaPorFrota = new Map();
+
 // ─── Helpers genéricos de campo ─────────────────────────────────────────────
 
 function lerValorCampo(el) {
@@ -507,6 +512,9 @@ async function carregarCatalogosPatio() {
             const opt = document.createElement('option');
             opt.value = String(o.numero_frota);
             dlPrefixos.appendChild(opt);
+            // A resposta já traz placa — guarda no Map em vez de descartar,
+            // é o que autopreencherVeiculo() usa pra não bater rede à toa.
+            if (o.numero_frota != null) mapaPlacaPorFrota.set(o.numero_frota, o.placa || null);
         });
 
         const dlLinhas = document.getElementById('dl-linhas');
@@ -579,6 +587,139 @@ function initAutocompleteCondutorECobrador() {
         inputReId: 'f-cobrador-re', inputNomeId: 'f-cobrador-nome',
         datalistReId: 'dl-cobrador-re', datalistNomeId: 'dl-cobrador-nome',
     });
+}
+
+// ─── Autopreenchimento (10/08/2026) ───────────────────────────────────────
+// Decisão do Alisson: cadastro central primeiro, última ocorrência como
+// reserva. Três regras que não podem quebrar:
+//   1. Nunca sobrescreve campo que já tem valor (preencherSeVazio).
+//   2. Falha de rede nunca trava o formulário — sempre catch silencioso.
+//   3. Todo preenchimento chama agendarAutosave(), senão o dado só existe
+//      na tela e some se o navegador fechar (setar .value não dispara
+//      o listener genérico de autosave, que só ouve eventos reais).
+
+// Espelha app/routers/ocorrencias.py::normalizar_prefixo — mesma regra
+// (comprimento decide, nunca o valor), duplicada só como otimização de
+// cache: o backend continua sendo a autoridade, e se as duas divergirem o
+// pior caso é cair no endpoint em vez de usar o Map local, nunca dado
+// errado. Mexeu numa, mexe na outra.
+function normalizarPrefixoFrontend(prefixo) {
+    const digitos = (prefixo || '').trim();
+    if (!/^\d+$/.test(digitos)) return null;
+
+    let numero;
+    if (digitos.length === 5 && digitos[0] === '2') {
+        numero = Number(digitos.slice(1));
+    } else if (digitos.length === 4) {
+        numero = Number(digitos);
+    } else {
+        return null;
+    }
+    return (numero >= 1000 && numero <= 2999) ? numero : null;
+}
+
+// Marca discreta de campo autopreenchido — some no primeiro input do
+// usuário naquele campo. Sem depender de hover (não existe no celular);
+// o title é reforço, a borda é a informação principal.
+function marcarAutopreenchido(el, origemTexto) {
+    el.classList.add('oc-autopreenchido');
+    el.title = origemTexto;
+    el.addEventListener('input', function limpar() {
+        el.classList.remove('oc-autopreenchido');
+        el.removeAttribute('title');
+    }, { once: true });
+}
+
+// Preenche só se o campo estiver vazio — autopreenchimento nunca pode
+// sobrescrever o que o coordenador já digitou (rascunho reaberto).
+function preencherSeVazio(el, valor, origemTexto) {
+    if (!el || el.value || !valor) return false;
+    el.value = valor;
+    marcarAutopreenchido(el, origemTexto);
+    return true;
+}
+
+async function autopreencherVeiculo() {
+    const prefixoDigitado = document.getElementById('f-prefixo').value.trim();
+    if (!prefixoDigitado) return;
+
+    const inputPlaca = document.getElementById('f-placa');
+    const inputLinha = document.getElementById('f-linha');
+    let mudou = false;
+
+    // Cache local primeiro — instantâneo, sem rede, cobre o caso comum.
+    // Precisa normalizar antes do Map.get(): o Map é indexado por número
+    // de frota de 4 dígitos, mas o coordenador pode digitar 5 (formato
+    // Sambaíba). Sem isso o lookup falha sempre e cai no endpoint em toda
+    // digitação — funciona, mas é lento no 3G da rua à toa.
+    const numeroFrota = normalizarPrefixoFrontend(prefixoDigitado);
+    if (numeroFrota !== null && mapaPlacaPorFrota.get(numeroFrota)) {
+        mudou = preencherSeVazio(inputPlaca, mapaPlacaPorFrota.get(numeroFrota), 'Preenchido a partir do cadastro do ônibus') || mudou;
+    }
+
+    try {
+        // Linha nunca vem do cache local (cadastro de ônibus não guarda
+        // linha) — sempre busca no endpoint, que também cobre a placa
+        // quando o cache local não achou nada.
+        const dados = await apiGet(`/ocorrencias/autopreencher/veiculo?prefixo=${encodeURIComponent(prefixoDigitado)}`);
+        if (dados.placa) {
+            const origemTexto = dados.origem_placa === 'cadastro'
+                ? 'Preenchido a partir do cadastro do ônibus'
+                : 'Preenchido a partir de uma ocorrência anterior';
+            mudou = preencherSeVazio(inputPlaca, dados.placa, origemTexto) || mudou;
+        }
+        if (dados.linha_codigo) {
+            mudou = preencherSeVazio(inputLinha, dados.linha_codigo, 'Preenchido a partir de uma ocorrência anterior') || mudou;
+        }
+    } catch (err) {
+        // Autocomplete é conveniência, não bloqueio — a ocorrência continua editável sem ele.
+        console.warn('[ocorrencia.form] autopreenchimento de veículo indisponível:', err);
+    }
+
+    if (mudou) agendarAutosave();
+}
+
+async function autopreencherPessoa(papel) {
+    const inputRe = document.getElementById(`f-${papel}-re`);
+    const re = inputRe.value.trim();
+    if (!re) return;
+
+    let mudou = false;
+    try {
+        const dados = await apiGet(`/ocorrencias/autopreencher/pessoa?re=${encodeURIComponent(re)}&papel=${papel}`);
+        const origemTexto = origem => origem === 'cadastro'
+            ? 'Preenchido a partir do cadastro'
+            : 'Preenchido a partir de uma ocorrência anterior';
+
+        mudou = preencherSeVazio(document.getElementById(`f-${papel}-nome`), dados.nome, origemTexto(dados.origem.nome)) || mudou;
+
+        // Cobrador só tem RE e nome no formulário — Ocorrencia não guarda
+        // cobrador_funcao/cnh/rg/cpf (só condutor_*), então não tem de
+        // onde vir fallback de ocorrência pra esses campos no cobrador
+        // (ver docstring de AutopreenchimentoPessoa no backend).
+        if (papel === 'condutor') {
+            mudou = preencherSeVazio(document.getElementById('f-condutor-funcao'), dados.funcao, origemTexto(dados.origem.funcao)) || mudou;
+            mudou = preencherSeVazio(document.getElementById('f-condutor-cnh'), dados.cnh, origemTexto(dados.origem.cnh)) || mudou;
+            mudou = preencherSeVazio(document.getElementById('f-condutor-rg'), dados.rg, origemTexto(dados.origem.rg)) || mudou;
+            mudou = preencherSeVazio(document.getElementById('f-condutor-cpf'), dados.cpf, origemTexto(dados.origem.cpf)) || mudou;
+        }
+    } catch (err) {
+        // Autocomplete é conveniência, não bloqueio — a ocorrência continua editável sem ele.
+        console.warn('[ocorrencia.form] autopreenchimento de pessoa indisponível:', err);
+    }
+
+    if (mudou) agendarAutosave();
+}
+
+function initAutopreenchimentoVeiculo() {
+    if (somenteLeitura) return;
+    document.getElementById('f-prefixo').addEventListener('change', autopreencherVeiculo);
+}
+
+function initAutopreenchimentoPessoa() {
+    if (somenteLeitura) return;
+    document.getElementById('f-condutor-re').addEventListener('change', () => autopreencherPessoa('condutor'));
+    document.getElementById('f-cobrador-re').addEventListener('change', () => autopreencherPessoa('cobrador'));
 }
 
 // ─── Autosave ───────────────────────────────────────────────────────────
@@ -944,6 +1085,8 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     await carregarCatalogosPatio();
     initAutocompleteCondutorECobrador();
+    initAutopreenchimentoVeiculo();
+    initAutopreenchimentoPessoa();
 
     if (ocorrenciaId && dadosAtuais) {
         preencherTudo(dadosAtuais);
