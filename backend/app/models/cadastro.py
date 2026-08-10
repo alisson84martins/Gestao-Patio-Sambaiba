@@ -62,6 +62,9 @@ class Funcionario(Base):
     # Armazenado como 11 dígitos (só números). CPF único na tabela.
     cpf: Mapped[Optional[str]] = mapped_column(String(14), unique=True, nullable=True)
     telefone: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
+    # RG sem máscara/formato — varia por estado, alguns terminam em letra.
+    rg: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
+    cnh: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
     status: Mapped[str] = mapped_column(String(15), nullable=False, default="ATIVO")
     data_admissao: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
     codigo_externo: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)

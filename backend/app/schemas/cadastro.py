@@ -49,6 +49,8 @@ class FuncionarioCreate(BaseModel):
     nome: str = Field(..., max_length=120)
     cpf: Optional[str] = Field(None, description="CPF com ou sem formatação; normalizado para 11 dígitos.")
     telefone: Optional[str] = Field(None, max_length=20)
+    rg: Optional[str] = Field(None, max_length=20)
+    cnh: Optional[str] = Field(None, max_length=20)
     status: str = Field("ATIVO", pattern="^(ATIVO|AFASTADO|FERIAS|DESLIGADO)$")
     data_admissao: Optional[date] = None
     codigo_externo: Optional[str] = Field(None, max_length=50)
@@ -68,6 +70,8 @@ class FuncionarioUpdate(BaseModel):
     nome: Optional[str] = Field(None, max_length=120)
     cpf: Optional[str] = None
     telefone: Optional[str] = Field(None, max_length=20)
+    rg: Optional[str] = Field(None, max_length=20)
+    cnh: Optional[str] = Field(None, max_length=20)
     status: Optional[str] = Field(None, pattern="^(ATIVO|AFASTADO|FERIAS|DESLIGADO)$")
     data_admissao: Optional[date] = None
     codigo_externo: Optional[str] = Field(None, max_length=50)
@@ -89,6 +93,8 @@ class FuncionarioRead(ORMBase):
     nome: str
     cpf: Optional[str] = None
     telefone: Optional[str] = None
+    rg: Optional[str] = None
+    cnh: Optional[str] = None
     status: str
     data_admissao: Optional[date] = None
     codigo_externo: Optional[str] = None

@@ -64,6 +64,8 @@ document.addEventListener('DOMContentLoaded', () => {
     // RE só dígito (zero à esquerda preservado — nunca type="number").
     aplicarMascara(document.getElementById('usuario-re'), 're');
     aplicarMascara(document.getElementById('motorista-re'), 're');
+    aplicarMascara(document.getElementById('usuario-cnh'), 'cnh');
+    aplicarMascara(document.getElementById('usuario-rg'), 'rg');
 });
 
 // Filas são um catálogo fixo (seedado pelas migrations) — esta tela só
@@ -471,6 +473,8 @@ function abrirModalUsuario(u) {
     document.getElementById('usuario-re').disabled  = editando; // RE não pode mudar
     document.getElementById('usuario-nome').value   = u?.nome || '';
     document.getElementById('usuario-cpf').value    = u?.cpf || '';
+    document.getElementById('usuario-rg').value     = u?.rg || '';
+    document.getElementById('usuario-cnh').value    = u?.cnh || '';
     document.getElementById('usuario-status').value = u?.status || 'ATIVO';
 
     document.getElementById('usuario-ativo-group').style.display = editando ? '' : 'none';
@@ -536,6 +540,8 @@ async function salvarFuncionario() {
     const re     = document.getElementById('usuario-re').value.trim();
     const nome   = document.getElementById('usuario-nome').value.trim();
     const cpf    = document.getElementById('usuario-cpf').value.trim();
+    const rg     = document.getElementById('usuario-rg').value.trim();
+    const cnh    = document.getElementById('usuario-cnh').value.trim();
     const status = document.getElementById('usuario-status').value;
     const funcoesSelecionadas = lerFuncoesSelecionadas();
 
@@ -548,9 +554,9 @@ async function salvarFuncionario() {
         let funcionarioId = id;
 
         if (editando) {
-            await apiPatch(`/funcionarios/${id}`, { nome, cpf: cpf || undefined, status });
+            await apiPatch(`/funcionarios/${id}`, { nome, cpf: cpf || undefined, rg: rg || undefined, cnh: cnh || undefined, status });
         } else {
-            const criado = await apiPost('/funcionarios', { re, nome, cpf, status });
+            const criado = await apiPost('/funcionarios', { re, nome, cpf, rg: rg || undefined, cnh: cnh || undefined, status });
             funcionarioId = criado.id;
         }
 
