@@ -25,6 +25,7 @@
 import { requireAuth, getCurrentUser, logout } from './auth.js';
 import { apiGet, apiPost, apiPatch, apiDelete, ApiError } from './api.js';
 import { podeEscrever, podeLer } from './sessao.js';
+import { aplicarMascara } from './mascaras.js';
 
 // --- Guard: quem lê "usuarios" entra; quem só lê não edita (ver abrir()) ---
 if (!requireAuth()) {
@@ -59,6 +60,10 @@ document.addEventListener('DOMContentLoaded', () => {
     carregarAba();
     carregarFuncoesCatalogo();
     atualizarVisibilidadeBtnNovo();
+
+    // RE só dígito (zero à esquerda preservado — nunca type="number").
+    aplicarMascara(document.getElementById('usuario-re'), 're');
+    aplicarMascara(document.getElementById('motorista-re'), 're');
 });
 
 // Filas são um catálogo fixo (seedado pelas migrations) — esta tela só

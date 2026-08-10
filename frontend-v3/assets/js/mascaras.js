@@ -145,6 +145,15 @@ export function cnhValida(valor) {
     return somenteDigitos(valor).length === 11;
 }
 
+// ─── RE — somente dígitos ───────────────────────────────────────────────────
+// RE pode ter zero à esquerda ("01904") — por isso nunca vira type="number"
+// em lugar nenhum do HTML, só inputmode="numeric" pra abrir o teclado
+// numérico no celular sem mudar o tipo do campo.
+
+export function formatarRE(valor) {
+    return somenteDigitos(valor);
+}
+
 // ─── RG — SEM máscara ───────────────────────────────────────────────────────
 // RG não tem formato nacional: varia por estado, tem tamanhos diferentes e
 // alguns terminam em letra (X). Forçar 00.000.000-0 rejeitaria RG legítimo
@@ -170,6 +179,7 @@ const TIPOS = {
     ano: { formatar: formatarAno, validar: anoValido, mensagem: 'Ano inválido' },
     cnh: { formatar: formatarCNH, validar: cnhValida, mensagem: 'CNH incompleta' },
     rg: { formatar: formatarRG, validar: null, mensagem: '' },
+    re: { formatar: formatarRE, validar: null, mensagem: '' },
 };
 
 function garantirAvisoAoLado(el) {
@@ -207,7 +217,16 @@ export function aplicarMascara(el, tipo) {
     if (!config || !el) return;
 
     el.addEventListener('input', () => {
-        el.value = config.formatar(el.value);
+        if (tipo === 're') {
+            // Sem separador nenhum pra inserir — só dígito removido. Cursor
+            // acompanha contando quantos dígitos existiam antes dele.
+            const cursor = el.selectionStart;
+            const digitosAntes = somenteDigitos(el.value.slice(0, cursor)).length;
+            el.value = config.formatar(el.value);
+            el.setSelectionRange(digitosAntes, digitosAntes);
+        } else {
+            el.value = config.formatar(el.value);
+        }
         atualizarAviso(el, tipo);
     });
     el.addEventListener('blur', () => {
