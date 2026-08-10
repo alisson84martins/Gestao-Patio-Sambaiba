@@ -308,7 +308,7 @@ function imprimirPatio(filas) {
             html += `</div>
                 <div class="pt-page-footer">
                     <span>${pageItems.length} de ${total} carros do setor ${setor}</span>
-                    <span>Gestão de Pátio · Sambaíba G3</span>
+                    <span>Gestão Operacional Sambaíba · Garagem 3</span>
                 </div>
             </div>`;
         }
@@ -426,7 +426,7 @@ function exportarExcel(tipo, filas) {
 function exportarDados(filas) {
     const snapshot = {
         exportadoEm: new Date().toISOString(),
-        sistema: 'Gestão de Pátio Sambaíba V3',
+        sistema: 'Gestão Operacional Sambaíba V3',
         filas,
     };
     const blob = new Blob([JSON.stringify(snapshot, null, 2)], { type: 'application/json' });
