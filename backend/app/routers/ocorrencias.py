@@ -18,16 +18,18 @@ from sqlalchemy.orm import Session, joinedload, selectinload
 
 from app.core.database import get_db
 from app.core.deps import exige
-from app.models.cadastro import Funcionario
+from app.models.cadastro import Funcao, Funcionario, FuncionarioFuncao
+from app.models.frota import Onibus
 from app.models.ocorrencia import (
     Ocorrencia, OcorrenciaAnalise, OcorrenciaAnexo, OcorrenciaAutoridade,
     OcorrenciaAvaria, OcorrenciaTestemunha, OcorrenciaVeiculoTerceiro,
     OcorrenciaVitima, OrgaoAutoridade, TipoOcorrencia,
 )
 from app.schemas.ocorrencia import (
-    MensagemSinistroResponse, OcorrenciaAnexoRead, OcorrenciaCatalogos,
-    OcorrenciaCompleta, OcorrenciaCreate, OcorrenciaListaResponse,
-    OcorrenciaRead, OcorrenciaResumo, OcorrenciaUpdate,
+    AutopreenchimentoPessoa, AutopreenchimentoVeiculo, MensagemSinistroResponse,
+    OcorrenciaAnexoRead, OcorrenciaCatalogos, OcorrenciaCompleta, OcorrenciaCreate,
+    OcorrenciaListaResponse, OcorrenciaRead, OcorrenciaResumo, OcorrenciaUpdate,
+    OrigemPessoa,
 )
 from app.services.mensagem_sinistro import gerar_mensagem_sinistro
 
@@ -120,6 +122,162 @@ def catalogos(_: LeituraOcorrencia, db: Annotated[Session, Depends(get_db)]):
         select(OrgaoAutoridade).where(OrgaoAutoridade.ativo.is_(True)).order_by(OrgaoAutoridade.ordem)
     ).scalars().all()
     return OcorrenciaCatalogos(tipos=tipos, orgaos=orgaos)
+
+
+# ─── AUTOPREENCHIMENTO (deve vir ANTES de /{ocorrencia_id}) ───────────────────
+# O mesmo ônibus tem dois números: o Pátio usa 4 dígitos (1721), a Sambaíba
+# usa 5 com a área na frente (21721 = área 2 + carro 1721 = E2; 22721 = área 2
+# + carro 2721 = AR2). onibus.numero_frota só aceita 1000-2999 (migration
+# 003) — cinco dígitos nunca cabem lá. A tradução é só na CONSULTA, nunca no
+# armazenamento: ocorrencia.prefixo grava sempre o que foi digitado.
+
+def normalizar_prefixo(prefixo: str) -> Optional[int]:
+    """Converte o prefixo digitado no número de frota do Pátio (1000-2999).
+
+    5 dígitos iniciados em 2 → derruba a área e devolve os 4 restantes:
+        "21721" → 1721 (E2)   ·   "22721" → 2721 (AR2)
+    4 dígitos → devolve como está, se estiver na faixa do Pátio.
+    Qualquer outra coisa → None (o chamador segue sem autopreencher).
+
+    Sem ambiguidade: o COMPRIMENTO decide, nunca o valor — "2172" (4
+    dígitos) é um carro AR2 legítimo do Pátio; "21721" (5 dígitos) é o
+    "1721" do E2. Nunca adivinhar pela faixa numérica.
+    """
+    if not prefixo:
+        return None
+    digitos = prefixo.strip()
+    if not digitos.isdigit():
+        return None
+
+    if len(digitos) == 5 and digitos[0] == "2":
+        numero = int(digitos[1:])
+    elif len(digitos) == 4:
+        numero = int(digitos)
+    else:
+        return None
+
+    return numero if 1000 <= numero <= 2999 else None
+
+
+@router.get(
+    "/autopreencher/veiculo",
+    response_model=AutopreenchimentoVeiculo,
+    summary="Placa, setor e linha a partir do prefixo — cadastro do ônibus primeiro, última ocorrência como reserva",
+)
+def autopreencher_veiculo(
+    _: LeituraOcorrencia,
+    db: Annotated[Session, Depends(get_db)],
+    prefixo: str = Query(..., max_length=10),
+):
+    numero_frota = normalizar_prefixo(prefixo)
+    if numero_frota is None:
+        return AutopreenchimentoVeiculo(prefixo_informado=prefixo)
+
+    onibus = db.execute(
+        select(Onibus).where(Onibus.numero_frota == numero_frota)
+    ).scalar_one_or_none()
+    setor = onibus.setor.value if onibus is not None and onibus.setor else None
+    placa = onibus.placa if onibus is not None and onibus.placa else None
+    origem_placa: Optional[str] = "cadastro" if placa else None
+
+    # Busca pelo prefixo TAL COMO DIGITADO (ocorrencia.prefixo guarda
+    # "21721", não o "1721" normalizado) — as duas consultas usam chaves
+    # diferentes de propósito.
+    ultima = db.execute(
+        select(Ocorrencia)
+        .where(Ocorrencia.prefixo == prefixo, Ocorrencia.excluida_em.is_(None))
+        .order_by(Ocorrencia.data_ocorrencia.desc(), Ocorrencia.hora_ocorrencia.desc())
+        .limit(1)
+    ).scalar_one_or_none()
+
+    linha_codigo = ultima.linha_codigo if ultima is not None else None
+    if placa is None and ultima is not None and ultima.placa:
+        placa = ultima.placa
+        origem_placa = "ocorrencia"
+
+    return AutopreenchimentoVeiculo(
+        prefixo_informado=prefixo,
+        numero_frota=numero_frota,
+        setor=setor,
+        placa=placa,
+        linha_codigo=linha_codigo,
+        origem_placa=origem_placa,
+    )
+
+
+@router.get(
+    "/autopreencher/pessoa",
+    response_model=AutopreenchimentoPessoa,
+    summary="Nome, função, contato e documentos a partir do RE — cadastro central primeiro, última ocorrência como reserva",
+)
+def autopreencher_pessoa(
+    _: LeituraOcorrencia,
+    db: Annotated[Session, Depends(get_db)],
+    re: str = Query(..., max_length=20),
+    papel: str = Query(..., pattern="^(condutor|cobrador)$"),
+):
+    re = re.strip()
+    campos: dict[str, Optional[str]] = {
+        "nome": None, "funcao": None, "telefone": None, "cpf": None, "rg": None, "cnh": None,
+    }
+    origem: dict[str, Optional[str]] = dict.fromkeys(campos)
+
+    funcionario = db.execute(
+        select(Funcionario).where(Funcionario.re == re)
+    ).scalar_one_or_none()
+
+    if funcionario is not None:
+        for campo, valor in (
+            ("nome", funcionario.nome), ("telefone", funcionario.telefone),
+            ("cpf", funcionario.cpf), ("rg", funcionario.rg), ("cnh", funcionario.cnh),
+        ):
+            if valor:
+                campos[campo] = valor
+                origem[campo] = "cadastro"
+
+        funcao_nome = db.execute(
+            select(Funcao.nome)
+            .join(FuncionarioFuncao, FuncionarioFuncao.funcao_id == Funcao.id)
+            .where(
+                FuncionarioFuncao.funcionario_id == funcionario.id,
+                FuncionarioFuncao.ativo.is_(True),
+                FuncionarioFuncao.principal.is_(True),
+            )
+        ).scalar_one_or_none()
+        if funcao_nome:
+            campos["funcao"] = funcao_nome
+            origem["funcao"] = "cadastro"
+
+    faltando = [campo for campo, valor in campos.items() if valor is None]
+    if faltando:
+        campo_re = Ocorrencia.condutor_re if papel == "condutor" else Ocorrencia.cobrador_re
+        ultima = db.execute(
+            select(Ocorrencia)
+            .where(campo_re == re, Ocorrencia.excluida_em.is_(None))
+            .order_by(Ocorrencia.data_ocorrencia.desc(), Ocorrencia.hora_ocorrencia.desc())
+            .limit(1)
+        ).scalar_one_or_none()
+
+        if ultima is not None:
+            # ⚠️ Ocorrencia só tem condutor_funcao/cnh/rg/cpf — não existe
+            # cobrador_funcao nem documento de cobrador (ver docstring de
+            # AutopreenchimentoPessoa). Pra papel="cobrador" só "nome" tem
+            # de onde vir; os outros continuam None (não tem fallback).
+            if papel == "condutor":
+                mapa_ocorrencia = {
+                    "nome": ultima.condutor_nome, "funcao": ultima.condutor_funcao,
+                    "cpf": ultima.condutor_cpf, "rg": ultima.condutor_rg, "cnh": ultima.condutor_cnh,
+                }
+            else:
+                mapa_ocorrencia = {"nome": ultima.cobrador_nome}
+
+            for campo in faltando:
+                valor = mapa_ocorrencia.get(campo)
+                if valor:
+                    campos[campo] = valor
+                    origem[campo] = "ocorrencia"
+
+    return AutopreenchimentoPessoa(re=re, **campos, origem=OrigemPessoa(**origem))
 
 
 # ─── LISTAGEM ─────────────────────────────────────────────────────────────────

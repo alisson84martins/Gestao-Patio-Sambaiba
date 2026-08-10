@@ -452,3 +452,49 @@ class OcorrenciaListaResponse(BaseModel):
 
 class MensagemSinistroResponse(BaseModel):
     texto: str
+
+
+# ============================================================================
+# AUTOPREENCHIMENTO — cadastro central primeiro, última ocorrência como reserva
+# ============================================================================
+
+OrigemDado = Literal["cadastro", "ocorrencia"]
+
+
+class AutopreenchimentoVeiculo(BaseModel):
+    """GET /ocorrencias/autopreencher/veiculo. Sempre 200, mesmo sem achar
+    nada — quem digita prefixo errado na rua continua preenchendo à mão."""
+    prefixo_informado: str
+    numero_frota: Optional[int] = None
+    setor: Optional[str] = None
+    placa: Optional[str] = None
+    linha_codigo: Optional[str] = None
+    origem_placa: Optional[OrigemDado] = None
+
+
+class OrigemPessoa(BaseModel):
+    nome: Optional[OrigemDado] = None
+    funcao: Optional[OrigemDado] = None
+    telefone: Optional[OrigemDado] = None
+    cpf: Optional[OrigemDado] = None
+    rg: Optional[OrigemDado] = None
+    cnh: Optional[OrigemDado] = None
+
+
+class AutopreenchimentoPessoa(BaseModel):
+    """GET /ocorrencias/autopreencher/pessoa. Cascata campo a campo: cadastro
+    central primeiro, e só o que sobrar vazio busca na última ocorrência com
+    o mesmo RE no papel pedido.
+
+    ⚠️ `Ocorrencia` não tem cobrador_funcao/cobrador_cnh/cobrador_rg/
+    cobrador_cpf — só cobrador_nome. Pra papel="cobrador", esses quatro
+    campos só podem vir do cadastro central (Funcionario); não existe
+    fallback de ocorrência pra eles porque a coluna nunca existiu."""
+    re: str
+    nome: Optional[str] = None
+    funcao: Optional[str] = None
+    telefone: Optional[str] = None
+    cpf: Optional[str] = None
+    rg: Optional[str] = None
+    cnh: Optional[str] = None
+    origem: OrigemPessoa
