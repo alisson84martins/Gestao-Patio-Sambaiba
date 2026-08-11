@@ -18,6 +18,7 @@
 
 import { requireAuth, getCurrentUser, logout } from './auth.js';
 import { apiGet, apiPost, apiPatch, ApiError } from './api.js';
+import { escapeHtml } from './escape.js';
 import { podeLer } from './sessao.js';
 
 // Guard de sessão — redireciona pro login se não autenticado
@@ -291,10 +292,10 @@ function buildCard(ficha) {
             </div>
 
             <div class="manut-info">
-                🔧 ${defeito}
+                🔧 ${escapeHtml(defeito)}
             </div>
 
-            ${ficha.descricao ? `<div class="manut-info" style="opacity:0.7">${ficha.descricao}</div>` : ''}
+            ${ficha.descricao ? `<div class="manut-info" style="opacity:0.7">${escapeHtml(ficha.descricao)}</div>` : ''}
 
             <div class="manut-info" style="font-size:0.8rem;opacity:0.55">
                 Aberta em: ${dataAbertura}
@@ -477,8 +478,8 @@ function abrirModalAtualizar(ficha) {
 
     // Resumo informativo da ficha
     elAtualizarResumo.innerHTML = `
-        <strong>Frota ${frota}</strong> · ${defeito}<br>
-        ${ficha.descricao ? `<em>${ficha.descricao}</em><br>` : ''}
+        <strong>Frota ${escapeHtml(frota)}</strong> · ${escapeHtml(defeito)}<br>
+        ${ficha.descricao ? `<em>${escapeHtml(ficha.descricao)}</em><br>` : ''}
         Aberta em: ${dataAbertura}
     `;
 

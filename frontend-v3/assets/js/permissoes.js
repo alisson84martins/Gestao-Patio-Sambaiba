@@ -17,6 +17,7 @@
 import { requireAuth, getCurrentUser, logout } from './auth.js';
 import { apiGet, apiPut } from './api.js';
 import { podeEscrever, podeLer } from './sessao.js';
+import { escapeHtml } from './escape.js';
 
 if (!requireAuth()) throw new Error('Não autenticado');
 if (!podeLer('usuarios')) {
@@ -98,7 +99,7 @@ function renderGrid(container, valores, opts = {}) {
             const excecao = Boolean(opts.excecoes?.get(r.codigo));
             html += `
                 <tr data-recurso="${r.codigo}" class="${excecao ? 'linha-excecao' : ''}">
-                    <td class="permissoes-recurso-nome">${r.nome}</td>
+                    <td class="permissoes-recurso-nome">${escapeHtml(r.nome)}</td>
                     <td><label class="form-check"><input type="checkbox" class="chk-ler" ${v.pode_ler ? 'checked' : ''} ${somenteLeitura ? 'disabled' : ''}><span class="form-check-label">Ler</span></label></td>
                     <td><label class="form-check"><input type="checkbox" class="chk-escrever" ${v.pode_escrever ? 'checked' : ''} ${somenteLeitura ? 'disabled' : ''}><span class="form-check-label">Escrever</span></label></td>
                 </tr>`;
@@ -145,13 +146,13 @@ async function carregarFuncoesLateral() {
     try {
         const funcoes = await apiGet('/funcoes');
         container.innerHTML = funcoes.map(f => `
-            <button type="button" class="permissoes-funcao-btn" data-codigo="${f.codigo}">${f.nome}</button>
+            <button type="button" class="permissoes-funcao-btn" data-codigo="${escapeHtml(f.codigo)}">${escapeHtml(f.nome)}</button>
         `).join('');
         container.querySelectorAll('.permissoes-funcao-btn').forEach(btn => {
             btn.addEventListener('click', () => selecionarFuncao(btn.dataset.codigo, btn));
         });
     } catch (err) {
-        container.innerHTML = `<div class="patio-loading" style="color:var(--accent)">Erro ao carregar funções: ${err.message}</div>`;
+        container.innerHTML = `<div class="patio-loading" style="color:var(--accent)">Erro ao carregar funções: ${escapeHtml(err.message)}</div>`;
     }
 }
 
@@ -178,7 +179,7 @@ async function selecionarFuncao(codigo, btnEl) {
         renderGrid(grid, valores);
         aplicarBotaoSalvar('btn-salvar-funcao');
     } catch (err) {
-        grid.innerHTML = `<div class="patio-loading" style="color:var(--accent)">Erro ao carregar: ${err.message}</div>`;
+        grid.innerHTML = `<div class="patio-loading" style="color:var(--accent)">Erro ao carregar: ${escapeHtml(err.message)}</div>`;
     }
 }
 
@@ -231,15 +232,15 @@ async function buscarPessoas(termo) {
         }
         container.innerHTML = resultados.map(f => `
             <div class="pessoa-resultado-item" data-id="${f.id}">
-                <div class="pessoa-resultado-nome">${f.nome}</div>
-                <div class="pessoa-resultado-re">RE ${f.re}</div>
+                <div class="pessoa-resultado-nome">${escapeHtml(f.nome)}</div>
+                <div class="pessoa-resultado-re">RE ${escapeHtml(f.re)}</div>
             </div>
         `).join('');
         container.querySelectorAll('.pessoa-resultado-item').forEach(el => {
             el.addEventListener('click', () => selecionarPessoa(el.dataset.id, el));
         });
     } catch (err) {
-        container.innerHTML = `<div class="patio-loading" style="color:var(--accent)">Erro na busca: ${err.message}</div>`;
+        container.innerHTML = `<div class="patio-loading" style="color:var(--accent)">Erro na busca: ${escapeHtml(err.message)}</div>`;
     }
 }
 
@@ -291,7 +292,7 @@ async function selecionarPessoa(funcionarioId, elResultado) {
         });
         aplicarBotaoSalvar('btn-salvar-pessoa');
     } catch (err) {
-        grid.innerHTML = `<div class="patio-loading" style="color:var(--accent)">Erro ao carregar: ${err.message}</div>`;
+        grid.innerHTML = `<div class="patio-loading" style="color:var(--accent)">Erro ao carregar: ${escapeHtml(err.message)}</div>`;
     }
 }
 

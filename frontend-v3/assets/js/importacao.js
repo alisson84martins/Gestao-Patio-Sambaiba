@@ -13,6 +13,7 @@ import { requireAuth, getCurrentUser, logout } from './auth.js';
 import { apiGet, ApiError } from './api.js';
 import { API_BASE_URL, TOKEN_KEY } from './config.js';
 import { podeEscrever } from './sessao.js';
+import { escapeHtml } from './escape.js';
 
 // ─── Guard de autenticação ────────────────────────────────────────────────────
 if (!requireAuth()) {
@@ -35,6 +36,19 @@ document.addEventListener('DOMContentLoaded', () => {
         inputData.value = new Date().toISOString().slice(0, 10);
     }
     fetchHistorico();
+
+    // Delegação de evento no container (sobrevive a cada re-render de
+    // renderHistorico) — lê id/arquivo/data dos data-attributes do botão
+    // em vez de onclick inline com string interpolada. SEV-07: um
+    // onclick="...('${escapeHtml(x)}')" não protege de aspas simples —
+    // o navegador decodifica a entidade HTML antes de interpretar o
+    // atributo como JS, então `&#39;` vira `'` de novo bem a tempo de
+    // fechar a string. data-attribute lido via .dataset não sofre disso.
+    document.getElementById('historico-lista')?.addEventListener('click', (e) => {
+        const btn = e.target.closest('.btn-reverter-importacao');
+        if (!btn) return;
+        reverterImportacao(Number(btn.dataset.id), btn.dataset.arquivo, btn.dataset.data);
+    });
 });
 
 // ─── Header ───────────────────────────────────────────────────────────────────
@@ -328,12 +342,11 @@ function renderHistorico(lista) {
         const temSucesso = (item.registros_sucesso || 0) > 0;
         const btnReverter = temSucesso
             ? `<button
-                    class="btn btn-danger"
+                    class="btn btn-danger btn-reverter-importacao"
                     style="padding:4px 12px;font-size:0.78rem;"
                     data-id="${item.id}"
                     data-arquivo="${escapeHtml(item.arquivo_nome || '')}"
                     data-data="${escapeHtml(item.data_escala || '')}"
-                    onclick="window._reverterImportacao(${item.id}, '${escapeHtml(item.arquivo_nome || '')}', '${escapeHtml(item.data_escala || '')}')"
                >Reverter</button>`
             : '';
 
@@ -360,15 +373,14 @@ function renderHistorico(lista) {
 }
 
 /**
- * Reverte uma importação pelo ID.
- * Exposto como window._reverterImportacao para ser chamado via onclick inline
- * (evita complexidade de event delegation no HTML gerado).
+ * Reverte uma importação pelo ID. Chamada pelo listener delegado em
+ * #historico-lista (ver DOMContentLoaded) — não mais via onclick inline.
  *
  * @param {number} id — ID da importação
  * @param {string} arquivoNome — nome do arquivo (para exibir na confirmação)
  * @param {string} dataEscala — data da escala (para exibir na confirmação)
  */
-window._reverterImportacao = async function (id, arquivoNome, dataEscala) {
+async function reverterImportacao(id, arquivoNome, dataEscala) {
     const confirmar = confirm(
         `Reverter importação?\n\nArquivo: ${arquivoNome}\nData: ${dataEscala}\n\n` +
         `Os registros importados serão removidos. Esta ação não pode ser desfeita.`
@@ -465,19 +477,4 @@ function fmtData(iso) {
     }
 }
 
-/**
- * Escapa caracteres especiais HTML para evitar XSS ao inserir strings
- * de dados externos em innerHTML.
- *
- * @param {string} str
- * @returns {string}
- */
-function escapeHtml(str) {
-    if (str == null) return '';
-    return String(str)
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;')
-        .replace(/"/g, '&quot;')
-        .replace(/'/g, '&#39;');
-}
+// escapeHtml agora vem de ./escape.js — módulo único (SEV-07).

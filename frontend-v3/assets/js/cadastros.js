@@ -26,6 +26,7 @@ import { requireAuth, getCurrentUser, logout } from './auth.js';
 import { apiGet, apiPost, apiPatch, apiDelete, ApiError } from './api.js';
 import { podeEscrever, podeLer } from './sessao.js';
 import { aplicarMascara } from './mascaras.js';
+import { escapeHtml } from './escape.js';
 
 // --- Guard: quem lê "usuarios" entra; quem só lê não edita (ver abrir()) ---
 if (!requireAuth()) {
@@ -152,7 +153,7 @@ async function carregarAba() {
         renderTabela(filtrar(dadosCache));
     } catch (err) {
         lista.innerHTML = `<div class="patio-loading" style="color:var(--accent)">
-            Erro ao carregar: ${err.message}</div>`;
+            Erro ao carregar: ${escapeHtml(err.message)}</div>`;
     }
 }
 
@@ -236,7 +237,10 @@ function _badge(texto, cor) {
         vermelho:'background:#3a1a1a;color:#f44336',
         azul:   'background:#1a2a3a;color:#42a5f5',
     };
-    return `<span style="${cores[cor] || cores.cinza};padding:2px 8px;border-radius:4px;font-size:0.75rem;font-weight:700">${texto}</span>`;
+    // escapeHtml aqui dentro cobre todo chamador, inclusive os que passam
+    // dado do banco (ex.: l.setor) em vez de rótulo fixo — escapar rótulo
+    // fixo ('Ativo' etc.) é inofensivo, não muda a saída.
+    return `<span style="${cores[cor] || cores.cinza};padding:2px 8px;border-radius:4px;font-size:0.75rem;font-weight:700">${escapeHtml(texto)}</span>`;
 }
 
 function _tr(id, celulas, extra = '') {
@@ -249,8 +253,8 @@ function _tr(id, celulas, extra = '') {
 
 function tabelaFuncionarios(dados) {
     const linhas = dados.map(f => _tr(f.id, [
-        `<strong style="font-family:var(--mono)">${f.re}</strong>`,
-        f.nome,
+        `<strong style="font-family:var(--mono)">${escapeHtml(f.re)}</strong>`,
+        escapeHtml(f.nome),
         _chipsFuncoes(f.vinculos),
         f.tem_login ? _badge('Com acesso', 'verde') : _badge('Sem acesso', 'cinza'),
         _badgeStatusFuncionario(f.status),
@@ -262,7 +266,7 @@ function _chipsFuncoes(vinculos) {
     const ativos = (vinculos || []).filter(v => v.ativo);
     if (ativos.length === 0) return '<span style="color:var(--muted)">—</span>';
     return ativos
-        .map(v => `<span class="remanejo-badge ${v.principal ? 'badge-funcao-principal' : 'badge-funcao'}">${v.funcao.nome}</span>`)
+        .map(v => `<span class="remanejo-badge ${v.principal ? 'badge-funcao-principal' : 'badge-funcao'}">${escapeHtml(v.funcao.nome)}</span>`)
         .join(' ');
 }
 
@@ -279,8 +283,8 @@ function _badgeStatusFuncionario(status) {
 
 function tabelaOnibus(dados) {
     const linhas = dados.map(o => _tr(o.id, [
-        `<strong style="font-family:monospace">${o.numero_frota}</strong>`,
-        o.setor || '—',
+        `<strong style="font-family:monospace">${escapeHtml(o.numero_frota)}</strong>`,
+        escapeHtml(o.setor) || '—',
         _badgeStatusOnibus(o.status),
     ])).join('');
     return _table(['Frota', 'Setor', 'Status'], linhas);
@@ -299,9 +303,9 @@ function _badgeStatusOnibus(status) {
 
 function tabelaMotoristas(dados) {
     const linhas = dados.map(m => _tr(m.id, [
-        `<strong style="font-family:monospace">${m.re}</strong>`,
-        m.nome,
-        m.cpf || '—',
+        `<strong style="font-family:monospace">${escapeHtml(m.re)}</strong>`,
+        escapeHtml(m.nome),
+        escapeHtml(m.cpf) || '—',
         _badgeStatusMotorista(m.status),
     ])).join('');
     return _table(['RE', 'Nome', 'CPF', 'Status'], linhas);
@@ -320,8 +324,8 @@ function _badgeStatusMotorista(status) {
 
 function tabelaLinhas(dados) {
     const linhas = dados.map(l => _tr(l.id, [
-        `<strong style="font-family:monospace">${l.codigo}</strong>`,
-        l.nome,
+        `<strong style="font-family:monospace">${escapeHtml(l.codigo)}</strong>`,
+        escapeHtml(l.nome),
         _badge(l.setor, l.setor === 'E2' ? 'azul' : 'verde'),
         l.ativa ? _badge('Ativa', 'verde') : _badge('Inativa', 'cinza'),
     ])).join('');
@@ -342,10 +346,10 @@ function tabelaFilas(dados) {
         return (a.ordem_exibicao ?? 0) - (b.ordem_exibicao ?? 0);
     });
     const linhas = ordenadas.map(f => _tr(f.id, [
-        `<strong>${f.numero != null ? String(f.numero).padStart(2, '0') : f.nome}</strong>`,
+        `<strong>${f.numero != null ? String(f.numero).padStart(2, '0') : escapeHtml(f.nome)}</strong>`,
         _nomeTipoFila(f.tipo),
         f.abreviacao
-            ? `<span style="font-family:var(--mono)">${f.abreviacao}</span>`
+            ? `<span style="font-family:var(--mono)">${escapeHtml(f.abreviacao)}</span>`
             : '<span style="color:var(--muted)">— usa o nome —</span>',
         f.ativa ? _badge('Ativa', 'verde') : _badge('Inativa', 'cinza'),
     ])).join('');
@@ -354,7 +358,7 @@ function tabelaFilas(dados) {
 
 function tabelaTiposDefeito(dados) {
     const linhas = dados.map(t => _tr(t.id, [
-        t.nome,
+        escapeHtml(t.nome),
     ])).join('');
     return _table(['Nome'], linhas);
 }
@@ -523,7 +527,7 @@ function renderFuncoesLista(vinculosAtuais) {
     container.innerHTML = funcoesCatalogo.map(f => `
         <label class="form-check">
             <input type="checkbox" value="${f.id}" ${idsAtivos.has(f.id) ? 'checked' : ''}>
-            <span class="form-check-label">${f.nome}</span>
+            <span class="form-check-label">${escapeHtml(f.nome)}</span>
         </label>
     `).join('');
 }

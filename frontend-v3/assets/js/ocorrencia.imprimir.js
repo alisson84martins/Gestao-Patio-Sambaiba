@@ -26,6 +26,7 @@
  * suas classes — todo seletor novo usa o prefixo oc-print-.
  */
 import { getCurrentUser } from './auth.js';
+import { escapeHtml } from './escape.js';
 import {
     ANALISE_GRUPOS, REGIOES_AVARIA, TIPOS_ANEXO, DANOS_VEICULO,
     TIPOS_OCORRENCIA, REGISTRO_LOCAL, SENTIDO_OPCOES,
@@ -36,16 +37,7 @@ const SLOT_TESTEMUNHAS = 3;
 const SLOT_VITIMAS = 3;
 
 // ─── Helpers genéricos ──────────────────────────────────────────────────────
-
-function escapeHtml(str) {
-    if (str == null) return '';
-    return String(str)
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;')
-        .replace(/"/g, '&quot;')
-        .replace(/'/g, '&#39;');
-}
+// escapeHtml agora vem de ./escape.js — módulo único (SEV-07).
 
 function fmtData(iso) {
     if (!iso) return '—';

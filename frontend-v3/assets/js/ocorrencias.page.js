@@ -10,6 +10,7 @@
 import { requireAuth, getCurrentUser, logout } from './auth.js';
 import { apiGet, ApiError } from './api.js';
 import { podeEscrever, podeLer, usuario, temFuncao } from './sessao.js';
+import { escapeHtml } from './escape.js';
 import { imprimirOcorrencia } from './ocorrencia.imprimir.js';
 import { abrirMensagemSinistro } from './ocorrencia.sinistro.js';
 import { confirmarExclusaoOcorrencia } from './ocorrencia.excluir.js';
@@ -144,7 +145,7 @@ function badgeStatus(status) {
         FINALIZADA: ['Finalizada', 'verde'],
         CANCELADA: ['Cancelada', 'cinza'],
     };
-    const [label, cor] = mapa[status] || [status, 'cinza'];
+    const [label, cor] = mapa[status] || [escapeHtml(status), 'cinza'];
     // a11y (11/08/2026): cinza e vermelho mediam ~4.05:1 e ~4.25:1 contra
     // o próprio fundo — abaixo do mínimo AA de 4.5:1 pra texto pequeno em
     // negrito. Mesmo matiz, só mais claros (cinza ~5.0:1, vermelho
@@ -273,15 +274,7 @@ async function imprimirLinha(ocorrenciaId) {
     }
 }
 
-function escapeHtml(str) {
-    if (str == null) return '';
-    return String(str)
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;')
-        .replace(/"/g, '&quot;')
-        .replace(/'/g, '&#39;');
-}
+// escapeHtml agora vem de ./escape.js — módulo único (SEV-07).
 
 // ─── Filtros: listeners ──────────────────────────────────────────────────
 function initFiltros() {

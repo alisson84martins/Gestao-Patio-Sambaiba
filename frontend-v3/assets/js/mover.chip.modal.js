@@ -12,6 +12,7 @@
  */
 
 import { apiPost, apiPatch, apiDelete, ApiError } from './api.js';
+import { escapeHtml } from './escape.js';
 
 // ─── Estado do módulo ────────────────────────────────────────────
 let alocacaoAtual = null;   // { alocacaoId, frota, filaAtualId }
@@ -52,7 +53,7 @@ export function abrirModalMoverChip({ alocacaoId, frota, filaAtualId, linhaAtual
     for (const fila of _filasCache) {
         const label = nomeFila(fila);
         const sel   = fila.fila_id === filaAtualId ? ' selected' : '';
-        opts += `<option value="${fila.fila_id}"${sel}>${label}</option>`;
+        opts += `<option value="${fila.fila_id}"${sel}>${escapeHtml(label)}</option>`;
     }
     select.innerHTML = opts;
 

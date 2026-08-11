@@ -16,6 +16,7 @@
 import { requireAuth, getCurrentUser, logout } from './auth.js';
 import { apiGet, ApiError } from './api.js';
 import { podeEscrever } from './sessao.js';
+import { escapeHtml } from './escape.js';
 
 // Guard de sessão — redireciona pra login se não autenticado
 if (!requireAuth()) throw new Error('Não autenticado');
@@ -187,7 +188,7 @@ function buildCard(it) {
     // Linha de detalhe da ficha
     const fichaDetalhe = it.tipo_defeito
         ? `<div class="remanejo-defeito">
-               🔧 ${it.tipo_defeito}
+               🔧 ${escapeHtml(it.tipo_defeito)}
                ${it.ficha_aberta_em ? `<span class="remanejo-ficha-data">· desde ${fmtFichaAberta(it.ficha_aberta_em)}</span>` : ''}
            </div>`
         : '';
@@ -196,7 +197,7 @@ function buildCard(it) {
         <div class="remanejo-card remanejo-card-${urgencia}">
             <div class="remanejo-card-header">
                 <div class="remanejo-frota">
-                    <span class="chip-frota">${it.numero_frota}</span>
+                    <span class="chip-frota">${escapeHtml(it.numero_frota)}</span>
                     <span class="chip-setor ${setorCls}">${setor}</span>
                     ${urgenciaBadge}
                     ${fichaBadge}
@@ -207,13 +208,13 @@ function buildCard(it) {
             </div>
 
             <div class="remanejo-linha">
-                <span class="remanejo-linha-codigo">${it.linha_codigo}</span>
-                <span class="remanejo-linha-nome">${it.linha_nome}</span>
+                <span class="remanejo-linha-codigo">${escapeHtml(it.linha_codigo)}</span>
+                <span class="remanejo-linha-nome">${escapeHtml(it.linha_nome)}</span>
             </div>
 
             <div class="remanejo-info-row">
                 <span class="remanejo-fila-label">Fila manutenção:</span>
-                <span class="remanejo-fila-valor">${it.fila_manutencao}</span>
+                <span class="remanejo-fila-valor">${escapeHtml(it.fila_manutencao)}</span>
             </div>
 
             ${fichaDetalhe}

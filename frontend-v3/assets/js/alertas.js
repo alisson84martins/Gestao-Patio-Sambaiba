@@ -14,6 +14,7 @@
 import { requireAuth, getCurrentUser, logout } from './auth.js';
 import { apiGet, apiPost, apiPatch, ApiError } from './api.js';
 import { podeLer } from './sessao.js';
+import { escapeHtml } from './escape.js';
 
 // Guard de sessão — redireciona pra login se não autenticado
 if (!requireAuth()) throw new Error('Não autenticado');
@@ -350,7 +351,7 @@ function buildCard(alerta) {
     const badgeLabel = isPreso ? 'PRESO' : 'AMOSTRAL';
 
     const motivoHtml = alerta.motivo
-        ? `<div class="remanejo-defeito">${alerta.motivo}</div>`
+        ? `<div class="remanejo-defeito">${escapeHtml(alerta.motivo)}</div>`
         : '';
 
     const resolvidoInfo = alerta.resolvido

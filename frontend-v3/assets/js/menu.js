@@ -12,6 +12,7 @@
  */
 
 import { apiDelete } from './api.js';
+import { escapeHtml } from './escape.js';
 
 // ────────────────────────────────────────────────────────────────
 // INICIALIZAÇÃO — conecta todos os eventos ao DOM
@@ -208,10 +209,10 @@ function renderListaEscala(filas, busca) {
             <tbody>
                 ${lista.map((o, i) => `
                     <tr style="${i % 2 ? 'background:#f5f5f5' : ''}">
-                        <td style="padding:4px 8px;font-weight:800;font-family:monospace">${o.numero_frota}</td>
+                        <td style="padding:4px 8px;font-weight:800;font-family:monospace">${escapeHtml(o.numero_frota)}</td>
                         <td style="padding:4px 8px;font-family:monospace">${_fmtHora(o.horario_saida)}</td>
-                        <td style="padding:4px 8px">${o.linha_codigo || '—'}</td>
-                        <td style="padding:4px 8px;color:#888;font-size:11px">${_nomeFila(o)}</td>
+                        <td style="padding:4px 8px">${escapeHtml(o.linha_codigo) || '—'}</td>
+                        <td style="padding:4px 8px;color:#888;font-size:11px">${escapeHtml(_nomeFila(o))}</td>
                     </tr>`).join('')}
             </tbody>
         </table>`;
@@ -275,8 +276,8 @@ function imprimirPatio(filas) {
         // (text-overflow:ellipsis), nunca a posição — ela tem largura própria,
         // fora do encolhimento.
         return `<tr${preso ? ' class="pt-row-preso"' : ''}>
-            <td class="pt-td-carro">${o.numero_frota}</td>
-            <td class="pt-td-fila"><span class="pt-td-fila-rotulo">${rotuloFila}${preso ? ' ⚠' : ''}</span><span class="pt-td-pos">${posicao}</span></td>
+            <td class="pt-td-carro">${escapeHtml(o.numero_frota)}</td>
+            <td class="pt-td-fila"><span class="pt-td-fila-rotulo">${escapeHtml(rotuloFila)}${preso ? ' ⚠' : ''}</span><span class="pt-td-pos">${escapeHtml(posicao)}</span></td>
         </tr>`;
     }
 
@@ -337,10 +338,10 @@ function imprimirRelatorio(tipo, filas) {
                 </tr></thead>
                 <tbody>
                     ${com_escala.map((o, i) => `<tr style="${i % 2 ? 'background:#f5f5f5' : ''}">
-                        <td style="padding:3px 6px;font-weight:800;font-family:monospace">${o.numero_frota}</td>
-                        <td style="padding:3px 6px">${o.setor || '—'}</td>
-                        <td style="padding:3px 6px">${_nomeFila(o)}</td>
-                        <td style="padding:3px 6px">${o.linha_codigo || '—'}</td>
+                        <td style="padding:3px 6px;font-weight:800;font-family:monospace">${escapeHtml(o.numero_frota)}</td>
+                        <td style="padding:3px 6px">${escapeHtml(o.setor) || '—'}</td>
+                        <td style="padding:3px 6px">${escapeHtml(_nomeFila(o))}</td>
+                        <td style="padding:3px 6px">${escapeHtml(o.linha_codigo) || '—'}</td>
                         <td style="padding:3px 6px;font-family:monospace">${_fmtHora(o.horario_saida)}</td>
                     </tr>`).join('')}
                 </tbody>
@@ -358,11 +359,11 @@ function imprimirRelatorio(tipo, filas) {
                 </tr></thead>
                 <tbody>
                     ${lista.map((o, i) => `<tr style="${i % 2 ? 'background:#f5f5f5' : ''}">
-                        <td style="padding:3px 6px;font-weight:800;font-family:monospace">${o.numero_frota}</td>
-                        <td style="padding:3px 6px">${o.setor || '—'}</td>
-                        <td style="padding:3px 6px">${_nomeFila(o)}</td>
-                        <td style="padding:3px 6px">${o.posicao || '—'}</td>
-                        <td style="padding:3px 6px">${o.alerta_tipo || '—'}</td>
+                        <td style="padding:3px 6px;font-weight:800;font-family:monospace">${escapeHtml(o.numero_frota)}</td>
+                        <td style="padding:3px 6px">${escapeHtml(o.setor) || '—'}</td>
+                        <td style="padding:3px 6px">${escapeHtml(_nomeFila(o))}</td>
+                        <td style="padding:3px 6px">${escapeHtml(o.posicao) || '—'}</td>
+                        <td style="padding:3px 6px">${escapeHtml(o.alerta_tipo) || '—'}</td>
                     </tr>`).join('')}
                 </tbody>
             </table>`;

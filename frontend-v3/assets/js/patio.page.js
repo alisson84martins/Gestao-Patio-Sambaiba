@@ -20,6 +20,7 @@ import { init as initAlocacaoBloco } from './alocacao.bloco.js';
 import { init as initMoverChipModal, abrirModalMoverChip } from './mover.chip.modal.js';
 import { initMenu } from './menu.js';
 import { podeEscrever } from './sessao.js';
+import { escapeHtml } from './escape.js';
 
 // --- Protege a rota antes de qualquer coisa ---
 if (!requireAuth()) {
@@ -414,7 +415,7 @@ document.addEventListener('DOMContentLoaded', () => {
                         Carro ${frota}
                     </div>
                     <div style="font-size:1rem;color:#ccc;margin-bottom:4px">
-                        📍 ${nomeFila} &mdash; posição ${posicao}
+                        📍 ${escapeHtml(nomeFila)} &mdash; posição ${posicao}
                     </div>
                     ${preso ? `
                     <div style="margin-top:12px;padding:10px 14px;background:rgba(244,63,94,0.15);border-radius:6px;color:var(--accent,#f43f5e);font-weight:700;font-size:0.95rem">

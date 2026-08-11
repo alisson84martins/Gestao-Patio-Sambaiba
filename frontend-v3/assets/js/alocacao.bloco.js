@@ -10,6 +10,7 @@
  */
 
 import { apiGet, apiPost, apiDelete, ApiError } from './api.js';
+import { escapeHtml } from './escape.js';
 
 // ─── Estado do módulo ────────────────────────────────────────────
 let blocoSentido = 'ida';
@@ -171,8 +172,8 @@ function renderHistorico() {
     container.innerHTML = [...historicoLocal].reverse().map(h => `
         <div class="bloco-item">
             <span class="bloco-item-pos">Pos.${h.pos}</span>
-            <span class="bloco-item-frota">${h.frota}</span>
-            <span class="bloco-item-linha">${h.linha ? 'L.' + h.linha : '—'}</span>
+            <span class="bloco-item-frota">${escapeHtml(h.frota)}</span>
+            <span class="bloco-item-linha">${h.linha ? 'L.' + escapeHtml(h.linha) : '—'}</span>
         </div>`).join('');
 }
 
@@ -186,7 +187,7 @@ async function popularLinhas() {
             .map(l => l.codigo)
             .filter(Boolean)
             .sort()
-            .map(c => `<option value="${c}">`)
+            .map(c => `<option value="${escapeHtml(c)}">`)
             .join('');
     } catch {
         // endpoint indisponível ou sem linhas cadastradas: datalist fica vazio

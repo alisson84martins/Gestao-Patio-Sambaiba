@@ -13,6 +13,7 @@
  */
 
 import { requireAuth, getCurrentUser, logout } from './auth.js';
+import { escapeHtml } from './escape.js';
 import { apiGet, apiPost, apiPatch, apiDelete, ApiError } from './api.js';
 import { API_BASE_URL, TOKEN_KEY } from './config.js';
 import { podeEscrever, podeLer, usuario, temFuncao } from './sessao.js';
@@ -129,15 +130,7 @@ function podeAgirNestaOcorrencia(dados) {
     return dados.registrado_por === usuario()?.funcionario_id || temFuncao('ADMIN');
 }
 
-function escapeHtml(str) {
-    if (str == null) return '';
-    return String(str)
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;')
-        .replace(/"/g, '&quot;')
-        .replace(/'/g, '&#39;');
-}
+// escapeHtml agora vem de ./escape.js — módulo único (SEV-07).
 
 // ─── Header ─────────────────────────────────────────────────────────────
 function initHeader() {
@@ -290,7 +283,7 @@ function campoHtml(campo, valor) {
         </select>`;
     }
     if (campo.tipo === 'number') {
-        return `<input type="number" class="form-input" data-campo="${campo.name}" value="${val}">`;
+        return `<input type="number" class="form-input" data-campo="${campo.name}" value="${escapeHtml(String(val))}">`;
     }
     return `<input type="text" class="form-input" data-campo="${campo.name}" value="${escapeHtml(String(val))}" ${campo.tamanho ? `maxlength="${campo.tamanho}"` : ''}>`;
 }
@@ -555,7 +548,7 @@ function initBuscaFuncionario({ inputReId, inputNomeId, datalistReId, datalistNo
         }
         cachePorRe.clear();
         resultados.forEach(r => cachePorRe.set(r.re, r));
-        datalistRe.innerHTML = resultados.map(r => `<option value="${r.re}">${escapeHtml(r.nome)}</option>`).join('');
+        datalistRe.innerHTML = resultados.map(r => `<option value="${escapeHtml(r.re)}">${escapeHtml(r.nome)}</option>`).join('');
         datalistNome.innerHTML = resultados.map(r => `<option value="${escapeHtml(r.nome)}"></option>`).join('');
     }
 
@@ -982,7 +975,7 @@ function renderAnexos(anexos) {
     }
     container.innerHTML = anexos.map(a => `
         <div class="oc-anexo-item" data-id="${a.id}">
-            <span class="oc-anexo-tipo">${TIPOS_ANEXO[a.tipo] || a.tipo}</span>
+            <span class="oc-anexo-tipo">${escapeHtml(TIPOS_ANEXO[a.tipo] || a.tipo)}</span>
             <button type="button" class="oc-anexo-nome oc-anexo-abrir" data-id="${a.id}" style="background:none;border:none;color:var(--accent4);text-align:left;cursor:pointer;text-decoration:underline">${escapeHtml(a.nome_original || 'arquivo')}</button>
             ${somenteLeitura ? '' : `<button type="button" class="btn btn-danger oc-btn-remover-anexo" data-id="${a.id}" style="padding:4px 10px;font-size:0.75rem;flex-shrink:0">Remover</button>`}
         </div>
