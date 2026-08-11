@@ -56,7 +56,7 @@ Gestao-Patio-Sambaiba/
 
 **Banco já rodando localmente:**
 - PostgreSQL 17 instalado, banco populado com seeds
-- Admin: RE=`ADMIN001`, senha=`57402232` (local)
+- Admin: RE=`ADMIN001`, senha definida via `scripts/set_password.py` (local — não documentar valor em texto puro, ver SEV-02 do relatório de segurança de 10/08/2026)
 
 ---
 

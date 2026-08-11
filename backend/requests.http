@@ -4,7 +4,7 @@
 ### ============================================================
 ### Como usar:
 ###   1. Suba a API:   fastapi dev app/main.py
-###   2. Garanta que o admin tem senha:  python scripts/set_password.py ADMIN001 57402232
+###   2. Garanta que o admin tem senha:  python scripts/set_password.py ADMIN001 sua_senha_aqui
 ###   3. Clique em "Send Request" acima do bloco "### 3. Login JSON".
 ###      O token é capturado automaticamente e usado pelas requisições seguintes.
 ###   4. Daí em diante, qualquer endpoint protegido funciona — basta clicar Send Request.
@@ -12,7 +12,7 @@
 
 @baseUrl = http://127.0.0.1:8000
 @re      = ADMIN001
-@senha   = 57402232
+@senha   = sua_senha_aqui
 
 
 ### ------------------------------------------------------------
