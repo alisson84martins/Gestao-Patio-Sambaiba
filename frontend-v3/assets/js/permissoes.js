@@ -24,7 +24,9 @@ if (!podeLer('usuarios')) {
     throw new Error('Sem acesso de leitura ao recurso usuarios');
 }
 
-// Gerência só lê "usuarios" — vê as grades de permissão, não salva nada.
+// Quem só lê "usuarios" (Gerência, e Coordenador de Tráfego desde a
+// migration 020) vê as grades de permissão mas não salva — os checkboxes
+// e o botão de salvar ficam desabilitados, nunca escondidos (§6).
 const somenteLeitura = !podeEscrever('usuarios');
 
 const NOMES_MODULO = {
@@ -123,6 +125,20 @@ function lerGrid(container) {
     return valores;
 }
 
+/**
+ * Revela o botão de salvar (uma função/pessoa foi selecionada — antes
+ * disso ele fica escondido pelo HTML, isso não muda). Quem só lê
+ * "usuarios" continua vendo o botão, só desabilitado com title — nunca
+ * escondido por permissão, mesmo padrão do Imprimir/Sinistro (§6).
+ */
+function aplicarBotaoSalvar(id) {
+    const btn = document.getElementById(id);
+    btn.style.display = '';
+    btn.disabled = somenteLeitura;
+    btn.title = somenteLeitura ? 'Você não tem permissão para salvar permissões.' : '';
+    btn.setAttribute('aria-disabled', String(somenteLeitura));
+}
+
 // ─── ABA POR FUNÇÃO ────────────────────────────────────────────────
 async function carregarFuncoesLateral() {
     const container = document.getElementById('funcoes-lista-lateral');
@@ -160,7 +176,7 @@ async function selecionarFuncao(codigo, btnEl) {
         const pacote = await pacoteFuncao(codigo);
         const valores = new Map(pacote.map(p => [p.recurso, { pode_ler: p.pode_ler, pode_escrever: p.pode_escrever }]));
         renderGrid(grid, valores);
-        document.getElementById('btn-salvar-funcao').style.display = somenteLeitura ? 'none' : '';
+        aplicarBotaoSalvar('btn-salvar-funcao');
     } catch (err) {
         grid.innerHTML = `<div class="patio-loading" style="color:var(--accent)">Erro ao carregar: ${err.message}</div>`;
     }
@@ -273,7 +289,7 @@ async function selecionarPessoa(funcionarioId, elResultado) {
             excecoes,
             onChange: (container) => atualizarMarcacaoExcecao(container),
         });
-        document.getElementById('btn-salvar-pessoa').style.display = somenteLeitura ? 'none' : '';
+        aplicarBotaoSalvar('btn-salvar-pessoa');
     } catch (err) {
         grid.innerHTML = `<div class="patio-loading" style="color:var(--accent)">Erro ao carregar: ${err.message}</div>`;
     }

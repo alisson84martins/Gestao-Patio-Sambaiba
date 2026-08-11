@@ -1117,6 +1117,12 @@ body.modal-open {
     background: #dc2626;
 }
 
+.btn-danger:disabled {
+    background: var(--surface2);
+    color: var(--muted);
+    cursor: not-allowed;
+}
+
 .btn-modal-stack {
     margin-top: 6px;
 }

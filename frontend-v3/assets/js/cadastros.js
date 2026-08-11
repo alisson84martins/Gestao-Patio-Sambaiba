@@ -36,8 +36,9 @@ if (!podeLer('usuarios')) {
     throw new Error('Sem acesso de leitura ao recurso usuarios');
 }
 
-// Gerência (GERENTE_GERAL/GERENTE_OPERACIONAL) só lê "usuarios" — entra,
-// olha os cadastros e permissões, mas não cria, edita nem exclui nada.
+// Quem só lê "usuarios" (Gerência, e Coordenador de Tráfego desde a
+// migration 020) entra, olha os cadastros, mas não cria, edita nem exclui
+// nada — os botões continuam visíveis, só desabilitados com title (§6).
 const somenteLeitura = !podeEscrever('usuarios');
 
 // ─── Estado global da aba ────────────────────────────────────────
@@ -70,10 +71,21 @@ document.addEventListener('DOMContentLoaded', () => {
 
 // Filas são um catálogo fixo (seedado pelas migrations) — esta tela só
 // edita a abreviação/status de uma fila existente, nunca cria uma nova.
+// "Filas" é ausência de funcionalidade (some de verdade); falta de permissão
+// para escrever em "usuarios" é outra coisa — o botão continua visível e
+// disabled, com title explicando, pra quem só lê não precisar adivinhar
+// que a função existe (mesmo padrão do Imprimir/Sinistro, ver §6).
 function atualizarVisibilidadeBtnNovo() {
     const btnNovo = document.getElementById('btn-novo');
     if (!btnNovo) return;
-    btnNovo.style.display = (somenteLeitura || abaAtiva === 'filas') ? 'none' : '';
+    if (abaAtiva === 'filas') {
+        btnNovo.style.display = 'none';
+        return;
+    }
+    btnNovo.style.display = '';
+    btnNovo.disabled = somenteLeitura;
+    btnNovo.title = somenteLeitura ? 'Você não tem permissão para criar cadastros.' : '';
+    btnNovo.setAttribute('aria-disabled', String(somenteLeitura));
 }
 
 async function carregarFuncoesCatalogo() {
@@ -422,13 +434,19 @@ function fechar(id) { document.getElementById(id)?.classList.remove('open'); }
 /**
  * Desabilita todo campo e botão de ação dentro do modal, mantendo só o
  * fechar/cancelar utilizáveis — usado quando a pessoa só tem leitura em
- * "usuarios" (gerência): entra e olha o cadastro, não altera nada.
+ * "usuarios" (gerência, e agora Coordenador de Tráfego desde a migration
+ * 020): entra e olha o cadastro, não altera nada. Os botões continuam
+ * visíveis e ganham title explicando — nunca display:none aqui, mesma
+ * razão do Imprimir/Sinistro em ocorrencia-form.js: função escondida não
+ * dá pra descobrir, desabilitada dá.
  */
 function aplicarSomenteLeituraModal(modal) {
     modal.querySelectorAll('input, select, textarea').forEach(el => { el.disabled = true; });
     modal.querySelectorAll('button').forEach(el => {
         if (el.classList.contains('modal-close') || el.id.startsWith('btn-cancelar-')) return;
-        el.style.display = 'none';
+        el.disabled = true;
+        el.title = 'Você não tem permissão para esta ação.';
+        el.setAttribute('aria-disabled', 'true');
     });
 }
 function erroModal(id, msg) {
