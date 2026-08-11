@@ -15,6 +15,7 @@ from app.core.security import hash_password
 from app.models.cadastro import Funcao, FuncionarioFuncao, Funcionario, UsuarioLogin
 from app.models.enums import PerfilUsuarioEnum
 from app.models.pessoas import Usuario
+from app.routers.ocorrencias import _eh_admin
 from app.schemas.cadastro import (
     FuncionarioBusca,
     FuncionarioComFuncoes,
@@ -363,7 +364,7 @@ def atualizar_funcionario(
 def atribuir_funcao(
     funcionario_id: UUID,
     dados: FuncionarioFuncaoCreate,
-    _: GerenciaUsuarios,
+    usuario: GerenciaUsuarios,
     db: Annotated[Session, Depends(get_db)] = None,
 ) -> FuncionarioFuncao:
     func = db.get(Funcionario, funcionario_id)
@@ -373,6 +374,18 @@ def atribuir_funcao(
     funcao = db.get(Funcao, dados.funcao_id)
     if funcao is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Função não encontrada")
+
+    # SEV-01: ter escrita em "usuarios" não basta para conceder ADMIN — só
+    # ADMIN atribui a função ADMIN. Sem esta trava, o gate de recurso sozinho
+    # deixava qualquer COORDENADOR_TRAFEGO se autopromover numa chamada.
+    # Comparação pelo CÓDIGO da função (nunca nome/posição) e pelo RBAC
+    # (funcionario_funcao via _eh_admin), nunca pelo campo legado
+    # usuario.perfil — mesmo padrão já usado em ocorrencias.py.
+    if funcao.codigo == "ADMIN" and not _eh_admin(db, usuario.id):
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN,
+            detail="Só ADMIN pode conceder a função ADMIN",
+        )
 
     existente = db.execute(
         select(FuncionarioFuncao).where(

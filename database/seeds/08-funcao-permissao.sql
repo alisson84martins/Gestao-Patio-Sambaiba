@@ -33,8 +33,8 @@
 --  ADMIN                 |  ✍  |  ✍  |  ✍  |  ✍  |  ✍  |  ✍  |  ✍  |  ✍  |  ✍  |  ✍
 --  GERENTE_GERAL         |  👁  |  👁  |  👁  |  👁  |  👁  |  👁  |  👁  |  👁  |  👁  |  👁
 --  GERENTE_OPERACIONAL   |  👁  |  ✍  |  👁  |  👁  |  👁  |  👁  |  👁  |  ✍  |  👁  |  👁
---  ENCARREGADO           |  ✍  |  ✍  |  ✍  |  👁  |  👁  |  👁  |  ✍  |  👁  |  👁  |  ⭕
---  COORDENADOR_TRAFEGO   |  ✍  |  ✍  |  ✍  |  👁  |  👁  |  ✍  |  ✍  |  ✍  |  👁  |  ✍
+--  ENCARREGADO           |  ✍  |  ✍  |  ✍  |  👁  |  👁  |  👁  |  👁  |  👁  |  👁  |  ⭕
+--  COORDENADOR_TRAFEGO   |  ✍  |  ✍  |  ✍  |  👁  |  👁  |  ✍  |  ✍  |  ✍  |  👁  |  👁
 --  FISCAL                |  👁  |  👁  |  ✍  |  ⭕  |  👁  |  ✍  |  ⭕  |  ⭕  |  ⭕  |  ⭕
 --  PLANTONISTA           |  ✍  |  👁  |  ✍  |  👁  |  👁  |  👁  |  ⭕  |  ⭕  |  ⭕  |  ⭕
 --  OPERADOR_PATIO        |  ✍  |  👁  |  ✍  |  👁  |  👁  |  ⭕  |  ⭕  |  ⭕  |  ⭕  |  ⭕
@@ -60,6 +60,9 @@
 --   3. Cadastro de pessoas: ADMIN + Coordenador de Tráfego. Os coordenadores
 --      cadastram e atribuem funções; a trava de RE/CPF único protege contra
 --      duplicata (regra nascida do caso Adriano RE 5400/55400).
+--      ⚠️ REVISTO em 11/08/2026 pelo item 9 abaixo — Coordenador de Tráfego
+--      não escreve mais em "usuarios". Este item fica só como histórico do
+--      motivo original da trava de RE/CPF único, não como acesso vigente.
 --   4. Fiscal escreve em alertas — quem está na rua vendo o carro preso é quem
 --      tem a informação na hora.
 --   5. Motorista, Cobrador e Apontador seguem em consulta (decisão anterior,
@@ -67,6 +70,8 @@
 --   6. OCORRÊNCIAS (novo, 28/07): só Coordenador de Tráfego e Encarregado
 --      REGISTRAM. Gerência apenas VISUALIZA. Quem atende a ocorrência é quem
 --      registra — dado consistente, padrão sob controle da coordenação.
+--      ⚠️ REVISTO em 11/08/2026 pelo item 10 abaixo — Encarregado não
+--      escreve mais em "ocorrencia", só Coordenador de Tráfego e ADMIN.
 --   7. Alerta PRESO e Ocorrência seguem SEPARADOS. PRESO continua sendo alerta
 --      operacional do pátio (carro retido, alta rotatividade); ocorrência é o
 --      registro analítico da coordenação. Nada muda no fluxo em produção.
@@ -75,6 +80,30 @@
 --      apareciam o cartão Administração nem as telas de Cadastros e
 --      Permissões. Só leitura: quem edita cadastro e permissão continua
 --      sendo ADMIN e Coordenador de Tráfego.
+--      ⚠️ REVISTO em 11/08/2026 — "quem edita" deixou de incluir Coordenador
+--      de Tráfego, ver item 9.
+--   9. MENOR PRIVILÉGIO — ESCALADA CORRIGIDA (11/08/2026, SEV-01 do relatório
+--      de segurança de 10/08): Coordenador de Tráfego deixa de escrever em
+--      "usuarios". O recurso "usuarios" é o mesmo gate que protege
+--      POST /funcionarios/{id}/funcoes — endpoint que atribui QUALQUER
+--      função, inclusive ADMIN, sem restrição no corpo. Com o gate de
+--      recurso aberto, qualquer Coordenador de Tráfego conseguia se
+--      autopromover a ADMIN numa única chamada. Decisão do Alisson: ADMIN é
+--      só o RE 5598; coordenador não cadastra usuário nem atribui função.
+--      Continua com LEITURA em "usuarios" (mantém acesso à tela de
+--      Cadastros/Permissões pra consulta) e com ESCRITA em "ocorrencia"
+--      (continua registrando ocorrência). Reforçado em código por uma trava
+--      própria em atribuir_funcao(): só ADMIN atribui a função ADMIN,
+--      independente do que a tabela de permissão disser — ver
+--      backend/app/routers/funcionarios.py.
+--  10. VISIBILIDADE DE OCORRÊNCIA POR AUTORIA (11/08/2026, Bloco B do prompt
+--      de execução de 11/08): Encarregado deixa de escrever em "ocorrencia"
+--      — passa a acionar um Coordenador de Tráfego em vez de registrar
+--      diretamente, mas continua vendo todas as ocorrências (LEITURA
+--      mantida). Só ADMIN e Coordenador de Tráfego registram/editam
+--      ocorrência agora; Coordenador de Tráfego só vê e edita as próprias
+--      (regra aplicada em código, não em funcao_permissao — ver
+--      backend/app/routers/ocorrencias.py, _ve_todas_ocorrencias()).
 -- ============================================================================
 
 BEGIN;
@@ -113,14 +142,19 @@ SELECT fn.id, m.recurso, m.pode_ler, m.pode_escrever
     ('ENCARREGADO','alerta',TRUE,TRUE),      ('ENCARREGADO','manutencao',TRUE,FALSE),
     ('ENCARREGADO','frota',TRUE,FALSE),      ('ENCARREGADO','fiscalizacao',TRUE,FALSE),
     ('ENCARREGADO','coordenacao',TRUE,FALSE),('ENCARREGADO','relatorios',TRUE,FALSE),
-    ('ENCARREGADO','ocorrencia',TRUE,TRUE),
+    -- ⚠️ REVISTO 11/08/2026 (item 10): ocorrencia vira só-leitura — o
+    -- Encarregado aciona um Coordenador de Tráfego em vez de registrar.
+    ('ENCARREGADO','ocorrencia',TRUE,FALSE),
 
     -- ── COORDENADOR_TRAFEGO — o cargo do dia a dia da coordenação ───────────
     ('COORDENADOR_TRAFEGO','alocacao',TRUE,TRUE),    ('COORDENADOR_TRAFEGO','escala',TRUE,TRUE),
     ('COORDENADOR_TRAFEGO','alerta',TRUE,TRUE),      ('COORDENADOR_TRAFEGO','manutencao',TRUE,FALSE),
     ('COORDENADOR_TRAFEGO','frota',TRUE,FALSE),      ('COORDENADOR_TRAFEGO','fiscalizacao',TRUE,TRUE),
     ('COORDENADOR_TRAFEGO','coordenacao',TRUE,TRUE), ('COORDENADOR_TRAFEGO','relatorios',TRUE,FALSE),
-    ('COORDENADOR_TRAFEGO','ocorrencia',TRUE,TRUE),  ('COORDENADOR_TRAFEGO','usuarios',TRUE,TRUE),
+    ('COORDENADOR_TRAFEGO','ocorrencia',TRUE,TRUE),
+    -- ⚠️ REVISTO 11/08/2026 (SEV-01, item 9): usuarios vira só-leitura —
+    -- Coordenador de Tráfego não cadastra usuário nem atribui função mais.
+    ('COORDENADOR_TRAFEGO','usuarios',TRUE,FALSE),
 
     -- ── FISCAL — registra na rua ────────────────────────────────────────────
     ('FISCAL','alocacao',TRUE,FALSE), ('FISCAL','escala',TRUE,FALSE),
