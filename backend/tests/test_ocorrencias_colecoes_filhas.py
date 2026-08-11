@@ -44,7 +44,7 @@ from sqlalchemy.pool import StaticPool
 
 from app.core.database import Base, get_db
 from app.main import app
-from app.models.cadastro import Funcionario
+from app.models.cadastro import Funcao, Funcionario, FuncionarioFuncao
 from app.models.ocorrencia import (
     Ocorrencia, OcorrenciaAnalise, OcorrenciaAnexo, OcorrenciaAutoridade,
     OcorrenciaAvaria, OcorrenciaTestemunha, OcorrenciaVeiculoTerceiro,
@@ -54,6 +54,11 @@ from app.routers import ocorrencias as router_mod
 
 _TABELAS = [
     Funcionario.__table__,  # mensagem-sinistro busca o nome de quem registrou
+    # Bloco B (11/08): detalhar()/mensagem-sinistro chamam _exige_pode_ver(),
+    # que consulta funcionario_funcao/funcao (_ve_todas_ocorrencias) mesmo
+    # pro autor — precisam existir, mesmo vazias, senão o SELECT real (não
+    # é FakeSession aqui) quebra.
+    Funcao.__table__, FuncionarioFuncao.__table__,
     TipoOcorrencia.__table__, OrgaoAutoridade.__table__, Ocorrencia.__table__,
     OcorrenciaAnalise.__table__, OcorrenciaVeiculoTerceiro.__table__, OcorrenciaAvaria.__table__,
     OcorrenciaVitima.__table__, OcorrenciaTestemunha.__table__, OcorrenciaAutoridade.__table__,

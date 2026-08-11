@@ -84,6 +84,51 @@ def _exige_autoria(oc: Ocorrencia, usuario: Funcionario, db: Session) -> None:
     )
 
 
+# Decisão do Alisson (11/08/2026, Bloco B): Coordenador de Tráfego só vê e
+# edita as PRÓPRIAS ocorrências; ADMIN, Encarregado e gerência veem todas.
+# Multifunção: a mais permissiva vence — quem tem qualquer função desta
+# lista vê tudo, mesmo acumulando COORDENADOR_TRAFEGO também.
+_FUNCOES_VEEM_TODAS_OCORRENCIAS = ("ADMIN", "ENCARREGADO", "GERENTE_GERAL", "GERENTE_OPERACIONAL")
+
+
+def _ve_todas_ocorrencias(usuario: Funcionario, db: Session) -> bool:
+    """RBAC via funcionario_funcao, nunca o campo legado usuario.perfil —
+    mesmo padrão de _eh_admin()."""
+    row = db.execute(
+        text(
+            "SELECT 1 FROM funcionario_funcao ff "
+            "JOIN funcao f ON f.id = ff.funcao_id "
+            "WHERE ff.funcionario_id = :fid AND ff.ativo "
+            "AND f.codigo IN ('ADMIN','ENCARREGADO','GERENTE_GERAL','GERENTE_OPERACIONAL')"
+        ),
+        {"fid": usuario.id},
+    ).first()
+    return row is not None
+
+
+def _exige_pode_ver(oc: Ocorrencia, usuario: Funcionario, db: Session) -> None:
+    """Trava de LEITURA por autoria — diferente de _exige_autoria() (que é
+    de ESCRITA e só abre exceção pra ADMIN). Aqui quem "vê todas" (ver
+    _ve_todas_ocorrencias) passa; Coordenador de Tráfego só passa na
+    própria. registrado_por nulo cai fechado pro coordenador, mesma lógica
+    de _exige_autoria — não dá pra provar autoria de um registro que nunca
+    gravou quem o criou. Responde 403, nunca 404 — mesma política do resto
+    do arquivo: quem não pode ver tem direito de saber que o registro
+    existe e que o impedimento é de permissão, não de dado inexistente.
+    """
+    # Checa a comparação barata primeiro (mesma ordem de _exige_autoria) —
+    # evita a consulta a funcionario_funcao no caso comum de alguém lendo
+    # a própria ocorrência.
+    if oc.registrado_por == usuario.id:
+        return
+    if _ve_todas_ocorrencias(usuario, db):
+        return
+    raise HTTPException(
+        status.HTTP_403_FORBIDDEN,
+        detail="Você só pode ver as ocorrências que registrou",
+    )
+
+
 def _carregar_completa(db: Session, ocorrencia_id: UUID) -> Optional[Ocorrencia]:
     """Carrega a ocorrência com todas as filhas.
 
@@ -292,12 +337,13 @@ _FILTROS_SQL = """
          AND (CAST(:prefixo AS text) IS NULL OR prefixo ILIKE '%' || :prefixo || '%')
          AND (CAST(:linha AS text) IS NULL OR linha_codigo ILIKE '%' || :linha || '%')
          AND (CAST(:status AS text) IS NULL OR status = :status)
+         AND (CAST(:coordenador_re AS text) IS NULL OR coordenador_re = :coordenador_re)
 """
 
 
 @router.get("", response_model=OcorrenciaListaResponse, summary="Lista ocorrências com filtros e paginação")
 def listar(
-    _: LeituraOcorrencia,
+    usuario: LeituraOcorrencia,
     db: Annotated[Session, Depends(get_db)],
     data_inicio: Optional[date] = Query(None, description="Data da ocorrência, início do período"),
     data_fim: Optional[date] = Query(None, description="Data da ocorrência, fim do período"),
@@ -305,9 +351,23 @@ def listar(
     prefixo: Optional[str] = None,
     linha: Optional[str] = None,
     status_filtro: Annotated[Optional[str], Query(alias="status")] = None,
+    coordenador_re: Optional[str] = Query(
+        None, description="Filtra por RE do coordenador — só tem efeito pra quem vê todas as ocorrências"
+    ),
     skip: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=500),
 ):
+    # Bloco B, item 8: Coordenador de Tráfego só vê as próprias — o valor
+    # que o cliente mandou em coordenador_re é IGNORADO e forçado pro
+    # próprio RE. Esconder o campo no frontend é conveniência; a trava
+    # real é aqui, no servidor (vw_ocorrencia_resumo.coordenador_re é o
+    # mesmo funcionario.re de registrado_por via join — ver nota em
+    # _FILTROS_SQL/migration 012; usar coordenador_re em vez de alterar a
+    # view pra expor registrado_por direto foi decisão registrada em
+    # EXECUCAO-2026-08-11.md, "Perguntas para o Alisson").
+    ve_todas = _ve_todas_ocorrencias(usuario, db)
+    coordenador_re_filtro = coordenador_re if ve_todas else usuario.re
+
     params = {
         "data_inicio": data_inicio,
         "data_fim": data_fim,
@@ -315,6 +375,7 @@ def listar(
         "prefixo": prefixo,
         "linha": linha,
         "status": status_filtro.upper() if status_filtro else None,
+        "coordenador_re": coordenador_re_filtro,
     }
 
     total = db.execute(
@@ -344,10 +405,11 @@ def listar(
 # ─── DETALHE ──────────────────────────────────────────────────────────────────
 
 @router.get("/{ocorrencia_id}", response_model=OcorrenciaCompleta, summary="Ocorrência completa, com todas as filhas")
-def detalhar(ocorrencia_id: UUID, _: LeituraOcorrencia, db: Annotated[Session, Depends(get_db)]):
+def detalhar(ocorrencia_id: UUID, usuario: LeituraOcorrencia, db: Annotated[Session, Depends(get_db)]):
     oc = _carregar_completa(db, ocorrencia_id)
     if oc is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Ocorrência não encontrada")
+    _exige_pode_ver(oc, usuario, db)
     if oc.registrado_por:
         autor = db.get(Funcionario, oc.registrado_por)
         oc.registrado_por_nome = autor.nome if autor else None
@@ -499,10 +561,16 @@ def deletar(ocorrencia_id: UUID, usuario: EscritaOcorrencia, db: Annotated[Sessi
     response_model=MensagemSinistroResponse,
     summary="Texto pronto para o grupo do sinistro no WhatsApp",
 )
-def mensagem_sinistro(ocorrencia_id: UUID, _: LeituraOcorrencia, db: Annotated[Session, Depends(get_db)]):
+def mensagem_sinistro(ocorrencia_id: UUID, usuario: LeituraOcorrencia, db: Annotated[Session, Depends(get_db)]):
     oc = _carregar_completa(db, ocorrencia_id)
     if oc is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Ocorrência não encontrada")
+    # Rota separada de detalhar() — NÃO herda a trava de lá automaticamente,
+    # por isso checa de novo aqui (item 8.3 do prompt de execução: "confirme
+    # que cobre, não presuma"). Sem isso, um coordenador que não pode ver a
+    # ocorrência de outro ainda conseguiria gerar a mensagem do sinistro
+    # dela.
+    _exige_pode_ver(oc, usuario, db)
 
     coordenador = db.get(Funcionario, oc.registrado_por) if oc.registrado_por else None
     texto = gerar_mensagem_sinistro(
@@ -574,8 +642,18 @@ async def upload_anexo(
     summary="Baixa o arquivo do anexo — protegido pelo mesmo acesso 'ocorrencia' (nunca público)",
 )
 def baixar_anexo(
-    ocorrencia_id: UUID, anexo_id: UUID, _: LeituraOcorrencia, db: Annotated[Session, Depends(get_db)]
+    ocorrencia_id: UUID, anexo_id: UUID, usuario: LeituraOcorrencia, db: Annotated[Session, Depends(get_db)]
 ):
+    # Achado ao aplicar o item 8.3 (não estava listado explicitamente no
+    # prompt, mas é a mesma lacuna): baixar_anexo() nunca carregava a
+    # Ocorrencia nem checava quem pode ver — um coordenador que soubesse
+    # ocorrencia_id + anexo_id de outro conseguia baixar o arquivo mesmo
+    # sem aparecer na lista nem no detalhe. Ver EXECUCAO-2026-08-11.md.
+    oc = db.get(Ocorrencia, ocorrencia_id)
+    if oc is None or oc.excluida_em is not None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Ocorrência não encontrada")
+    _exige_pode_ver(oc, usuario, db)
+
     anexo = db.execute(
         select(OcorrenciaAnexo).where(
             OcorrenciaAnexo.id == anexo_id, OcorrenciaAnexo.ocorrencia_id == ocorrencia_id

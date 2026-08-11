@@ -55,6 +55,19 @@ async function carregarCatalogos() {
 }
 
 // ─── Filtros ────────────────────────────────────────────────────────────
+
+/**
+ * Bloco B (11/08/2026): Coordenador de Tráfego só vê as próprias
+ * ocorrências; ADMIN, Encarregado e gerência veem todas. Espelha
+ * _FUNCOES_VEEM_TODAS_OCORRENCIAS do backend (ocorrencias.py) — mas isto
+ * é só conveniência de tela (mostrar/esconder o campo). A trava real é
+ * no servidor: um coordenador que force o parâmetro coordenador_re na
+ * URL é ignorado lá, não aqui.
+ */
+function veTodasOcorrencias() {
+    return ['ADMIN', 'ENCARREGADO', 'GERENTE_GERAL', 'GERENTE_OPERACIONAL'].some(temFuncao);
+}
+
 function lerFiltros() {
     return {
         data_inicio: document.getElementById('filtro-data-inicio').value || null,
@@ -63,6 +76,9 @@ function lerFiltros() {
         prefixo: document.getElementById('filtro-prefixo').value.trim() || null,
         linha: document.getElementById('filtro-linha').value.trim() || null,
         status: document.getElementById('filtro-status').value || null,
+        coordenador_re: veTodasOcorrencias()
+            ? (document.getElementById('filtro-coordenador-re').value.trim() || null)
+            : null,
     };
 }
 
@@ -271,8 +287,16 @@ function initFiltros() {
         carregarLista();
     }));
 
+    // Bloco B: campo só aparece pra quem vê todas as ocorrências —
+    // esconder no frontend é conveniência, a trava de verdade é no
+    // backend (ver lerFiltros()).
+    const campoCoordenadorRe = document.getElementById('filtro-coordenador-re');
+    if (veTodasOcorrencias()) {
+        campoCoordenadorRe.style.display = '';
+    }
+
     let timeoutBusca = null;
-    ['filtro-prefixo', 'filtro-linha'].forEach(id => {
+    ['filtro-prefixo', 'filtro-linha', 'filtro-coordenador-re'].forEach(id => {
         document.getElementById(id).addEventListener('input', () => {
             clearTimeout(timeoutBusca);
             timeoutBusca = setTimeout(() => {
@@ -286,6 +310,7 @@ function initFiltros() {
         ids.forEach(id => { document.getElementById(id).value = ''; });
         document.getElementById('filtro-prefixo').value = '';
         document.getElementById('filtro-linha').value = '';
+        campoCoordenadorRe.value = '';
         paginaAtual = 0;
         carregarLista();
     });
