@@ -151,7 +151,12 @@ body {
     padding: 12px 14px;
     color: var(--text);
     font-family: var(--mono);
-    font-size: 15px;
+    /* mobile (11/08/2026): <16px faz o iOS Safari dar zoom automático ao
+       focar o campo — no formulário preenchido em pé, na rua, isso some
+       com a posição que scrollIntoView (modal.util.js) acabou de ajustar.
+       Não verificado em aparelho real, mas o padding (12px 14px) tem
+       folga de sobra pra não quebrar layout com 1px a mais. */
+    font-size: 16px;
     outline: none;
     transition: border-color 0.2s, box-shadow 0.2s;
 }
@@ -1090,7 +1095,8 @@ body.modal-open {
     padding: 12px 14px;
     color: var(--text);
     font-family: var(--display);
-    font-size: 15px;
+    /* mobile: mesmo motivo do .form-input acima — <16px dá zoom automático no iOS. */
+    font-size: 16px;
     font-weight: 600;
     outline: none;
     appearance: none;
@@ -2019,7 +2025,8 @@ body.modal-open {
     padding: 12px 14px;
     color: var(--text);
     font-family: var(--mono);
-    font-size: 14px;
+    /* mobile: mesmo motivo do .form-input — <16px dá zoom automático no iOS. */
+    font-size: 16px;
     outline: none;
     resize: vertical;
     min-height: 80px;
@@ -2547,7 +2554,8 @@ body.modal-open {
     padding: 12px 14px;
     color: var(--text);
     font-family: var(--mono);
-    font-size: 14px;
+    /* mobile: mesmo motivo do .form-input — <16px dá zoom automático no iOS. */
+    font-size: 16px;
     outline: none;
     resize: vertical;
     min-height: 80px;
