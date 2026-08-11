@@ -459,6 +459,7 @@ def finalizar(ocorrencia_id: UUID, usuario: EscritaOcorrencia, db: Annotated[Ses
     oc = db.get(Ocorrencia, ocorrencia_id)
     if oc is None or oc.excluida_em is not None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Ocorrência não encontrada")
+    _exige_autoria(oc, usuario, db)
 
     agora = datetime.now(timezone.utc)
     oc.status = "FINALIZADA"
@@ -531,6 +532,7 @@ async def upload_anexo(
     oc = db.get(Ocorrencia, ocorrencia_id)
     if oc is None or oc.excluida_em is not None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Ocorrência não encontrada")
+    _exige_autoria(oc, usuario, db)
 
     if tipo not in TIPOS_ANEXO:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, detail=f"Tipo de anexo inválido: {tipo}")
@@ -598,8 +600,15 @@ def baixar_anexo(
     summary="Remove arquivo e registro",
 )
 def deletar_anexo(
-    ocorrencia_id: UUID, anexo_id: UUID, _: EscritaOcorrencia, db: Annotated[Session, Depends(get_db)]
+    ocorrencia_id: UUID, anexo_id: UUID, usuario: EscritaOcorrencia, db: Annotated[Session, Depends(get_db)]
 ) -> None:
+    # A autoria é da OCORRÊNCIA, não do anexo — carrega e checa antes de
+    # sequer buscar o anexo (SEV-06).
+    oc = db.get(Ocorrencia, ocorrencia_id)
+    if oc is None or oc.excluida_em is not None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Ocorrência não encontrada")
+    _exige_autoria(oc, usuario, db)
+
     anexo = db.execute(
         select(OcorrenciaAnexo).where(
             OcorrenciaAnexo.id == anexo_id, OcorrenciaAnexo.ocorrencia_id == ocorrencia_id
