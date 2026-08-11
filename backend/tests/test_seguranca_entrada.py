@@ -29,6 +29,12 @@ def _dependency_de(annotated_type):
 _AUTOR = Funcionario(id=uuid4(), re="40001", nome="Coordenador Autor")
 _OUTRO = Funcionario(id=uuid4(), re="40002", nome="Coordenador Outro")
 
+# JPEG mínimo válido (SEV-13, fechamento 11/08/2026): upload_anexo() agora
+# confere os primeiros bytes contra a assinatura real do formato, não só
+# o Content-Type declarado — "fake-jpeg-bytes" (usado até 10/08/2026)
+# deixou de passar. Só o cabeçalho importa pra validar_assinatura().
+_JPEG_MINIMO = b"\xff\xd8\xff\xe0\x00\x10JFIF\x00\x01" + b"\x00" * 16
+
 
 def _novo_tipo():
     return TipoOcorrencia(
@@ -205,7 +211,7 @@ def test_autor_anexa_arquivo_na_propria_ocorrencia(cliente, tmp_path, monkeypatc
 
     resp = http.post(
         f"/ocorrencias/{oc.id}/anexos",
-        files={"arquivo": ("foto.jpg", b"fake-jpeg-bytes", "image/jpeg")},
+        files={"arquivo": ("foto.jpg", _JPEG_MINIMO, "image/jpeg")},
         data={"tipo": "FOTO_ACIDENTE"},
     )
 
@@ -318,19 +324,20 @@ def test_funcionario_update_ignora_campos_nao_declarados_no_schema():
         FuncionarioUpdate(status="SUPER_ADMIN_BACKDOOR")
 
 
-# ─── 5 — upload: checagem de tamanho existe, mas só depois de ler tudo ────────
+# ─── 5 — upload: tamanho, assinatura e caminho (SEV-12/13/14, corrigidos) ─────
 
 
 def test_upload_anexo_acima_do_limite_retorna_413(cliente, tmp_path, monkeypatch):
-    """Confirma que o limite de 10 MB é aplicado (A8 não é 'sem limite
-    nenhum') — mas ocorrencias.py:544-546 faz
-    `conteudo = await arquivo.read()` ANTES de comparar
-    len(conteudo) > ANEXO_TAMANHO_MAXIMO: o processo já colocou o arquivo
-    INTEIRO na memória antes de rejeitar. Este teste prova que o 413
-    funciona; não prova (nem seria seguro provar num teste automatizado)
-    o esgotamento de memória com um upload multi-GB — esse é o risco real
-    documentado no relatório, não reproduzido aqui por segurança do
-    ambiente de teste."""
+    """SEV-12, corrigido: até 10/08/2026 `conteudo = await arquivo.read()`
+    lia o corpo inteiro ANTES de comparar com ANEXO_TAMANHO_MAXIMO — um
+    upload multi-GB colocava o arquivo INTEIRO na memória antes de
+    rejeitar. Agora `ler_upload_limitado()` (app/core/uploads.py) lê em
+    blocos de 1 MiB e aborta assim que a soma passa do limite. Este teste
+    prova que o 413 continua funcionando fim a fim; a prova de que a
+    leitura é *limitada* (não lê o resto da fonte depois de estourar) está
+    isolada em test_seguranca_upload.py, onde dá pra contar bytes
+    efetivamente lidos sem alocar memória de verdade no processo de
+    teste."""
     app_, leitura_dep, escrita_dep, http = cliente
     oc = _nova_ocorrencia(_novo_tipo(), registrado_por=_AUTOR.id)
     _autenticar_como(app_, leitura_dep, escrita_dep, _AUTOR)

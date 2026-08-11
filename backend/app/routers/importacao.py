@@ -3,12 +3,13 @@ from datetime import date as date_type, datetime, timezone
 from typing import Annotated, Optional
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile, status
 from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.core.deps import CurrentUser, OperadorOuAdmin
+from app.core.uploads import ler_upload_limitado
 from app.core.utils import PaginationParams
 from app.models import Escala, ImportacaoEscala, PerfilUsuarioEnum, TipoEscalaEnum
 from app.schemas import ImportacaoEscalaRead
@@ -21,6 +22,7 @@ ALLOWED_TYPES = {
     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",  # .xlsx
     "application/vnd.ms-excel",  # .xls (alguns navegadores)
 }
+TAMANHO_MAXIMO = 10 * 1024 * 1024  # 10 MB
 
 
 def _pode_importar(user) -> bool:
@@ -36,6 +38,7 @@ def _pode_importar(user) -> bool:
 async def importar(
     user: CurrentUser,
     db: Annotated[Session, Depends(get_db)],
+    request: Request,
     arquivo: Annotated[UploadFile, File(description=".xlsx (formato: numero_frota | linha_codigo | horario | re_motorista | tipo)")],
     data_escala: Annotated[date_type, Form(description="Data da escala (YYYY-MM-DD)")],
     tipo_default: Annotated[
@@ -60,9 +63,9 @@ async def importar(
     if arquivo.content_type and arquivo.content_type not in ALLOWED_TYPES and not arquivo.filename.endswith((".xlsx", ".xls")):
         raise HTTPException(415, f"Formato não suportado: {arquivo.content_type}. Envie um .xlsx")
 
-    conteudo = await arquivo.read()
-    if len(conteudo) > 10 * 1024 * 1024:  # 10 MB
-        raise HTTPException(413, "Arquivo muito grande (máx 10 MB)")
+    # SEV-12: lê em blocos, abortando ao estourar — nunca a planilha
+    # inteira em memória antes de saber se ela cabe no limite.
+    conteudo = await ler_upload_limitado(arquivo, TAMANHO_MAXIMO, request)
 
     try:
         imp, erros, substituidas, presos_criados = importar_escala(

@@ -11,13 +11,14 @@ from pathlib import Path
 from typing import Annotated, Optional
 from uuid import UUID, uuid4
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile, status
 from fastapi.responses import FileResponse
 from sqlalchemy import select, text
 from sqlalchemy.orm import Session, joinedload, selectinload
 
 from app.core.database import get_db
 from app.core.deps import exige
+from app.core.uploads import ler_upload_limitado, resolver_caminho_seguro, validar_assinatura
 from app.models.cadastro import Funcao, Funcionario, FuncionarioFuncao
 from app.models.frota import Onibus
 from app.models.ocorrencia import (
@@ -47,7 +48,8 @@ ANEXO_TAMANHO_MAXIMO = 10 * 1024 * 1024  # 10 MB
 # Relativo ao diretório de trabalho do processo (backend/) — mesmo padrão
 # usado pelos scripts do projeto. Criado sob demanda, nunca versionado
 # (backend/.gitignore cobre uploads/).
-UPLOAD_ROOT = Path("uploads") / "ocorrencias"
+UPLOADS_BASE = Path("uploads")
+UPLOAD_ROOT = UPLOADS_BASE / "ocorrencias"
 
 
 def _eh_admin(db: Session, funcionario_id: UUID) -> bool:
@@ -593,6 +595,7 @@ async def upload_anexo(
     ocorrencia_id: UUID,
     usuario: EscritaOcorrencia,
     db: Annotated[Session, Depends(get_db)],
+    request: Request,
     arquivo: Annotated[UploadFile, File(description="image/jpeg, image/png ou application/pdf — máx 10 MB")],
     tipo: Annotated[str, Form(description="FOTO_ACIDENTE | FOTO_RELATORIO | CROQUI | BO_PDF | OUTRO")],
     descricao: Annotated[Optional[str], Form()] = None,
@@ -611,9 +614,18 @@ async def upload_anexo(
             detail=f"Formato não suportado: {arquivo.content_type}. Envie JPEG, PNG ou PDF.",
         )
 
-    conteudo = await arquivo.read()
-    if len(conteudo) > ANEXO_TAMANHO_MAXIMO:
-        raise HTTPException(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail="Arquivo muito grande (máx 10 MB)")
+    # SEV-12: lê em blocos, abortando ao estourar — nunca o arquivo
+    # inteiro em memória antes de saber se ele cabe.
+    conteudo = await ler_upload_limitado(arquivo, ANEXO_TAMANHO_MAXIMO, request)
+
+    # SEV-13: Content-Type é o que o cliente afirma, trivial de forjar
+    # (ex.: um .exe renomeado com Content-Type: application/pdf). Os
+    # primeiros bytes do arquivo não mentem.
+    if not validar_assinatura(conteudo, arquivo.content_type):
+        raise HTTPException(
+            status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+            detail="O conteúdo do arquivo não corresponde a um JPEG, PNG ou PDF válido.",
+        )
 
     pasta = UPLOAD_ROOT / str(ocorrencia_id)
     pasta.mkdir(parents=True, exist_ok=True)
@@ -662,7 +674,10 @@ def baixar_anexo(
     if anexo is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Anexo não encontrado")
 
-    caminho_disco = Path("uploads") / anexo.caminho
+    # SEV-14: caminho absoluto, conferido contra UPLOADS_BASE — nenhum
+    # valor de `caminho` (mesmo que corrompido ou de origem futura
+    # diferente do upload atual) sai da pasta de upload.
+    caminho_disco = resolver_caminho_seguro(UPLOADS_BASE, anexo.caminho)
     if not caminho_disco.is_file():
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Arquivo não encontrado no servidor")
 
@@ -695,7 +710,7 @@ def deletar_anexo(
     if anexo is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Anexo não encontrado")
 
-    caminho_disco = Path("uploads") / anexo.caminho
+    caminho_disco = resolver_caminho_seguro(UPLOADS_BASE, anexo.caminho)
     try:
         caminho_disco.unlink(missing_ok=True)
     except OSError:
