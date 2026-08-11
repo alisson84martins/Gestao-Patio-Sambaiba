@@ -147,6 +147,18 @@ class UsuarioLoginAtivoUpdate(BaseModel):
     ativo: bool
 
 
+class TrocaSenhaRequest(BaseModel):
+    """SEV-03: troca de senha de um login do fluxo novo.
+
+    `senha_atual` é exigida no autoatendimento (a própria pessoa trocando a
+    própria senha) e ignorada quando quem chama é ADMIN resetando a de
+    outra pessoa — verificado no router, não aqui, porque depende de quem
+    está autenticado.
+    """
+    senha_atual: Optional[str] = Field(None, description="Exigida só no autoatendimento")
+    senha_nova: str = Field(..., min_length=6, max_length=100)
+
+
 # ─── FUNCAO_PERMISSAO ────────────────────────────────────────────────────────
 
 class PermissaoRecurso(BaseModel):

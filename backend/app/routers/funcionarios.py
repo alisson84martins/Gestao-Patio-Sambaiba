@@ -10,8 +10,8 @@ from sqlalchemy import select, text
 from sqlalchemy.orm import Session, joinedload
 
 from app.core.database import get_db
-from app.core.deps import exige
-from app.core.security import hash_password
+from app.core.deps import exige, get_current_funcionario
+from app.core.security import hash_password, verify_password
 from app.models.cadastro import Funcao, FuncionarioFuncao, Funcionario, UsuarioLogin
 from app.models.enums import PerfilUsuarioEnum
 from app.models.pessoas import Usuario
@@ -24,6 +24,7 @@ from app.schemas.cadastro import (
     FuncionarioFuncaoRead,
     FuncionarioRead,
     FuncionarioUpdate,
+    TrocaSenhaRequest,
     UsuarioLoginAtivoUpdate,
     UsuarioLoginRead,
 )
@@ -517,6 +518,55 @@ def atualizar_login(
         if espelho is not None:
             espelho.ativo = dados.ativo
 
+    db.commit()
+    db.refresh(login)
+    return login
+
+
+@router.patch(
+    "/{funcionario_id}/login/senha",
+    response_model=UsuarioLoginRead,
+    summary="Troca a senha do login — autoatendimento (com senha atual) ou reset por ADMIN",
+)
+def trocar_senha(
+    funcionario_id: UUID,
+    dados: TrocaSenhaRequest,
+    usuario: Annotated[Funcionario, Depends(get_current_funcionario)],
+    db: Annotated[Session, Depends(get_db)] = None,
+) -> UsuarioLogin:
+    """SEV-03: até este endpoint existir, UsuarioLogin.senha_hash era
+    escrito uma única vez (em criar_login()) e nunca mais — nem a própria
+    pessoa, nem o ADMIN, nem um script de manutenção conseguiam trocar a
+    senha de alguém do fluxo novo pela aplicação.
+
+    ⛔ Ninguém além do próprio dono e do ADMIN — nem coordenador, nem
+    encarregado, nem gerência. Não é um recurso RBAC (não usa exige()):
+    é checagem de identidade, resolvida aqui mesmo.
+    """
+    login = db.execute(
+        select(UsuarioLogin).where(UsuarioLogin.funcionario_id == funcionario_id)
+    ).scalar_one_or_none()
+    if login is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Acesso não encontrado")
+
+    e_proprio_dono = usuario.id == funcionario_id
+    e_admin = _eh_admin(db, usuario.id)
+
+    if not e_proprio_dono and not e_admin:
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN,
+            detail="Só o próprio dono ou o ADMIN pode trocar esta senha",
+        )
+
+    # Autoatendimento (não-ADMIN trocando a própria senha) exige a atual.
+    # Reset por ADMIN — inclusive o ADMIN trocando a própria — não exige.
+    if e_proprio_dono and not e_admin:
+        if not dados.senha_atual or not verify_password(dados.senha_atual, login.senha_hash):
+            raise HTTPException(status.HTTP_403_FORBIDDEN, detail="Senha atual incorreta")
+
+    login.senha_hash = hash_password(dados.senha_nova)
+    login.politica_senha = "PROPRIA"
+    login.atualizado_em = datetime.now(timezone.utc)
     db.commit()
     db.refresh(login)
     return login

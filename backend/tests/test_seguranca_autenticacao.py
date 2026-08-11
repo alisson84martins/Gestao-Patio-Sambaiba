@@ -167,46 +167,183 @@ def test_decode_access_token_rejeita_token_assinado_com_outra_chave():
         decode_access_token(token_outra_chave)
 
 
-# ─── 1.1 / SEV — sem endpoint de troca de senha para o fluxo novo ─────────────
+# ─── 1.1 / SEV-03 — troca de senha do fluxo novo (corrigido) ──────────────────
+#
+# ⚠️ Nota de execução: este teste NÃO estava marcado @pytest.mark.xfail no
+# relatório original (era uma confirmação de AUSÊNCIA, não uma marca de
+# "buraco esperando correção") — diferente do que o prompt de execução de
+# 11/08 presumiu ao listar os "6 xfail". Reescrito de qualquer forma: a
+# versão antiga só checava rotas terminadas exatamente em
+# ".../funcionarios/{funcionario_id}/login" — a rota nova
+# (".../login/senha") tem outro path e passaria batido pela checagem
+# antiga, criando falso-positivo de "ainda não existe". Ver
+# EXECUCAO-2026-08-11.md.
 
 
-def test_nenhuma_rota_permite_trocar_senha_de_usuario_login():
-    """SEV: UsuarioLogin.senha_hash é escrito uma única vez, em
-    POST /funcionarios/{id}/login (funcionarios.py:461), como hash dos 4
-    últimos dígitos do CPF. Não existe, em nenhum router, uma rota que
-    volte a escrever nesse campo — nem self-service, nem por ADMIN.
-    PATCH /funcionarios/{id}/login só aceita {"ativo": bool}
-    (UsuarioLoginAtivoUpdate — ver schemas/cadastro.py). O único endpoint
-    que aceita um campo "senha" é PATCH /usuarios/{id} (usuarios.py:80),
-    que escreve em Usuario.senha_hash — a tabela LEGADA, que o login só
-    consulta quando a pessoa não tem UsuarioLogin (auth.py:47-53).
+class _UsuarioLoginComSenha:
+    def __init__(self, senha_hash, politica_senha="CPF"):
+        self.senha_hash = senha_hash
+        self.politica_senha = politica_senha
+        self.ativo = True
+        self.atualizado_em = None
 
-    Este teste falha (te avisa) se algum dia alguém adicionar uma rota de
-    troca de senha para o fluxo novo — o que é a correção esperada, não um
-    bug a preservar.
-    """
-    from app.schemas.cadastro import UsuarioLoginAtivoUpdate
 
-    assert set(UsuarioLoginAtivoUpdate.model_fields.keys()) == {"ativo"}, (
-        "UsuarioLoginAtivoUpdate ganhou um campo novo — se for 'senha', "
-        "o achado SEV de troca de senha impossível pode estar corrigido; "
-        "atualize o relatório."
-    )
+class _DBTrocarSenha:
+    """execute() atende dois formatos: select(UsuarioLogin) e o text()
+    de _eh_admin() — distingue por hasattr(stmt, "text"), mesmo padrão já
+    usado nos outros arquivos desta suíte."""
 
-    rotas_login = [
+    def __init__(self, login, admins: frozenset = frozenset()):
+        self._login = login
+        self._admins = admins
+
+    def execute(self, stmt, params=None, *args, **kwargs):
+        if hasattr(stmt, "text"):
+            fid = (params or {}).get("fid")
+            return _FakeResultAdmin(fid in self._admins)
+
+        class _R:
+            def __init__(self, v):
+                self._v = v
+            def scalar_one_or_none(self):
+                return self._v
+        return _R(self._login)
+
+    def commit(self):
+        pass
+
+    def refresh(self, obj):
+        pass
+
+
+class _FakeResultAdmin:
+    def __init__(self, e_admin: bool):
+        self._linha = (1,) if e_admin else None
+
+    def first(self):
+        return self._linha
+
+
+def test_endpoint_de_troca_de_senha_existe_no_path_esperado():
+    rota = [
         r for r in app.routes
-        if getattr(r, "path", "").endswith("/funcionarios/{funcionario_id}/login")
+        if getattr(r, "path", "") == "/funcionarios/{funcionario_id}/login/senha"
     ]
-    metodos_com_corpo_de_senha = []
-    for r in rotas_login:
-        campos = getattr(getattr(r, "body_field", None), "type_", None)
-        if campos is not None and "senha" in getattr(campos, "model_fields", {}):
-            metodos_com_corpo_de_senha.append(r.methods)
+    assert len(rota) == 1
+    assert "PATCH" in rota[0].methods
 
-    assert metodos_com_corpo_de_senha == [], (
-        "Existe uma rota /funcionarios/{id}/login que aceita 'senha' no corpo "
-        f"— achado pode estar corrigido: {metodos_com_corpo_de_senha}"
+
+def test_trocar_senha_autoatendimento_com_senha_atual_correta_funciona():
+    from app.core.security import hash_password, verify_password
+    from app.routers import funcionarios as func_router_mod
+    from app.schemas.cadastro import TrocaSenhaRequest
+
+    dono = _FuncionarioFake(uuid4(), "10001")
+    login = _UsuarioLoginComSenha(hash_password("1234"))
+    db = _DBTrocarSenha(login)
+
+    resultado = func_router_mod.trocar_senha(
+        funcionario_id=dono.id,
+        dados=TrocaSenhaRequest(senha_atual="1234", senha_nova="minha-senha-nova"),
+        usuario=dono,
+        db=db,
     )
+
+    assert resultado.politica_senha == "PROPRIA"
+    assert verify_password("minha-senha-nova", login.senha_hash)
+
+
+def test_trocar_senha_autoatendimento_sem_informar_senha_atual_falha():
+    from app.core.security import hash_password
+    from app.routers import funcionarios as func_router_mod
+    from app.schemas.cadastro import TrocaSenhaRequest
+
+    dono = _FuncionarioFake(uuid4(), "10001")
+    login = _UsuarioLoginComSenha(hash_password("1234"))
+    db = _DBTrocarSenha(login)
+
+    with pytest.raises(HTTPException) as exc:
+        func_router_mod.trocar_senha(
+            funcionario_id=dono.id,
+            dados=TrocaSenhaRequest(senha_nova="minha-senha-nova"),
+            usuario=dono,
+            db=db,
+        )
+    assert exc.value.status_code == 403
+
+
+def test_trocar_senha_autoatendimento_com_senha_atual_errada_falha():
+    from app.core.security import hash_password
+    from app.routers import funcionarios as func_router_mod
+    from app.schemas.cadastro import TrocaSenhaRequest
+
+    dono = _FuncionarioFake(uuid4(), "10001")
+    login = _UsuarioLoginComSenha(hash_password("1234"))
+    db = _DBTrocarSenha(login)
+
+    with pytest.raises(HTTPException) as exc:
+        func_router_mod.trocar_senha(
+            funcionario_id=dono.id,
+            dados=TrocaSenhaRequest(senha_atual="senha-errada", senha_nova="minha-senha-nova"),
+            usuario=dono,
+            db=db,
+        )
+    assert exc.value.status_code == 403
+
+
+def test_trocar_senha_terceiro_nao_admin_nao_mexe_na_de_outro():
+    """⛔ Ninguém além do próprio dono e do ADMIN — nem coordenador, nem
+    encarregado, nem gerência."""
+    from app.core.security import hash_password
+    from app.routers import funcionarios as func_router_mod
+    from app.schemas.cadastro import TrocaSenhaRequest
+
+    dono = _FuncionarioFake(uuid4(), "10001")
+    terceiro = _FuncionarioFake(uuid4(), "10002")
+    login = _UsuarioLoginComSenha(hash_password("1234"))
+    db = _DBTrocarSenha(login, admins=frozenset())  # terceiro não é admin
+
+    with pytest.raises(HTTPException) as exc:
+        func_router_mod.trocar_senha(
+            funcionario_id=dono.id,
+            dados=TrocaSenhaRequest(senha_atual="1234", senha_nova="minha-senha-nova"),
+            usuario=terceiro,
+            db=db,
+        )
+    assert exc.value.status_code == 403
+
+
+def test_admin_reseta_senha_de_outro_sem_precisar_da_atual():
+    from app.core.security import hash_password
+    from app.routers import funcionarios as func_router_mod
+    from app.schemas.cadastro import TrocaSenhaRequest
+
+    dono = _FuncionarioFake(uuid4(), "10001")
+    admin = _FuncionarioFake(uuid4(), "5598")
+    login = _UsuarioLoginComSenha(hash_password("1234"))
+    db = _DBTrocarSenha(login, admins=frozenset({admin.id}))
+
+    resultado = func_router_mod.trocar_senha(
+        funcionario_id=dono.id,
+        dados=TrocaSenhaRequest(senha_nova="senha-resetada-pelo-admin"),
+        usuario=admin,
+        db=db,
+    )
+
+    assert resultado.politica_senha == "PROPRIA"
+
+
+def test_trocar_senha_recusa_menos_de_6_caracteres():
+    """Mínimo 6 caracteres, sem exigir complexidade barroca — quem usa
+    digita no celular, em pé, na garagem."""
+    from pydantic import ValidationError
+
+    from app.schemas.cadastro import TrocaSenhaRequest
+
+    with pytest.raises(ValidationError):
+        TrocaSenhaRequest(senha_nova="12345")
+
+    TrocaSenhaRequest(senha_nova="123456")  # 6 é o mínimo aceito, não levanta
 
 
 # ─── 2.3 / 3.1 / 3.2 — Desligamento (SEV-05, corrigido) ────────────────────────
