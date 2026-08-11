@@ -569,3 +569,128 @@ def test_funcionario_afastado_ou_ferias_continua_entrando(status_atual):
 
     resultado = get_current_funcionario(token, db)
     assert resultado is func
+
+
+# ─── Item 2 do fechamento (11/08) — DESLIGADO também nas rotas legadas ────
+#
+# get_current_funcionario (RBAC novo) já recusava DESLIGADO desde o SEV-05.
+# get_current_user (os 12 routers legados do Pátio: CurrentUser, AdminUser,
+# OperadorOuAdmin, MecanicoOuSuperior) só conhecia Usuario.ativo — nunca
+# tinha visto Funcionario.status. Corrigido em deps.py: os dois ramos de
+# get_current_user (JWT antigo com sub=usuario.id, JWT novo com
+# sub=funcionario.id) agora chamam _recusar_se_desligado() também.
+
+
+class _DBLegadoComFuncionario:
+    """JWT antigo (sub=usuario.id): get_current_user acha o Usuario direto
+    pela PK e agora também busca o Funcionario correspondente pelo RE, só
+    pra checar o status — mesmo Funcionario que get_current_funcionario
+    usaria se o token fosse do fluxo novo."""
+
+    def __init__(self, mirror, func):
+        self._mirror = mirror
+        self._func = func
+
+    def get(self, model, id_):
+        from app.models import Usuario
+        if model is Usuario and id_ == self._mirror.id:
+            return self._mirror
+        return None
+
+    def execute(self, stmt, *args, **kwargs):
+        class _R:
+            def __init__(self, v):
+                self._v = v
+            def scalar_one_or_none(self):
+                return self._v
+        return _R(self._func)
+
+
+class _DBNovoComMirrorLegado:
+    """JWT novo (sub=funcionario.id): get_current_user acha o Funcionario
+    primeiro (mesmo ponto que já checava DESLIGADO em get_current_funcionario)
+    e busca o espelho em Usuario pelo RE pra devolver o tipo que os routers
+    legados esperam."""
+
+    def __init__(self, func, mirror):
+        self._func = func
+        self._mirror = mirror
+
+    def get(self, model, id_):
+        from app.models.cadastro import Funcionario
+        if model is Funcionario and id_ == self._func.id:
+            return self._func
+        return None
+
+    def execute(self, stmt, *args, **kwargs):
+        class _R:
+            def __init__(self, v):
+                self._v = v
+            def scalar_one_or_none(self):
+                return self._v
+        return _R(self._mirror)
+
+
+def test_get_current_user_barra_desligado_via_jwt_antigo():
+    """Controle principal do item: token do fluxo antigo (sub=usuario.id),
+    UsuarioLogin nunca desativado, mas Funcionario.status=DESLIGADO — antes
+    da correção isso entrava normalmente nos 12 routers legados."""
+    from app.core.deps import get_current_user
+    from app.core.security import create_access_token
+
+    mirror = _UsuarioMirrorFake(uuid4(), "10001", ativo=True)
+    func = _FuncionarioFake(uuid4(), "10001", status="DESLIGADO")
+    token = create_access_token(subject=mirror.id)
+    db = _DBLegadoComFuncionario(mirror, func)
+
+    with pytest.raises(HTTPException) as exc:
+        get_current_user(token, db)
+    assert exc.value.status_code == 403
+
+
+def test_get_current_user_barra_desligado_via_jwt_novo():
+    """Mesmo achado, mas pelo caminho do JWT novo (sub=funcionario.id) —
+    é o caminho que a maioria dos logins recentes usa."""
+    from app.core.deps import get_current_user
+    from app.core.security import create_access_token
+
+    func = _FuncionarioFake(uuid4(), "10001", status="DESLIGADO")
+    mirror = _UsuarioMirrorFake(uuid4(), "10001", ativo=True)
+    token = create_access_token(subject=func.id)
+    db = _DBNovoComMirrorLegado(func, mirror)
+
+    with pytest.raises(HTTPException) as exc:
+        get_current_user(token, db)
+    assert exc.value.status_code == 403
+
+
+@pytest.mark.parametrize("status_atual", ["ATIVO", "AFASTADO", "FERIAS"])
+def test_get_current_user_permite_ativo_afastado_ferias_via_jwt_antigo(status_atual):
+    """⚠️ Mesmo erro caro do SEV-05: só DESLIGADO bloqueia. AFASTADO e
+    FÉRIAS continuam entrando pelas rotas legadas, senão um funcionário
+    ativo fica trancado fora do Pátio na segunda-feira."""
+    from app.core.deps import get_current_user
+    from app.core.security import create_access_token
+
+    mirror = _UsuarioMirrorFake(uuid4(), "10001", ativo=True)
+    func = _FuncionarioFake(uuid4(), "10001", status=status_atual)
+    token = create_access_token(subject=mirror.id)
+    db = _DBLegadoComFuncionario(mirror, func)
+
+    resultado = get_current_user(token, db)
+    assert resultado is mirror
+
+
+def test_get_current_user_sem_funcionario_correspondente_nao_quebra():
+    """Conta puramente legada — Usuario existe, mas nenhum Funcionario com
+    o mesmo RE (nunca migrada pro cadastro central). Sem Funcionario não
+    há status pra checar; não é motivo pra derrubar quem já entrava."""
+    from app.core.deps import get_current_user
+    from app.core.security import create_access_token
+
+    mirror = _UsuarioMirrorFake(uuid4(), "99999", ativo=True)
+    token = create_access_token(subject=mirror.id)
+    db = _DBLegadoComFuncionario(mirror, func=None)
+
+    resultado = get_current_user(token, db)
+    assert resultado is mirror

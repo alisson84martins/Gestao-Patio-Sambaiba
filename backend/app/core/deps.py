@@ -25,6 +25,14 @@ def get_current_user(
     - JWT novo (sub = funcionario.id): busca Funcionario → Usuario pelo RE.
     - JWT antigo (sub = usuario.id): busca Usuario diretamente.
 
+    SEV-05 (fechamento): também recusa `Funcionario.status == 'DESLIGADO'`,
+    igual a `get_current_funcionario`. Antes desta checagem, `DESLIGADO`
+    sozinho (sem também desativar o login em `UsuarioLogin.ativo`) não
+    bloqueava nada nos 12 routers legados — só nos 5 do RBAC novo. Busca o
+    `Funcionario` pelo RE do `Usuario` quando ele não veio de graça no
+    caminho (JWT antigo); no caminho novo o `Funcionario` já foi carregado
+    antes, sem consulta extra.
+
     ⚠️ DEPENDE de uma linha espelho em `usuario` para todo funcionario com
     login — os 14 routers legados do Pátio (CurrentUser/AdminUser/etc.) só
     conhecem `usuario`, não `Funcionario`. Sem o espelho, quem foi criado só
@@ -60,12 +68,20 @@ def get_current_user(
     if user is not None:
         if not user.ativo:
             raise cred_exc
+        func = db.execute(
+            select(Funcionario).where(Funcionario.re == user.re)
+        ).scalar_one_or_none()
+        # Sem Funcionario correspondente não há status pra checar — conta
+        # puramente legada, de antes do cadastro central existir.
+        if func is not None:
+            _recusar_se_desligado(func)
         return user
 
     # JWT novo: sub = funcionario.id → busca Usuario pelo RE (para compatibilidade)
     func = db.get(Funcionario, sub_id)
     if func is None:
         raise cred_exc
+    _recusar_se_desligado(func)
 
     user = db.execute(select(Usuario).where(Usuario.re == func.re)).scalar_one_or_none()
     if user is None or not user.ativo:
