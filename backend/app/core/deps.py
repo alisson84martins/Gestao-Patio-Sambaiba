@@ -2,7 +2,7 @@
 from typing import Annotated, Callable
 from uuid import UUID
 
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy import select, text
 from sqlalchemy.orm import Session
@@ -11,6 +11,7 @@ from app.core.database import get_db
 from app.core.security import JWTError, decode_access_token
 from app.models import Usuario
 from app.models.cadastro import Funcionario, UsuarioLogin
+from app.services.auditoria import ip_do_request, registrar_log_acesso
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/token", auto_error=True)
 
@@ -167,6 +168,7 @@ def exige(recurso: str, escrever: bool = False) -> Callable:
     Uso: Depends(exige("alocacao", escrever=True))
     """
     def checker(
+        request: Request,
         token: Annotated[str, Depends(oauth2_scheme)],
         db: Annotated[Session, Depends(get_db)],
     ) -> Funcionario:
@@ -183,6 +185,14 @@ def exige(recurso: str, escrever: bool = False) -> Callable:
 
         tem_acesso = row is not None and (row.pode_escrever if escrever else row.pode_ler)
         if not tem_acesso:
+            # Trilha de auditoria mínima (migration 021) — negativa de
+            # 403 via exige(), o gate RBAC usado pela maioria dos
+            # routers novos (não cobre os 12 legados nem a trava de
+            # autoria em ocorrências — ver cabeçalho da migration 021).
+            registrar_log_acesso(
+                db, "NEGADO_403",
+                funcionario_id=func.id, recurso=recurso, ip=ip_do_request(request),
+            )
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail=f"Sem permissão para {'escrever em' if escrever else 'ler'} '{recurso}'",

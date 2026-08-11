@@ -19,6 +19,7 @@ from sqlalchemy.orm import Session, joinedload, selectinload
 from app.core.database import get_db
 from app.core.deps import exige
 from app.core.uploads import ler_upload_limitado, resolver_caminho_seguro, validar_assinatura
+from app.services.auditoria import ip_do_request, registrar_log_acesso
 from app.models.cadastro import Funcao, Funcionario, FuncionarioFuncao
 from app.models.frota import Onibus
 from app.models.ocorrencia import (
@@ -407,7 +408,12 @@ def listar(
 # ─── DETALHE ──────────────────────────────────────────────────────────────────
 
 @router.get("/{ocorrencia_id}", response_model=OcorrenciaCompleta, summary="Ocorrência completa, com todas as filhas")
-def detalhar(ocorrencia_id: UUID, usuario: LeituraOcorrencia, db: Annotated[Session, Depends(get_db)]):
+def detalhar(
+    ocorrencia_id: UUID,
+    usuario: LeituraOcorrencia,
+    db: Annotated[Session, Depends(get_db)],
+    request: Request,
+):
     oc = _carregar_completa(db, ocorrencia_id)
     if oc is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Ocorrência não encontrada")
@@ -415,6 +421,12 @@ def detalhar(ocorrencia_id: UUID, usuario: LeituraOcorrencia, db: Annotated[Sess
     if oc.registrado_por:
         autor = db.get(Funcionario, oc.registrado_por)
         oc.registrado_por_nome = autor.nome if autor else None
+    # Trilha de auditoria mínima (migration 021) — quem, quando, qual.
+    # Nunca o dado da ocorrência em si (nome/CPF de vítima), só o id.
+    registrar_log_acesso(
+        db, "LEITURA_OCORRENCIA",
+        funcionario_id=usuario.id, ocorrencia_id=ocorrencia_id, ip=ip_do_request(request),
+    )
     return oc
 
 

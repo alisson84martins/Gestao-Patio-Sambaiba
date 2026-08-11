@@ -18,6 +18,7 @@ from app.models import Usuario
 from app.models.cadastro import Funcao, FuncionarioFuncao, Funcionario, UsuarioLogin
 from app.schemas.auth import LoginRequest, MeResponse, TokenResponse
 from app.services.acesso import acesso_efetivo, destino_login, modulos_disponiveis
+from app.services.auditoria import ip_do_request, registrar_log_acesso
 
 router = APIRouter(prefix="/auth", tags=["autenticacao"])
 
@@ -80,7 +81,7 @@ def _zerar_falhas_conta(re: str) -> None:
     _TENTATIVAS_POR_CONTA.pop(re, None)
 
 
-def _autenticar_e_gerar_token(re: str, senha: str, db: Session) -> TokenResponse:
+def _autenticar_e_gerar_token(re: str, senha: str, db: Session, ip: str | None = None) -> TokenResponse:
     """Login via sistema novo (usuario_login) com fallback para o sistema antigo (usuario)."""
     settings = get_settings()
     re = re.strip()
@@ -96,6 +97,7 @@ def _autenticar_e_gerar_token(re: str, senha: str, db: Session) -> TokenResponse
     if ul is not None:
         if not verify_password(senha, ul.senha_hash):
             _registrar_falha_conta(re)
+            registrar_log_acesso(db, "LOGIN_FALHA", re_tentativa=re, ip=ip)
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="RE ou senha incorretos",
@@ -110,6 +112,7 @@ def _autenticar_e_gerar_token(re: str, senha: str, db: Session) -> TokenResponse
         ul.ultimo_acesso = datetime.now(timezone.utc)
         db.commit()
         _zerar_falhas_conta(re)
+        registrar_log_acesso(db, "LOGIN_SUCESSO", funcionario_id=func.id, re_tentativa=re, ip=ip)
 
         token = create_access_token(
             subject=func.id,
@@ -124,6 +127,7 @@ def _autenticar_e_gerar_token(re: str, senha: str, db: Session) -> TokenResponse
     user = db.execute(select(Usuario).where(Usuario.re == re)).scalar_one_or_none()
     if user is None or not verify_password(senha, user.senha_hash):
         _registrar_falha_conta(re)
+        registrar_log_acesso(db, "LOGIN_FALHA", re_tentativa=re, ip=ip)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="RE ou senha incorretos",
@@ -137,6 +141,7 @@ def _autenticar_e_gerar_token(re: str, senha: str, db: Session) -> TokenResponse
     user.ultimo_acesso = datetime.now(timezone.utc)
     db.commit()
     _zerar_falhas_conta(re)
+    registrar_log_acesso(db, "LOGIN_SUCESSO", re_tentativa=re, ip=ip)
 
     token = create_access_token(
         subject=user.id,
@@ -157,7 +162,7 @@ def login_json(
 ) -> TokenResponse:
     """Login com `{re, senha}` em JSON."""
     _checar_rate_limit(request)
-    return _autenticar_e_gerar_token(credentials.re, credentials.senha, db)
+    return _autenticar_e_gerar_token(credentials.re, credentials.senha, db, ip=ip_do_request(request))
 
 
 @router.post("/token", response_model=TokenResponse, summary="Login via form OAuth2 (Swagger)")
@@ -168,7 +173,7 @@ def login_oauth2(
 ) -> TokenResponse:
     """Login no padrão OAuth2 (form-urlencoded). O campo `username` recebe o RE."""
     _checar_rate_limit(request)
-    return _autenticar_e_gerar_token(form_data.username, form_data.password, db)
+    return _autenticar_e_gerar_token(form_data.username, form_data.password, db, ip=ip_do_request(request))
 
 
 @router.get(

@@ -1,4 +1,5 @@
 """Modelos SQLAlchemy 2.0 + ENUMs Python."""
+from app.models.auditoria import LogAcesso
 from app.models.cadastro import (
     Funcao, FuncaoPermissao, Funcionario, FuncionarioFuncao,
     Modulo, Recurso, UsuarioLogin,
@@ -26,6 +27,8 @@ from app.models.operacoes import Alerta, Escala, FichaManutencao, ImportacaoEsca
 from app.models.pessoas import Motorista, Usuario
 
 __all__ = [
+    # Auditoria
+    "LogAcesso",
     # Cadastro central
     "Funcionario", "Funcao", "FuncionarioFuncao", "UsuarioLogin",
     "FuncaoPermissao", "Recurso", "Modulo",
