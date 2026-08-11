@@ -43,11 +43,14 @@ class _FakeDBSemUsuario:
 
 @pytest.fixture(autouse=True)
 def _limpa_rate_limit():
-    """_LOGIN_TENTATIVAS é dict de módulo — sem limpar, um teste vaza pro
-    outro (mesmo "unknown" de TestClient em request.client.host)."""
+    """_LOGIN_TENTATIVAS e _TENTATIVAS_POR_CONTA são dicts de módulo —
+    sem limpar, um teste vaza pro outro (mesmo "unknown" de TestClient em
+    request.client.host, e REs repetidos como "10001" entre testes)."""
     auth_router_mod._LOGIN_TENTATIVAS.clear()
+    auth_router_mod._TENTATIVAS_POR_CONTA.clear()
     yield
     auth_router_mod._LOGIN_TENTATIVAS.clear()
+    auth_router_mod._TENTATIVAS_POR_CONTA.clear()
 
 
 @pytest.fixture
@@ -61,52 +64,75 @@ def cliente_auth():
 def test_rate_limit_bloqueia_na_11a_tentativa_do_mesmo_ip(cliente_auth):
     """Confirma A2: 10/min por IP. As 10 primeiras devem cair em 401
     (RE/senha incorretos); a 11ª tem que ser 429, não mais uma tentativa
-    de autenticação de verdade."""
+    de autenticação de verdade.
+
+    RE diferente a cada tentativa de propósito — isola o limite por IP do
+    limite por conta (SEV-08, 5 falhas/RE): usar o mesmo RE dez vezes
+    bateria no limite de conta primeiro, e o teste pararia de medir o que
+    diz medir."""
     respostas = [
-        cliente_auth.post("/auth/login", json={"re": "10001", "senha": "errada"})
-        for _ in range(10)
+        cliente_auth.post("/auth/login", json={"re": f"1000{i}", "senha": "errada"})
+        for i in range(10)
     ]
     assert all(r.status_code == 401 for r in respostas), [r.status_code for r in respostas]
 
-    bloqueada = cliente_auth.post("/auth/login", json={"re": "10001", "senha": "errada"})
+    bloqueada = cliente_auth.post("/auth/login", json={"re": "10099", "senha": "errada"})
     assert bloqueada.status_code == 429
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "SEV — não existe bloqueio por CONTA, só por IP (auth.py:24-38, "
-        "_LOGIN_TENTATIVAS chaveado por request.client.host). Um atacante que "
-        "rotacione IP (ou, pior, se o nginx não repassar X-Forwarded-For e "
-        "--proxy-headers não estiver ligado no uvicorn, TODO MUNDO aparenta vir "
-        "de 127.0.0.1 e o rate limit vira uma trava global de 10 logins/min pra "
-        "empresa inteira) tenta o mesmo RE indefinidamente. Ver Fase 6 do "
-        "relatório para a confirmação que só o Alisson pode fazer no servidor."
-    ),
-)
-def test_rate_limit_nao_protege_a_conta_entre_ips_diferentes(cliente_auth):
-    """20 tentativas contra o MESMO RE, cada uma "vinda" de um IP diferente
-    (via ASGITransport com client= por request) — nenhuma deveria passar de
-    um número pequeno e travar a conta. Hoje, nenhuma trava nunca: rate
-    limit é só por IP, então rotacionar IP dá tentativas infinitas contra
-    um RE específico."""
-    import httpx
-
+def test_bloqueio_por_conta_protege_independente_do_ip(cliente_auth):
+    """SEV-08, corrigido: 20 tentativas contra o MESMO RE, cada uma
+    "vinda" de um IP diferente (TestClient(client=(ip, porta)) injeta
+    request.client.host direto no escopo ASGI, sem depender de cabeçalho)
+    — trava na 6ª tentativa (limite de 5 falhas), não importa quantos IPs
+    diferentes o atacante rotacionar."""
     RE_ALVO = "10001"
     codigos = []
     for i in range(20):
         ip_forjado = f"203.0.113.{i}"  # TEST-NET-3 (RFC 5737) — não é IP real
-        transporte = httpx.ASGITransport(app=app, client=(ip_forjado, 12345))
-        with httpx.Client(transport=transporte, base_url="http://testserver") as c:
-            r = c.post("/auth/login", json={"re": RE_ALVO, "senha": f"tentativa-{i}"})
-            codigos.append(r.status_code)
+        c = TestClient(app, client=(ip_forjado, 12345))
+        r = c.post("/auth/login", json={"re": RE_ALVO, "senha": f"tentativa-{i}"})
+        codigos.append(r.status_code)
 
-    # Comportamento desejado: a conta trava bem antes da 20ª tentativa vinda
-    # de IPs diferentes (ex.: um limite por RE, não só por IP).
-    assert any(c == 429 for c in codigos), (
-        "Nenhuma das 20 tentativas contra o mesmo RE, vindas de IPs diferentes, "
-        f"foi bloqueada: {codigos}"
-    )
+    assert codigos[:5] == [401] * 5, codigos
+    assert all(c == 429 for c in codigos[5:]), codigos
+
+
+def test_falhas_por_conta_zeram_no_sucesso():
+    """Conta só falha; sucesso zera o contador daquele RE — sem isso, um
+    usuário legítimo que erra a senha algumas vezes e depois acerta
+    ficaria a um erro de distância de travar sem motivo."""
+    auth_router_mod._TENTATIVAS_POR_CONTA.clear()
+    re = "10098"
+    for _ in range(4):
+        auth_router_mod._registrar_falha_conta(re)
+    auth_router_mod._checar_bloqueio_conta(re)  # 4 < 5 — ainda não trava
+
+    auth_router_mod._zerar_falhas_conta(re)
+    assert re not in auth_router_mod._TENTATIVAS_POR_CONTA
+
+    for _ in range(4):
+        auth_router_mod._registrar_falha_conta(re)
+    auth_router_mod._checar_bloqueio_conta(re)  # zerado — 4 de novo, não trava
+
+
+def test_bloqueio_por_conta_poda_entrada_quando_a_janela_expira(monkeypatch):
+    """Diferente de _LOGIN_TENTATIVAS (que nunca poda chave vazia — ver
+    teste seguinte), _checar_bloqueio_conta remove a entrada do RE quando
+    todas as tentativas já saíram da janela de 15 min, em vez de deixar
+    uma lista vazia ocupando a chave pra sempre."""
+    auth_router_mod._TENTATIVAS_POR_CONTA.clear()
+    re = "10097"
+
+    agora = [1_000_000.0]
+    monkeypatch.setattr(auth_router_mod.time, "time", lambda: agora[0])
+
+    auth_router_mod._registrar_falha_conta(re)
+    assert re in auth_router_mod._TENTATIVAS_POR_CONTA
+
+    agora[0] += auth_router_mod._CONTA_JANELA + 1
+    auth_router_mod._checar_bloqueio_conta(re)
+    assert re not in auth_router_mod._TENTATIVAS_POR_CONTA
 
 
 def test_dict_de_tentativas_cresce_sem_limite_por_ip_novo():

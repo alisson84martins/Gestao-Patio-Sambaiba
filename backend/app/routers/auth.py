@@ -25,23 +25,66 @@ _LOGIN_TENTATIVAS: dict[str, list[float]] = defaultdict(list)
 _RATE_MAX = 10
 _RATE_JANELA = 60
 
+# SEV-08: bloqueio por CONTA (RE), independente do IP de origem. O limite
+# por IP acima não protege uma conta específica de alguém que rotacione
+# IP — 10.000 combinações de senha (4 dígitos do CPF) sem nunca travar.
+# Conta só FALHA (RE/senha incorretos); sucesso zera. Janela com
+# expiração automática — trancar até intervenção do admin seria DoS de
+# graça (erre a senha de alguém 5x e ele não trabalha).
+_TENTATIVAS_POR_CONTA: dict[str, list[float]] = defaultdict(list)
+_CONTA_MAX = 5
+_CONTA_JANELA = 15 * 60  # 15 minutos
+
 
 def _checar_rate_limit(request: Request) -> None:
     ip = request.client.host if request.client else "unknown"
     agora = time.time()
-    _LOGIN_TENTATIVAS[ip] = [t for t in _LOGIN_TENTATIVAS[ip] if agora - t < _RATE_JANELA]
-    if len(_LOGIN_TENTATIVAS[ip]) >= _RATE_MAX:
+    tentativas = [t for t in _LOGIN_TENTATIVAS[ip] if agora - t < _RATE_JANELA]
+    if len(tentativas) >= _RATE_MAX:
+        _LOGIN_TENTATIVAS[ip] = tentativas
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
             detail="Muitas tentativas de login. Aguarde 1 minuto.",
         )
-    _LOGIN_TENTATIVAS[ip].append(agora)
+    tentativas.append(agora)
+    _LOGIN_TENTATIVAS[ip] = tentativas
+
+
+def _checar_bloqueio_conta(re: str) -> None:
+    """Bloqueio por RE — ver nota acima de _TENTATIVAS_POR_CONTA.
+
+    ⚠️ Mesma mensagem/status para RE inexistente e senha errada (quem
+    chama já garante isso ao só registrar falha nos dois casos da mesma
+    forma) — um 429 que só aparecesse para RE cadastrado viraria oráculo
+    de enumeração de conta.
+    """
+    agora = time.time()
+    tentativas = [t for t in _TENTATIVAS_POR_CONTA[re] if agora - t < _CONTA_JANELA]
+    if len(tentativas) >= _CONTA_MAX:
+        _TENTATIVAS_POR_CONTA[re] = tentativas
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Muitas tentativas para este RE. Aguarde alguns minutos.",
+        )
+    if tentativas:
+        _TENTATIVAS_POR_CONTA[re] = tentativas
+    elif re in _TENTATIVAS_POR_CONTA:
+        del _TENTATIVAS_POR_CONTA[re]  # poda entrada vazia — não cresce à toa
+
+
+def _registrar_falha_conta(re: str) -> None:
+    _TENTATIVAS_POR_CONTA[re].append(time.time())
+
+
+def _zerar_falhas_conta(re: str) -> None:
+    _TENTATIVAS_POR_CONTA.pop(re, None)
 
 
 def _autenticar_e_gerar_token(re: str, senha: str, db: Session) -> TokenResponse:
     """Login via sistema novo (usuario_login) com fallback para o sistema antigo (usuario)."""
     settings = get_settings()
     re = re.strip()
+    _checar_bloqueio_conta(re)
 
     # ── Sistema novo: usuario_login → funcionario ──────────────────────────
     ul = db.execute(
@@ -52,6 +95,7 @@ def _autenticar_e_gerar_token(re: str, senha: str, db: Session) -> TokenResponse
 
     if ul is not None:
         if not verify_password(senha, ul.senha_hash):
+            _registrar_falha_conta(re)
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="RE ou senha incorretos",
@@ -65,6 +109,7 @@ def _autenticar_e_gerar_token(re: str, senha: str, db: Session) -> TokenResponse
         func = db.get(Funcionario, ul.funcionario_id)
         ul.ultimo_acesso = datetime.now(timezone.utc)
         db.commit()
+        _zerar_falhas_conta(re)
 
         token = create_access_token(
             subject=func.id,
@@ -78,6 +123,7 @@ def _autenticar_e_gerar_token(re: str, senha: str, db: Session) -> TokenResponse
     # ── Fallback: sistema antigo (usuario) ────────────────────────────────
     user = db.execute(select(Usuario).where(Usuario.re == re)).scalar_one_or_none()
     if user is None or not verify_password(senha, user.senha_hash):
+        _registrar_falha_conta(re)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="RE ou senha incorretos",
@@ -90,6 +136,7 @@ def _autenticar_e_gerar_token(re: str, senha: str, db: Session) -> TokenResponse
         )
     user.ultimo_acesso = datetime.now(timezone.utc)
     db.commit()
+    _zerar_falhas_conta(re)
 
     token = create_access_token(
         subject=user.id,
