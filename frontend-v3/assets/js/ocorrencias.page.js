@@ -145,11 +145,15 @@ function badgeStatus(status) {
         CANCELADA: ['Cancelada', 'cinza'],
     };
     const [label, cor] = mapa[status] || [status, 'cinza'];
+    // a11y (11/08/2026): cinza e vermelho mediam ~4.05:1 e ~4.25:1 contra
+    // o próprio fundo — abaixo do mínimo AA de 4.5:1 pra texto pequeno em
+    // negrito. Mesmo matiz, só mais claros (cinza ~5.0:1, vermelho
+    // ~5.6:1). Verde (~4.54:1) e amarelo (~9.5:1) já passavam.
     const cores = {
         verde: 'background:#1a3a1a;color:#4caf50',
-        cinza: 'background:#2a2a2a;color:#888',
+        cinza: 'background:#2a2a2a;color:#9a9a9a',
         amarelo: 'background:#3a2e00;color:#ffd600',
-        vermelho: 'background:#3a1a1a;color:#f44336',
+        vermelho: 'background:#3a1a1a;color:#ff6b5b',
     };
     return `<span style="${cores[cor]};padding:2px 8px;border-radius:4px;font-size:0.75rem;font-weight:700">${label}</span>`;
 }

@@ -14,7 +14,14 @@
     --accent3: #10b981;
     --accent4: #3b82f6;
     --text: #f0f0f0;
-    --muted: #666;
+    /* a11y (11/08/2026): #666 media ~3.2:1 sobre --surface2 e ~3.5:1 sobre
+       --bg — abaixo do mínimo WCAG AA de 4.5:1 pra texto normal. Mesmo
+       matiz (cinza neutro, sem matiz nenhum pra mudar), só mais claro:
+       #8a8a8a dá ~4.9:1 sobre --surface2 e ~5.7:1 sobre --bg. Feedback de
+       um coordenador com dificuldade de enxergar cores opacas — token
+       usado em label, placeholder, texto secundário e estado disabled em
+       quase toda a tela. */
+    --muted: #8a8a8a;
     --mono: 'JetBrains Mono', monospace;
     --display: 'Barlow Condensed', sans-serif;
 }
@@ -159,7 +166,10 @@ body {
 }
 
 .form-input:disabled {
-    opacity: 0.6;
+    /* a11y (11/08/2026): opacity sobre texto é o que mais gera a sensação
+       de "opaco/borrado" — troca por cor sólida (--muted, já ajustado
+       pra 4.5:1+) em vez de esmaecer o elemento inteiro. */
+    color: var(--muted);
     cursor: not-allowed;
 }
 
@@ -621,13 +631,15 @@ body {
 }
 
 .fila-vazia {
+    /* a11y (11/08/2026): opacity 0.55 em cima de --muted (já discreto por
+       natureza) deixava o texto quase ilegível — a fila fica vazia com
+       frequência, não é um estado raro que justifique escondê-lo tanto. */
     color: var(--muted);
     font-family: var(--mono);
     font-size: 11px;
     text-align: center;
     letter-spacing: 1px;
     padding: 14px 0;
-    opacity: 0.55;
     text-transform: uppercase;
 }
 
@@ -837,9 +849,13 @@ body {
 }
 
 .btn-ghost:disabled {
+    /* a11y (11/08/2026): já tinha color: var(--muted) — a opacity em
+       cima disso reduzia o texto duas vezes. Botões de imprimir/sinistro
+       (§6 do SISTEMA-EM-PRODUCAO.md) usam este estado ficando disabled
+       até a ocorrência ter id; precisam continuar legíveis enquanto
+       parecem desabilitados — desabilitado ≠ invisível. */
     color: var(--muted);
     cursor: not-allowed;
-    opacity: 0.6;
 }
 
 .btn-ghost:disabled:hover {
@@ -2049,8 +2065,10 @@ body.modal-open {
 }
 
 .manut-card-concluida {
+    /* a11y (11/08/2026): opacity esmaecia o texto da ficha concluída
+       inteira, não só o card — a cor da borda (verde) já diferencia de
+       aberta/em andamento sem precisar apagar o conteúdo. */
     border-left-color: var(--accent3);
-    opacity: 0.65;
 }
 
 .manut-card-header {
@@ -2557,7 +2575,7 @@ body.modal-open {
 
 .manut-card-aberta      { border-left-color: #f59e0b; background: rgba(245,158,11,0.03); }
 .manut-card-em_andamento { border-left-color: var(--accent4); background: rgba(59,130,246,0.03); }
-.manut-card-concluida   { border-left-color: var(--accent3); opacity: 0.65; }
+.manut-card-concluida   { border-left-color: var(--accent3); }
 
 .manut-card-header {
     display: flex;
