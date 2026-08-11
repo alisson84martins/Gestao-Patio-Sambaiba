@@ -11,7 +11,7 @@
  * seleção e trocar.
  */
 
-import { podeLer, modulos } from './sessao.js';
+import { podeEscrever, podeLer, modulos } from './sessao.js';
 import './modal.util.js';
 
 const LINKS = [
@@ -21,6 +21,10 @@ const LINKS = [
     { href: 'manutencao.html', texto: 'Manutenção', recurso: 'manutencao' },
     { href: 'importacao.html', texto: 'Importação', recurso: 'escala' },
     { href: 'ocorrencias.html', texto: 'Ocorrências', recurso: 'ocorrencia' },
+    // CCO só tem pode_escrever em pre_ocorrencia (abre/roteia, nunca lê
+    // conteúdo — decisão 4) — qualquerAcesso mostra o link pra quem tem
+    // ler OU escrever, não só ler como os outros.
+    { href: 'pre-ocorrencias.html', texto: 'Pré-ocorrências', recurso: 'pre_ocorrencia', qualquerAcesso: true },
     { href: 'cadastros.html', texto: 'Cadastros', recurso: 'usuarios' },
     { href: 'permissoes.html', texto: 'Permissões', recurso: 'usuarios' },
 ];
@@ -33,7 +37,10 @@ export function initNav() {
     nav.innerHTML = '';
 
     for (const link of LINKS) {
-        if (!podeLer(link.recurso)) continue;
+        const temAcesso = link.qualquerAcesso
+            ? (podeLer(link.recurso) || podeEscrever(link.recurso))
+            : podeLer(link.recurso);
+        if (!temAcesso) continue;
         const a = document.createElement('a');
         a.href = link.href;
         a.className = 'app-nav-link' + (link.href === paginaAtual ? ' active' : '');

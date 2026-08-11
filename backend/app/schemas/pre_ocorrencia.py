@@ -25,10 +25,16 @@ TipoAnexoPreOcorrencia = Literal["CNH", "DOC_VEICULO", "OUTRO"]
 
 class AbrirAutorizacaoRequest(BaseModel):
     telefone_destino: str = Field(..., min_length=8, max_length=20)
-    # Obrigatório quando quem abre é CCO; ignorado (vira o próprio) quando
-    # quem abre é coordenador — checagem é no endpoint, não aqui, porque
-    # o schema não sabe quem está chamando.
+    # Um dos dois é obrigatório quando quem abre é CCO; ignorados (vira o
+    # próprio) quando quem abre é coordenador — checagem é no endpoint,
+    # não aqui, porque o schema não sabe quem está chamando.
+    # `coordenador_re` existe porque o CCO não tem leitura em "usuarios"
+    # (decisão 4 — não lê conteúdo, e o catálogo de pessoas é desse
+    # recurso) — não dá pra resolver RE → id no frontend via
+    # /funcionarios/verificar como o resto do sistema faz; o backend
+    # resolve internamente, sem exigir esse gate.
     coordenador_id: Optional[UUID] = None
+    coordenador_re: Optional[str] = Field(None, max_length=20)
     motorista_re: Optional[str] = Field(None, max_length=20)
     motorista_nome: Optional[str] = Field(None, max_length=120)
     prefixo: Optional[str] = Field(None, max_length=10)

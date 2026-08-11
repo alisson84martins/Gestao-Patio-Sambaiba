@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<!--
+  Sistema de Gestão Operacional Sambaíba — V3
+  Pré-ocorrência do motorista — formulário público, sem login.
+  Desenvolvido por Alisson Martins
+  © 2026 — Todos os direitos reservados
+-->
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+    <meta name="theme-color" content="#0a0a0a">
+    <meta name="robots" content="noindex, nofollow">
+    <title>Relato de ocorrência — Sambaíba</title>
+
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700;800&family=Barlow+Condensed:wght@400;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="assets/css/style.css">
+</head>
+<body>
+
+<main class="pre-oc-shell">
+
+    <div class="pre-oc-header">
+        <div class="pre-oc-empresa">Eu ♥ Sambaíba</div>
+        <div class="pre-oc-titulo">Relato da ocorrência</div>
+        <div class="pre-oc-sub">Conte o que aconteceu. Nada aqui é obrigatório além do relato — preencha o que der.</div>
+    </div>
+
+    <!-- Estado: carregando / link inválido — some assim que o formulário carrega -->
+    <div id="pre-oc-carregando" class="pre-oc-aviso">Abrindo o formulário…</div>
+    <div id="pre-oc-invalido" class="pre-oc-aviso pre-oc-aviso-erro" style="display:none">
+        Este link não é válido ou já expirou. Peça pro coordenador abrir um novo.
+    </div>
+
+    <!-- Estado: já enviado — mostra o protocolo e nada mais -->
+    <div id="pre-oc-enviado" class="pre-oc-confirmacao" style="display:none">
+        <div class="pre-oc-confirmacao-icone">✓</div>
+        <div class="pre-oc-confirmacao-titulo">Relato enviado</div>
+        <div class="pre-oc-confirmacao-texto">Guarde este número — é o comprovante de que seu relato chegou.</div>
+        <div class="pre-oc-protocolo" id="pre-oc-protocolo">—</div>
+    </div>
+
+    <form id="pre-oc-form" class="pre-oc-form" style="display:none" novalidate>
+
+        <div class="pre-oc-status" id="pre-oc-status" aria-live="polite">Preenchendo…</div>
+
+        <!-- 1 — Relato e hora — o mais crítico -->
+        <section class="pre-oc-bloco">
+            <h2 class="pre-oc-bloco-titulo">O que aconteceu</h2>
+            <div class="form-group">
+                <label class="form-label" for="f-relato">Conte com suas palavras</label>
+                <textarea id="f-relato" name="relato" class="form-textarea" rows="6"
+                    placeholder="Descreva o que aconteceu, o mais detalhado que der."></textarea>
+            </div>
+            <div class="form-group">
+                <label class="form-label" for="f-hora">Horário aproximado</label>
+                <input type="time" id="f-hora" name="hora_ocorrencia" class="form-input">
+            </div>
+            <div class="form-group">
+                <label class="form-label" for="f-data">Data</label>
+                <input type="date" id="f-data" name="data_ocorrencia" class="form-input">
+            </div>
+        </section>
+
+        <!-- 2 — Local -->
+        <section class="pre-oc-bloco">
+            <h2 class="pre-oc-bloco-titulo">Local</h2>
+            <div class="form-group">
+                <label class="form-label" for="f-logradouro">Rua / avenida</label>
+                <input type="text" id="f-logradouro" name="local_logradouro" class="form-input" maxlength="200">
+            </div>
+            <div class="pre-oc-linha-dupla">
+                <div class="form-group">
+                    <label class="form-label" for="f-numero-local">Número</label>
+                    <input type="text" id="f-numero-local" name="local_numero" class="form-input" maxlength="20">
+                </div>
+                <div class="form-group">
+                    <label class="form-label" for="f-bairro">Bairro</label>
+                    <input type="text" id="f-bairro" name="local_bairro" class="form-input" maxlength="80">
+                </div>
+            </div>
+            <div class="form-group">
+                <label class="form-label" for="f-cidade">Cidade</label>
+                <input type="text" id="f-cidade" name="local_cidade" class="form-input" maxlength="80">
+            </div>
+            <div class="form-group">
+                <label class="form-label" for="f-referencia">Ponto de referência</label>
+                <input type="text" id="f-referencia" name="local_referencia" class="form-input" maxlength="200" placeholder="Ex: em frente ao mercado X">
+            </div>
+        </section>
+
+        <!-- 3 — Documentos -->
+        <section class="pre-oc-bloco">
+            <h2 class="pre-oc-bloco-titulo">Documentos</h2>
+            <p class="pre-oc-bloco-hint">Se conseguir agora, envie foto da CNH e do documento do veículo. Se não der, envie o relato mesmo assim — dá pra mandar os documentos depois, pelo mesmo link.</p>
+
+            <div class="pre-oc-anexo-item">
+                <span>CNH</span>
+                <label class="btn btn-ghost pre-oc-btn-anexo">
+                    📷 Enviar foto
+                    <input type="file" id="f-anexo-cnh" accept="image/jpeg,image/png,application/pdf" hidden>
+                </label>
+                <span class="pre-oc-anexo-status" id="status-anexo-cnh"></span>
+            </div>
+            <div class="pre-oc-anexo-item">
+                <span>Documento do veículo</span>
+                <label class="btn btn-ghost pre-oc-btn-anexo">
+                    📷 Enviar foto
+                    <input type="file" id="f-anexo-doc" accept="image/jpeg,image/png,application/pdf" hidden>
+                </label>
+                <span class="pre-oc-anexo-status" id="status-anexo-doc"></span>
+            </div>
+            <div id="pre-oc-anexo-erro" class="pre-oc-aviso pre-oc-aviso-erro" style="display:none"></div>
+        </section>
+
+        <!-- 4 — Motorista e cobrador -->
+        <section class="pre-oc-bloco">
+            <h2 class="pre-oc-bloco-titulo">Você</h2>
+            <div class="pre-oc-linha-dupla">
+                <div class="form-group">
+                    <label class="form-label" for="f-mot-re">Seu RE</label>
+                    <input type="text" id="f-mot-re" name="motorista_re" class="form-input" inputmode="numeric" maxlength="20">
+                </div>
+                <div class="form-group">
+                    <label class="form-label" for="f-mot-nome">Seu nome</label>
+                    <input type="text" id="f-mot-nome" name="motorista_nome" class="form-input" maxlength="120">
+                </div>
+            </div>
+            <div class="form-group">
+                <label class="form-label" for="f-mot-telefone">Seu telefone</label>
+                <input type="text" id="f-mot-telefone" name="motorista_telefone" class="form-input" inputmode="tel" maxlength="20">
+            </div>
+            <div class="form-group">
+                <label class="form-label" for="f-prefixo">Prefixo do carro</label>
+                <input type="text" id="f-prefixo" name="prefixo" class="form-input" inputmode="numeric" maxlength="10">
+            </div>
+            <div class="pre-oc-linha-dupla">
+                <div class="form-group">
+                    <label class="form-label" for="f-mot-cpf">Seu CPF</label>
+                    <input type="text" id="f-mot-cpf" name="motorista_cpf" class="form-input" inputmode="numeric" maxlength="14">
+                </div>
+                <div class="form-group">
+                    <label class="form-label" for="f-mot-rg">Seu RG</label>
+                    <input type="text" id="f-mot-rg" name="motorista_rg" class="form-input" maxlength="20">
+                </div>
+            </div>
+            <div class="form-group">
+                <label class="form-label" for="f-mot-cnh">Sua CNH</label>
+                <input type="text" id="f-mot-cnh" name="motorista_cnh" class="form-input" inputmode="numeric" maxlength="20">
+            </div>
+
+            <h3 class="pre-oc-bloco-subtitulo">Cobrador (se tinha)</h3>
+            <div class="pre-oc-linha-dupla">
+                <div class="form-group">
+                    <label class="form-label" for="f-cob-re">RE do cobrador</label>
+                    <input type="text" id="f-cob-re" name="cobrador_re" class="form-input" inputmode="numeric" maxlength="20">
+                </div>
+                <div class="form-group">
+                    <label class="form-label" for="f-cob-nome">Nome do cobrador</label>
+                    <input type="text" id="f-cob-nome" name="cobrador_nome" class="form-input" maxlength="120">
+                </div>
+            </div>
+            <div class="form-group">
+                <label class="form-label" for="f-cob-telefone">Telefone do cobrador</label>
+                <input type="text" id="f-cob-telefone" name="cobrador_telefone" class="form-input" inputmode="tel" maxlength="20">
+            </div>
+        </section>
+
+        <!-- 5 — Terceiro: lista de coleta, tudo opcional -->
+        <section class="pre-oc-bloco">
+            <h2 class="pre-oc-bloco-titulo">Outro veículo envolvido</h2>
+            <p class="pre-oc-bloco-hint">Se teve outro carro envolvido, colete o que conseguir com a pessoa. Nada aqui é obrigatório.</p>
+            <div class="pre-oc-linha-dupla">
+                <div class="form-group">
+                    <label class="form-label" for="f-terc-placa">Placa</label>
+                    <input type="text" id="f-terc-placa" name="terceiro_placa" class="form-input" maxlength="10">
+                </div>
+                <div class="form-group">
+                    <label class="form-label" for="f-terc-modelo">Modelo / cor</label>
+                    <input type="text" id="f-terc-modelo" name="terceiro_modelo_cor" class="form-input" maxlength="120">
+                </div>
+            </div>
+            <div class="form-group">
+                <label class="form-label" for="f-terc-nome">Nome da pessoa</label>
+                <input type="text" id="f-terc-nome" name="terceiro_nome" class="form-input" maxlength="120">
+            </div>
+            <div class="pre-oc-linha-dupla">
+                <div class="form-group">
+                    <label class="form-label" for="f-terc-telefone">Telefone</label>
+                    <input type="text" id="f-terc-telefone" name="terceiro_telefone" class="form-input" inputmode="tel" maxlength="20">
+                </div>
+                <div class="form-group">
+                    <label class="form-label" for="f-terc-seguradora">Seguradora</label>
+                    <input type="text" id="f-terc-seguradora" name="terceiro_seguradora" class="form-input" maxlength="80">
+                </div>
+            </div>
+        </section>
+
+        <button type="button" class="btn btn-primary btn-full pre-oc-btn-enviar" id="btn-enviar">
+            Enviar relato
+        </button>
+        <div class="pre-oc-aviso pre-oc-aviso-erro" id="pre-oc-erro-envio" style="display:none"></div>
+    </form>
+
+</main>
+
+<script type="module" src="assets/js/pre-ocorrencia.page.js"></script>
+</body>
+</html>

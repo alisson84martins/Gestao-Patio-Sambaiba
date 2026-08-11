@@ -3013,3 +3013,196 @@ body.modal-open {
         background-size: 5mm 5mm;
     }
 }
+
+/* ============================================================
+   PRÉ-OCORRÊNCIA DO MOTORISTA — formulário público, sem login
+   (11/08/2026). Quem preenche está em pé, na rua, possivelmente
+   abalado — regras próprias, não reaproveita .login-shell porque
+   o conteúdo é bem mais longo que um card de login.
+   ============================================================ */
+
+.pre-oc-shell {
+    min-height: 100dvh;
+    max-width: 480px;
+    margin: 0 auto;
+    padding: 20px 16px 40px;
+}
+
+.pre-oc-header {
+    text-align: center;
+    margin-bottom: 20px;
+}
+
+.pre-oc-empresa {
+    font-family: var(--display);
+    font-size: 15px;
+    color: var(--accent);
+    font-weight: 700;
+}
+
+.pre-oc-titulo {
+    font-size: 22px;
+    font-weight: 800;
+    margin-top: 4px;
+}
+
+.pre-oc-sub {
+    font-size: 13px;
+    color: var(--muted);
+    margin-top: 6px;
+    line-height: 1.5;
+}
+
+.pre-oc-aviso {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 16px;
+    text-align: center;
+    font-size: 14px;
+    color: var(--muted);
+}
+
+.pre-oc-aviso-erro {
+    border-color: var(--accent2);
+    color: var(--accent2);
+    background: rgba(239, 68, 68, 0.08);
+}
+
+.pre-oc-confirmacao {
+    text-align: center;
+    padding: 40px 16px;
+}
+
+.pre-oc-confirmacao-icone {
+    font-size: 48px;
+    color: var(--accent3);
+    line-height: 1;
+    margin-bottom: 12px;
+}
+
+.pre-oc-confirmacao-titulo {
+    font-size: 20px;
+    font-weight: 800;
+}
+
+.pre-oc-confirmacao-texto {
+    font-size: 13px;
+    color: var(--muted);
+    margin-top: 8px;
+}
+
+.pre-oc-protocolo {
+    font-family: var(--mono);
+    font-size: 28px;
+    font-weight: 800;
+    letter-spacing: 1px;
+    color: var(--accent);
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 16px;
+    margin-top: 20px;
+    word-break: break-all;
+}
+
+.pre-oc-status {
+    text-align: center;
+    font-size: 12px;
+    color: var(--muted);
+    font-family: var(--mono);
+    padding: 6px;
+    /* Fixo no topo do form ao rolar — sempre visível pra saber que salvou. */
+    position: sticky;
+    top: 0;
+    background: var(--bg);
+    z-index: 5;
+    margin-bottom: 8px;
+}
+
+.pre-oc-status-ok { color: var(--accent3); }
+.pre-oc-status-erro { color: var(--accent2); }
+
+.pre-oc-bloco {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 18px 16px;
+    margin-bottom: 14px;
+}
+
+.pre-oc-bloco-titulo {
+    font-size: 16px;
+    font-weight: 800;
+    margin-bottom: 12px;
+    border-left: 3px solid var(--accent);
+    padding-left: 10px;
+}
+
+.pre-oc-bloco-subtitulo {
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--muted);
+    margin: 16px 0 10px;
+}
+
+.pre-oc-bloco-hint {
+    font-size: 12px;
+    color: var(--muted);
+    margin-bottom: 12px;
+    line-height: 1.5;
+}
+
+.pre-oc-linha-dupla {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+}
+
+.pre-oc-anexo-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 0;
+    border-bottom: 1px solid var(--border);
+}
+
+.pre-oc-anexo-item:last-of-type { border-bottom: none; }
+
+.pre-oc-anexo-item > span:first-child {
+    flex: 1;
+    font-size: 14px;
+}
+
+.pre-oc-btn-anexo {
+    /* Alvo de toque mínimo 44px — é um <label> clicável, não um <button>,
+       mas precisa se comportar do mesmo jeito num dedo na rua. */
+    min-height: 44px;
+    display: inline-flex;
+    align-items: center;
+    padding: 0 14px;
+    cursor: pointer;
+    white-space: nowrap;
+}
+
+.pre-oc-anexo-status {
+    font-size: 12px;
+    color: var(--accent3);
+    font-family: var(--mono);
+    min-width: 60px;
+    text-align: right;
+}
+
+.pre-oc-btn-enviar {
+    min-height: 52px;
+    font-size: 16px;
+    margin-top: 8px;
+}
+
+/* Larguras de referência 360/390/414px (§7 do SISTEMA-EM-PRODUCAO.md) —
+   abaixo de 380px a dupla de colunas fica apertada demais pro dedo. */
+@media (max-width: 380px) {
+    .pre-oc-linha-dupla {
+        grid-template-columns: 1fr;
+    }
+}

@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<!--
+  Sistema de Gestão Operacional Sambaíba — V3
+  Pré-ocorrência do motorista — abrir autorização, acompanhar e converter
+  Desenvolvido por Alisson Martins
+  © 2026 — Todos os direitos reservados
+-->
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="theme-color" content="#0a0a0a">
+    <title>Pré-ocorrências — Sambaíba V3</title>
+
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700;800&family=Barlow+Condensed:wght@400;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="assets/css/style.css">
+</head>
+<body>
+
+<header class="app-header">
+    <div class="app-header-brand">
+        <img class="app-header-logo" src="assets/img/sambaiba-logo.jpg" alt="Eu amo Sambaíba">
+        <div class="app-header-titles">
+            <div class="app-header-empresa">Sambaíba</div>
+            <div class="app-header-title">GESTÃO OPERACIONAL SAMBAÍBA</div>
+        </div>
+    </div>
+
+    <div class="app-header-user">
+        <div class="app-user-info">
+            <div class="app-user-name" id="user-name">—</div>
+            <div class="app-user-meta" id="user-meta">—</div>
+        </div>
+        <button class="btn-logout" id="btn-logout" title="Sair">Sair</button>
+    </div>
+</header>
+
+<nav class="app-nav"></nav>
+<script type="module" src="./assets/js/nav.js"></script>
+
+<main class="patio-main">
+
+    <!-- Abrir — precisa ser um toque, não um formulário (§3.2 do prompt) -->
+    <div class="remanejo-filtros">
+        <h1 style="font-size:1.1rem;margin-right:auto">Pré-ocorrências</h1>
+        <button class="btn btn-primary" id="btn-abrir">+ Abrir pré-ocorrência</button>
+    </div>
+
+    <!-- Minhas autorizações abertas -->
+    <section aria-labelledby="titulo-minhas">
+        <h2 id="titulo-minhas" style="font-size:0.95rem;color:var(--muted);margin:1rem 0 0.5rem">Minhas autorizações abertas</h2>
+        <div id="lista-autorizacoes"><div class="patio-loading">Carregando…</div></div>
+    </section>
+
+    <!-- Fila — só quem tem leitura no recurso (CCO não vê, decisão 4) -->
+    <section id="secao-fila" style="display:none" aria-labelledby="titulo-fila">
+        <h2 id="titulo-fila" style="font-size:0.95rem;color:var(--muted);margin:1.5rem 0 0.5rem">Fila — pré-ocorrências direcionadas a você</h2>
+        <div id="lista-fila"><div class="patio-loading">Carregando…</div></div>
+    </section>
+
+</main>
+
+<!-- Modal: abrir autorização — um toque -->
+<div class="modal-overlay" id="modal-abrir">
+    <div class="modal">
+        <button type="button" class="modal-close" id="modal-abrir-fechar">✕</button>
+        <div class="modal-title">Abrir pré-ocorrência</div>
+
+        <div class="form-group">
+            <label class="form-label" for="abrir-telefone">Telefone do motorista <span style="color:var(--accent)">*</span></label>
+            <input type="text" class="form-input" id="abrir-telefone" inputmode="tel" placeholder="(11) 9 8888-7777" required>
+        </div>
+
+        <div class="form-group" id="abrir-coordenador-group" style="display:none">
+            <label class="form-label" for="abrir-coordenador-re">RE do coordenador destino <span style="color:var(--accent)">*</span></label>
+            <input type="text" class="form-input" id="abrir-coordenador-re" inputmode="numeric" maxlength="20">
+            <div id="abrir-coordenador-nome" style="font-size:0.8rem;color:var(--muted);margin-top:4px"></div>
+        </div>
+
+        <div class="form-group">
+            <label class="form-label" for="abrir-prefixo">Prefixo (se souber)</label>
+            <input type="text" class="form-input" id="abrir-prefixo" inputmode="numeric" maxlength="10">
+        </div>
+        <div class="form-group">
+            <label class="form-label" for="abrir-re">RE do motorista (se souber)</label>
+            <input type="text" class="form-input" id="abrir-re" inputmode="numeric" maxlength="20">
+        </div>
+        <div class="form-group">
+            <label class="form-label" for="abrir-nome">Nome do motorista (se souber)</label>
+            <input type="text" class="form-input" id="abrir-nome" maxlength="120">
+        </div>
+
+        <div id="modal-abrir-erro" style="display:none;color:var(--accent);font-size:0.85rem;margin-bottom:0.75rem;"></div>
+
+        <button type="button" class="btn btn-primary btn-full" id="btn-confirmar-abrir">Abrir e enviar o link</button>
+        <button type="button" class="btn btn-ghost btn-full btn-modal-stack" id="btn-cancelar-abrir">Cancelar</button>
+    </div>
+</div>
+
+<!-- Modal: link gerado -->
+<div class="modal-overlay" id="modal-link">
+    <div class="modal">
+        <button type="button" class="modal-close" id="modal-link-fechar">✕</button>
+        <div class="modal-title">Autorização aberta</div>
+        <p style="font-size:0.85rem;color:var(--muted);margin-bottom:0.75rem">
+            O link foi enviado por WhatsApp/SMS automaticamente. Se precisar reenviar manualmente, copie abaixo — ele só funciona uma vez e expira em 2 horas.
+        </p>
+        <div class="form-group">
+            <input type="text" class="form-input" id="link-gerado" readonly style="font-family:var(--mono);font-size:0.8rem">
+        </div>
+        <button type="button" class="btn btn-primary btn-full" id="btn-copiar-link">Copiar link</button>
+        <button type="button" class="btn btn-ghost btn-full btn-modal-stack" id="btn-fechar-link">Fechar</button>
+    </div>
+</div>
+
+<!-- Modal: converter em ocorrência definitiva -->
+<div class="modal-overlay" id="modal-detalhe">
+    <div class="modal">
+        <button type="button" class="modal-close" id="modal-detalhe-fechar">✕</button>
+        <div class="modal-title">Pré-ocorrência</div>
+        <div id="detalhe-conteudo" style="font-size:0.85rem;line-height:1.6;max-height:50vh;overflow-y:auto"></div>
+        <div id="modal-detalhe-erro" style="display:none;color:var(--accent);font-size:0.85rem;margin:0.75rem 0;"></div>
+        <button type="button" class="btn btn-primary btn-full" id="btn-converter">Converter em ocorrência definitiva</button>
+        <button type="button" class="btn btn-ghost btn-full btn-modal-stack" id="btn-fechar-detalhe">Fechar</button>
+    </div>
+</div>
+
+<script type="module" src="./assets/js/pre-ocorrencias.page.js"></script>
+</body>
+</html>

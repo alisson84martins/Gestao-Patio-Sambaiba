@@ -109,15 +109,23 @@ def abrir_autorizacao(
     background_tasks: BackgroundTasks,
 ):
     if _eh_cco(db, usuario.id):
-        if payload.coordenador_id is None:
+        coordenador = None
+        if payload.coordenador_id is not None:
+            coordenador = db.get(Funcionario, payload.coordenador_id)
+        elif payload.coordenador_re:
+            # CCO não tem leitura em "usuarios" (decisão 4) — resolve RE
+            # internamente aqui, sem depender de /funcionarios/verificar.
+            coordenador = db.execute(
+                select(Funcionario).where(Funcionario.re == payload.coordenador_re.strip())
+            ).scalar_one_or_none()
+        else:
             raise HTTPException(
                 status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail="CCO precisa informar coordenador_id — CCO só roteia, não é dono de pré-ocorrência.",
+                detail="CCO precisa informar o coordenador de destino (RE) — CCO só roteia, não é dono de pré-ocorrência.",
             )
-        coordenador_id = payload.coordenador_id
-        coordenador = db.get(Funcionario, coordenador_id)
         if coordenador is None:
             raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Coordenador de destino não encontrado")
+        coordenador_id = coordenador.id
     else:
         # Coordenador abrindo pra si mesmo — decisão 3, o padrão é ele mesmo.
         coordenador_id = payload.coordenador_id or usuario.id

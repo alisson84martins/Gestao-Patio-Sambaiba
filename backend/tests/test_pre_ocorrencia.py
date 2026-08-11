@@ -334,6 +334,31 @@ def test_cco_nao_converte_mesmo_tendo_escrita_no_recurso(ambiente):
     assert resp.status_code == 403, resp.text
 
 
+def test_cco_abre_autorizacao_informando_re_do_coordenador(ambiente):
+    """CCO não tem leitura em 'usuarios' (decisão 4) — não dá pra resolver
+    RE→id via /funcionarios/verificar como o resto do frontend faz. O
+    endpoint resolve coordenador_re internamente."""
+    _autenticar(ambiente, _CCO)
+    resp = ambiente["http"].post(
+        "/pre-ocorrencias/autorizacoes",
+        json={"telefone_destino": "11988887777", "coordenador_re": _COORD_A.re},
+    )
+    assert resp.status_code == 201, resp.text
+
+    with Session(ambiente["engine"]) as db:
+        salva = db.get(PreOcorrenciaAutorizacao, UUID(resp.json()["id"]))
+        assert salva.coordenador_id == _COORD_A.id
+
+
+def test_cco_sem_coordenador_nenhum_informado_e_rejeitado(ambiente):
+    _autenticar(ambiente, _CCO)
+    resp = ambiente["http"].post(
+        "/pre-ocorrencias/autorizacoes",
+        json={"telefone_destino": "11988887777"},
+    )
+    assert resp.status_code == 422, resp.text
+
+
 # ─── 9 — falha do webhook n8n não derruba a requisição ────────────────────────
 
 
