@@ -25,6 +25,7 @@ from app.models.ocorrencia import (
 )
 from app.models.operacoes import Alerta, Escala, FichaManutencao, ImportacaoEscala
 from app.models.pessoas import Motorista, Usuario
+from app.models.pre_ocorrencia import PreOcorrencia, PreOcorrenciaAnexo, PreOcorrenciaAutorizacao
 
 __all__ = [
     # Auditoria
@@ -44,4 +45,5 @@ __all__ = [
     "TipoOcorrencia", "OrgaoAutoridade", "Ocorrencia", "OcorrenciaAnalise",
     "OcorrenciaVeiculoTerceiro", "OcorrenciaAvaria", "OcorrenciaVitima",
     "OcorrenciaTestemunha", "OcorrenciaAutoridade", "OcorrenciaAnexo",
+    "PreOcorrenciaAutorizacao", "PreOcorrencia", "PreOcorrenciaAnexo",
 ]

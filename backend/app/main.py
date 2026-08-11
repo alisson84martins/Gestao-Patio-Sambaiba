@@ -11,7 +11,7 @@ from app.core.exception_handlers import register_exception_handlers
 from app.routers import (
     alertas, alocacoes, auth, escalas, filas, funcoes, funcionarios,
     health, importacao, linhas, manutencao, motoristas, ocorrencias, onibus,
-    patio, permissoes, tipos_defeito, usuarios,
+    patio, permissoes, pre_ocorrencias, pre_ocorrencias_publico, tipos_defeito, usuarios,
 )
 
 settings = get_settings()
@@ -121,3 +121,13 @@ app.include_router(importacao.router)
 # Suite Coordenadoria — ocorrências (uploads são servidos por rota própria
 # do router, protegida por exige("ocorrencia") — nunca por StaticFiles público)
 app.include_router(ocorrencias.router)
+# Pré-ocorrência do motorista — autenticado (RBAC) + público (token, sem
+# autenticação nenhuma). Dois routers de propósito — ver
+# pre_ocorrencias_publico.py sobre por que nunca podem se misturar.
+# ⛔ Ordem importa: o público (/pre-ocorrencias/publico/...) precisa vir
+# ANTES do autenticado, senão GET /pre-ocorrencias/{pre_ocorrencia_id}
+# (rota registrada primeiro) casa com "publico" como se fosse o id e pede
+# autenticação antes mesmo de validar o UUID — mesmo motivo pelo qual
+# /autopreencher vem antes de /{ocorrencia_id} em ocorrencias.py.
+app.include_router(pre_ocorrencias_publico.router)
+app.include_router(pre_ocorrencias.router)

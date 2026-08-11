@@ -1,5 +1,6 @@
 """Configurações da aplicação carregadas de variáveis de ambiente / .env."""
 from functools import lru_cache
+from typing import Optional
 
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -45,6 +46,13 @@ class Settings(BaseSettings):
 
     # Logs
     log_level: str = "INFO"
+
+    # Pré-ocorrência do motorista — webhook n8n (notifica o link por
+    # WhatsApp/SMS). Opcionais: em dev/teste sem n8n configurado, a
+    # autorização grava normalmente e a notificação só não dispara (loga
+    # e segue — nunca falha a requisição por causa disso).
+    n8n_webhook_url: Optional[str] = None
+    n8n_webhook_token: Optional[str] = None
 
     @property
     def cors_origins_list(self) -> list[str]:

@@ -31,6 +31,7 @@ dependencies = [
     # Utilitários
     "python-multipart>=0.0.20",  # upload de arquivos
     "openpyxl>=3.1.5",            # leitura de Excel
+    "httpx>=0.27.0",              # webhook n8n (pré-ocorrência)
 ]
 
 [project.optional-dependencies]
