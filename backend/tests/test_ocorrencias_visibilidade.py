@@ -332,9 +332,12 @@ def test_encarregado_nao_escreve_ocorrencia():
                     return None  # sem linha pode_escrever=True em "ocorrencia" — pós migration 020
             return _R()
 
+    # request=None: exige() agora tenta logar a negativa em log_acesso
+    # (migration 021); registrar_log_acesso() nunca deixa escapar erro de
+    # sessão fake sem .add()/.commit(), então None passa sem quebrar o teste.
     checker = exige("ocorrencia", escrever=True)
     with pytest.raises(HTTPException) as exc:
-        checker(token, _DB())
+        checker(None, token, _DB())
     assert exc.value.status_code == 403
 
 

@@ -220,9 +220,13 @@ def test_exige_nega_403_sem_linha_de_permissao():
                     return None  # vw_acesso_efetivo: sem linha pro recurso
             return _R()
 
+    # request=None: exige() agora tenta logar a negativa em log_acesso
+    # (migration 021) — registrar_log_acesso() nunca deixa escapar erro
+    # de sessão fake sem .add()/.commit(), então None passa por aqui sem
+    # quebrar o teste, só sem IP no log (irrelevante pro que este teste prova).
     checker = exige("usuarios", escrever=True)
     with pytest.raises(HTTPException) as exc:
-        checker(token, _DB())
+        checker(None, token, _DB())
     assert exc.value.status_code == 403
 
 
@@ -256,7 +260,7 @@ def test_exige_permite_quando_view_confirma_acesso():
             return _R()
 
     checker = exige("usuarios", escrever=True)
-    resultado = checker(token, _DB())
+    resultado = checker(None, token, _DB())
     assert resultado is func
 
 
