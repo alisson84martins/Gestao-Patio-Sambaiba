@@ -100,6 +100,7 @@ def get_current_funcionario(
     # Tenta como Funcionario (JWT novo)
     func = db.get(Funcionario, sub_id)
     if func is not None:
+        _recusar_se_desligado(func)
         ul = db.execute(
             select(UsuarioLogin).where(UsuarioLogin.funcionario_id == func.id)
         ).scalar_one_or_none()
@@ -123,7 +124,24 @@ def get_current_funcionario(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Esta conta não tem cadastro no sistema novo. Procure o administrador.",
         )
+    _recusar_se_desligado(func)
     return func
+
+
+def _recusar_se_desligado(func: Funcionario) -> None:
+    """SEV-05: Funcionario.status nunca era consultado por nenhuma camada
+    de autenticação — marcar alguém como DESLIGADO só mudava um rótulo na
+    tela de cadastro, sem revogar nada.
+
+    ⚠️ Recusa SÓ 'DESLIGADO'. AFASTADO e FÉRIAS são gente que volta — se
+    esta função barrasse os dois, um funcionário ativo ficaria trancado
+    fora do sistema no meio do turno, na segunda-feira em que voltasse.
+    """
+    if func.status == "DESLIGADO":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Funcionário desligado. Procure o administrador.",
+        )
 
 
 def exige(recurso: str, escrever: bool = False) -> Callable:

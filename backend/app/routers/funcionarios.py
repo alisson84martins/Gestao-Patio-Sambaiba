@@ -506,6 +506,17 @@ def atualizar_login(
 
     login.ativo = dados.ativo
     login.atualizado_em = datetime.now(timezone.utc)
+
+    # SEV-05: propaga para o espelho legado. Sem isso, desativar o acesso
+    # pelo fluxo novo não bloqueia os 12 routers legados do Pátio, que
+    # autenticam só pela linha em `usuario` (get_current_user) e nunca
+    # consultam UsuarioLogin.
+    func = db.get(Funcionario, funcionario_id)
+    if func is not None:
+        espelho = db.execute(select(Usuario).where(Usuario.re == func.re)).scalar_one_or_none()
+        if espelho is not None:
+            espelho.ativo = dados.ativo
+
     db.commit()
     db.refresh(login)
     return login
