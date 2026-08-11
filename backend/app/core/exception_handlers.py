@@ -44,21 +44,32 @@ def register_exception_handlers(app: FastAPI) -> None:
     @app.exception_handler(IntegrityError)
     async def integrity_error_handler(request: Request, exc: IntegrityError):
         msg = str(exc.orig) if exc.orig else str(exc)
-        # Trata constraints conhecidas
+        # Trata constraints conhecidas — mensagem já é específica e segura,
+        # nunca precisou do fragmento cru do banco.
         if "uq_alocacao_onibus_ativa" in msg:
             return _resposta_erro(409, "Ônibus já está alocado em outra fila ativa")
         if "uq_alerta_onibus_tipo_ativo" in msg:
             return _resposta_erro(409, "Já existe alerta ativo desse tipo para o ônibus")
         if "uq_permissao_usuario_recurso" in msg:
             return _resposta_erro(409, "Permissão duplicada para esse recurso")
+
+        # SEV-16 (fechamento, 11/08/2026): as quatro categorias abaixo já
+        # tinham mensagem principal genérica, mas vazavam o fragmento cru
+        # da exceção do Postgres em `detalhes.causa` — nome de tabela, de
+        # constraint, às vezes até valor de coluna. O cliente nunca
+        # precisou disso pra reagir ao 409/422; quem precisa é o log do
+        # servidor, pra investigar o que realmente aconteceu.
         if "duplicate key value" in msg.lower() or "violates unique" in msg.lower():
-            return _resposta_erro(409, "Registro duplicado", detalhes={"causa": msg.split("\n")[0]})
+            logger.warning("Integridade — chave duplicada: %s", msg)
+            return _resposta_erro(409, "Registro duplicado")
         if "violates foreign key" in msg.lower():
-            return _resposta_erro(409, "Referência inexistente", detalhes={"causa": msg.split("\n")[0]})
+            logger.warning("Integridade — chave estrangeira: %s", msg)
+            return _resposta_erro(409, "Referência inexistente")
         if "violates check constraint" in msg.lower():
-            return _resposta_erro(422, "Dados violam regra de negócio", detalhes={"causa": msg.split("\n")[0]})
+            logger.warning("Integridade — check constraint: %s", msg)
+            return _resposta_erro(422, "Dados violam regra de negócio")
         logger.exception("Erro de integridade não mapeado")
-        return _resposta_erro(409, "Conflito de dados", detalhes={"causa": msg.split("\n")[0]})
+        return _resposta_erro(409, "Conflito de dados")
 
     @app.exception_handler(SQLAlchemyError)
     async def sqlalchemy_error_handler(request: Request, exc: SQLAlchemyError):

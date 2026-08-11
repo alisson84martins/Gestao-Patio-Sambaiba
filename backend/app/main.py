@@ -84,7 +84,14 @@ app.add_middleware(
     allow_origins=settings.cors_origins_list,
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-    allow_headers=["*"],
+    # SEV-11 (fechamento, 11/08/2026): "*" com allow_credentials=True
+    # deixava qualquer cabeçalho passar numa requisição já autenticada.
+    # O frontend-v3 inteiro só manda dois (conferido em api.js,
+    # importacao.js e ocorrencia.form.js — inclusive no upload multipart,
+    # onde o Content-Type com boundary é posto pelo próprio navegador,
+    # nunca manual). ⚠️ A lista de ORIGENS (allow_origins) continua vindo
+    # do .env de produção, que só o Alisson vê — não mexi nisso.
+    allow_headers=["Authorization", "Content-Type"],
 )
 
 register_exception_handlers(app)

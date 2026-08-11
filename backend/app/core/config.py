@@ -27,7 +27,15 @@ class Settings(BaseSettings):
         min_length=32,
     )
     jwt_algorithm: str = "HS256"
-    jwt_expire_minutes: int = 1440  # 24 horas — cobre turnos do dia completo
+    # SEV-15 (fechamento, 11/08/2026): era 1440 (24h) aqui, mas 480 (8h) em
+    # .env.example, no .env real (dev e, supostamente, produção) e no texto
+    # da doc OpenAPI (main.py). Alinhado pro valor que já era o de fato
+    # (480) — token sem revogação em localStorage é motivo pra prazo mais
+    # curto, não mais longo, então não escolhi o maior dos dois por
+    # segurança. O que vale de verdade em produção é o `.env` de lá, que
+    # só o Alisson vê — isto só corrige o valor de fallback e a
+    # documentação, que estavam divergentes entre si.
+    jwt_expire_minutes: int = 480  # 8 horas — cobre um turno
 
     # Ambiente
     environment: str = Field(default="development", pattern="^(development|staging|production)$")
