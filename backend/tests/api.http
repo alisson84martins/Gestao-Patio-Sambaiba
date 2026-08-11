@@ -21,8 +21,12 @@
 ### GET / — raiz da API
 GET {{host}}/
 
-### GET /health — verifica banco e conta tabelas
+### GET /health — só confirma que API e banco respondem (SEV-09/10, 11/08/2026)
 GET {{host}}/health
+
+### GET /health/detalhado — contagem por tabela, ambiente, versão (autenticado)
+GET {{host}}/health/detalhado
+Authorization: Bearer {{authToken}}
 
 
 ###############################################################################

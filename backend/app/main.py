@@ -65,9 +65,16 @@ app = FastAPI(
         "3. Endpoints protegidos exigem header `Authorization: Bearer <token>`.\n"
     ),
     version=__version__,
-    docs_url="/docs",
-    redoc_url="/redoc",
-    openapi_url="/openapi.json",
+    # SEV-09: mapa completo da API (rotas, schemas, parâmetros) só faz
+    # sentido público em ambiente de desenvolvimento. `None` desliga a
+    # rota inteira no FastAPI, não só o link — /docs, /redoc e
+    # /openapi.json somem de verdade em produção, não ficam "escondidos".
+    # ⚠️ Isto não tem efeito enquanto o `.env` de produção estiver com
+    # ENVIRONMENT=development (pendência conhecida, fora do alcance desta
+    # sessão — só o Alisson tem acesso ao servidor).
+    docs_url=None if settings.is_production else "/docs",
+    redoc_url=None if settings.is_production else "/redoc",
+    openapi_url=None if settings.is_production else "/openapi.json",
     openapi_tags=tags_metadata,
     lifespan=lifespan,
 )
