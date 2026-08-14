@@ -13,6 +13,7 @@ import typing
 import uuid as _uuid_mod
 from datetime import date, datetime, time, timedelta, timezone
 from uuid import UUID, uuid4
+from zoneinfo import ZoneInfo
 
 import pytest
 from fastapi.testclient import TestClient
@@ -216,6 +217,41 @@ def test_endpoint_publico_nao_alcanca_ocorrencia_definitiva():
     codigo_fonte = open(publico_mod.__file__, encoding="utf-8").read()
     assert "from app.models.ocorrencia import" not in codigo_fonte
     assert "import Ocorrencia" not in codigo_fonte
+
+
+# ─── Item 2 (PROMPT-correcoes-pre-ocorrencia.md) — hora inicial no fuso certo ──
+
+
+def _diff_minutos_circular(t1: time, t2: time) -> float:
+    def _minutos(t: time) -> float:
+        return t.hour * 60 + t.minute + t.second / 60
+
+    diff = abs(_minutos(t1) - _minutos(t2))
+    return min(diff, 1440 - diff)
+
+
+def test_hora_ocorrencia_inicial_no_fuso_de_sao_paulo_nao_em_utc(ambiente):
+    """hora_ocorrencia é hora de parede que o motorista lê e digita, não um
+    instante — precisa nascer no fuso de operação (America/Sao_Paulo), nunca
+    em UTC. Sem isso, um motorista que abre o formulário às 14h vê 17:00
+    já preenchido e não confere um campo que já veio preenchido."""
+    http = ambiente["http"]
+    engine = ambiente["engine"]
+
+    _, token = _criar_autorizacao(engine, coordenador=_COORD_A)
+
+    resp = http.get("/pre-ocorrencias/publico", headers={"X-Pre-Ocorrencia-Token": token})
+    assert resp.status_code == 200
+
+    hora_recebida = time.fromisoformat(resp.json()["hora_ocorrencia"])
+    esperado_sp = datetime.now(ZoneInfo("America/Sao_Paulo")).time()
+    esperado_utc = datetime.now(timezone.utc).time()
+
+    assert _diff_minutos_circular(hora_recebida, esperado_sp) <= 5
+    # Prova que o comportamento ERRADO volta a falhar o teste: UTC está ~3h
+    # à frente de São Paulo, então se a correção regredir para
+    # datetime.now(timezone.utc), esta asserção estoura.
+    assert _diff_minutos_circular(hora_recebida, esperado_utc) >= 60
 
 
 # ─── 4 — CCO chamando GET /pre-ocorrencias/{id} → 403 ─────────────────────────

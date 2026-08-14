@@ -21,6 +21,7 @@ com o comentário apontando pra onde ela é aplicada:
 import logging
 from datetime import datetime, timezone
 from typing import Annotated, Optional
+from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, Request, UploadFile, status
 from sqlalchemy import func, select
@@ -45,6 +46,12 @@ ANEXO_TAMANHO_MAXIMO = 10 * 1024 * 1024  # 10 MB
 MAX_ANEXOS_POR_PRE_OCORRENCIA = 5
 
 _RESPOSTA_GENERICA = "Link inválido ou expirado."
+
+# Item 2: hora_ocorrencia é hora de parede que uma pessoa lê e digita, não
+# um instante — por isso é a ÚNICA exceção à regra de gravar tudo em UTC
+# neste arquivo (enviada_em/convertida_em/expira_em/atualizado_em continuam
+# UTC, e é assim que deve continuar).
+FUSO_OPERACAO = ZoneInfo("America/Sao_Paulo")
 
 
 def _ip(request: Request) -> Optional[str]:
@@ -97,10 +104,12 @@ def _carregar_ou_criar_pre_ocorrencia(db: Session, autorizacao: PreOcorrenciaAut
     if pre_oc is None:
         # hora_ocorrencia é NOT NULL no banco — hora atual como ponto de
         # partida editável; o motorista corrige no formulário (nunca
-        # bloqueia o autosave inicial por falta desse campo).
+        # bloqueia o autosave inicial por falta desse campo). No fuso de
+        # operação, não em UTC — é hora de parede, não instante (ver
+        # FUSO_OPERACAO acima).
         pre_oc = PreOcorrencia(
             autorizacao_id=autorizacao.id,
-            hora_ocorrencia=datetime.now(timezone.utc).time(),
+            hora_ocorrencia=datetime.now(FUSO_OPERACAO).time(),
             relato="",
             status="AGUARDANDO",
         )
