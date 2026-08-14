@@ -57,6 +57,7 @@ class _Vitima:
     cidade: str = ""
     contato_parentesco: str = ""
     contato_nome: str = ""
+    contato_fone: str = ""
     fone: str = ""
     destino_socorro: str = ""
 
@@ -249,6 +250,50 @@ def test_bo_sptrans_vazio_nao_imprime_linha_orfa():
 
     assert "*B.O: N°* 1234/2026\n*Protocolo:* PROT-9" in texto
     assert "B.O. SPTrans" not in texto
+
+
+def test_contato_da_vitima_com_nome_e_telefone_sai_na_mesma_linha():
+    """Item C do lote 2: achado de uso real — o telefone do contato
+    (contato_fone) nunca era lido pelo gerador, mesmo gravado no banco.
+    Entra na mesma linha do contato, com travessão, nunca numa segunda
+    linha 'Tel:' própria (a vítima já tem a dela)."""
+    oc = _ocorrencia_minima()
+    oc.vitimas = [_Vitima(
+        nome="Vítima Fictícia", contato_parentesco="Amigo",
+        contato_nome="Contato Fictício", contato_fone="(11) 98888-7777",
+        fone="(11) 97777-6666",
+    )]
+
+    texto = gerar_mensagem_sinistro(oc)
+
+    assert "Amigo: Contato Fictício — (11) 98888-7777" in texto
+    assert "Tel: (11) 97777-6666" in texto
+    # Nunca duas linhas "Tel:" seguidas — ficam indistinguíveis no grupo.
+    assert texto.count("Tel:") == 1
+
+
+def test_contato_da_vitima_sem_telefone_sai_so_o_nome():
+    oc = _ocorrencia_minima()
+    oc.vitimas = [_Vitima(
+        nome="Vítima Fictícia", contato_parentesco="Amigo",
+        contato_nome="Contato Fictício", contato_fone="",
+    )]
+
+    texto = gerar_mensagem_sinistro(oc)
+    bloco_vitima = texto.split("*Dados da Vítima*")[1].split("\n\n")[0]
+
+    assert "Amigo: Contato Fictício" in bloco_vitima
+    assert "—" not in bloco_vitima
+
+
+def test_vitima_sem_contato_nao_imprime_linha_de_contato():
+    oc = _ocorrencia_minima()
+    oc.vitimas = [_Vitima(nome="Vítima Fictícia", fone="(11) 91111-1111")]
+
+    texto = gerar_mensagem_sinistro(oc)
+
+    assert "*Dados da Vítima*\nNome: Vítima Fictícia\nTel: (11) 91111-1111" in texto
+    assert "—" not in texto.split("*Dados da Vítima*")[1].split("\n\n")[0]
 
 
 def test_tipo_diferente_de_outros_ignora_descricao_residual():

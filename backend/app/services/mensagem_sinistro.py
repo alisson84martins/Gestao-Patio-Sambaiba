@@ -87,6 +87,22 @@ def _bloco_terceiro(veiculo) -> str:
     return "\n".join(linhas)
 
 
+def _linha_contato_vitima(vitima) -> Optional[str]:
+    """Linha do contato da vítima — parentesco: nome, com o telefone do
+    contato anexado na mesma linha (' — telefone') quando preenchido.
+
+    Não vira uma segunda linha 'Tel:' própria: a vítima já tem a dela, e
+    duas linhas 'Tel:' seguidas ficam indistinguíveis pra quem lê no grupo
+    do WhatsApp sob pressão.
+    """
+    if not vitima.contato_nome:
+        return None
+    linha = _linha(vitima.contato_parentesco, vitima.contato_nome)
+    if vitima.contato_fone:
+        linha = f"{linha} — {vitima.contato_fone}"
+    return linha
+
+
 def _bloco_vitima(vitima) -> str:
     endereco = None
     if vitima.endereco:
@@ -99,7 +115,7 @@ def _bloco_vitima(vitima) -> str:
         _linha("Endereço", endereco),
         _linha("Bairro", vitima.bairro),
         _linha("Cidade", vitima.cidade),
-        _linha(vitima.contato_parentesco, vitima.contato_nome) if vitima.contato_nome else None,
+        _linha_contato_vitima(vitima),
         _linha("Tel", vitima.fone),
         _linha("Socorrida para", vitima.destino_socorro),
     ):
