@@ -19,11 +19,16 @@ const token = new URLSearchParams(window.location.search).get('token');
 
 const elCarregando = document.getElementById('pre-oc-carregando');
 const elInvalido = document.getElementById('pre-oc-invalido');
+const elErroConexao = document.getElementById('pre-oc-erro-conexao');
+const elErroConexaoTexto = document.getElementById('pre-oc-erro-conexao-texto');
 const elEnviado = document.getElementById('pre-oc-enviado');
 const elForm = document.getElementById('pre-oc-form');
 const elStatus = document.getElementById('pre-oc-status');
 const elErroEnvio = document.getElementById('pre-oc-erro-envio');
 const elErroAnexo = document.getElementById('pre-oc-anexo-erro');
+
+const MSG_SEM_CONEXAO = 'Sem conexão com o servidor. Verifique o sinal e tente de novo — o link continua válido.';
+const MSG_ERRO_NEUTRO = 'Algo deu errado. Tente de novo em instantes.';
 
 const CAMPOS = [
     'motorista_re', 'motorista_nome', 'motorista_telefone', 'motorista_cpf', 'motorista_rg', 'motorista_cnh',
@@ -37,15 +42,26 @@ const CAMPOS = [
 const CHAVE_LOCAL = `pre_oc_rascunho_${token || 'sem-token'}`;
 
 // ─── Fetch helper próprio — nunca usa api.js (que sempre manda o JWT) ────
+// Item 1: a exceção precisa dizer SE deu pra falar com o servidor. `fetch`
+// que lança (rede indisponível, DNS, timeout) é erro diferente de uma
+// resposta HTTP que veio e disse "não" — quem lê o catch decide a mensagem
+// certa a partir dessa diferença, nunca tratando as duas como a mesma coisa.
 async function apiPublica(caminho, { method = 'GET', body } = {}) {
-    const resp = await fetch(`${API_BASE_URL}${caminho}`, {
-        method,
-        headers: {
-            'Content-Type': 'application/json',
-            'X-Pre-Ocorrencia-Token': token,
-        },
-        body: body ? JSON.stringify(body) : undefined,
-    });
+    let resp;
+    try {
+        resp = await fetch(`${API_BASE_URL}${caminho}`, {
+            method,
+            headers: {
+                'Content-Type': 'application/json',
+                'X-Pre-Ocorrencia-Token': token,
+            },
+            body: body ? JSON.stringify(body) : undefined,
+        });
+    } catch {
+        const erro = new Error('Falha de rede');
+        erro.rede = true;
+        throw erro;
+    }
     if (!resp.ok) {
         const erro = new Error(`Erro ${resp.status}`);
         erro.status = resp.status;
@@ -114,7 +130,13 @@ async function salvarNoServidor() {
         // Autosave nunca trava o formulário — sinal ruim em local de
         // acidente é a regra, não a exceção. O rascunho já está no
         // localStorage; tenta de novo no próximo campo digitado.
-        marcarStatus('Sem conexão — seu texto está salvo neste aparelho', 'pre-oc-status-erro');
+        if (err.status === 404) {
+            // Token expirou/foi usado no meio do preenchimento — diferente
+            // de rede: continuar digitando não adianta, ninguém mais recebe.
+            marcarStatus('Este link expirou — seu texto está salvo neste aparelho, mas não chega mais ao coordenador. Peça um link novo.', 'pre-oc-status-erro');
+        } else {
+            marcarStatus('Sem conexão — seu texto está salvo neste aparelho', 'pre-oc-status-erro');
+        }
     } finally {
         salvando = false;
     }
@@ -194,6 +216,10 @@ async function iniciar() {
         return;
     }
 
+    elInvalido.style.display = 'none';
+    elErroConexao.style.display = 'none';
+    elCarregando.style.display = '';
+
     try {
         const dados = await apiPublica('/pre-ocorrencias/publico');
         elCarregando.style.display = 'none';
@@ -237,8 +263,25 @@ async function iniciar() {
         document.getElementById('btn-enviar').addEventListener('click', enviar);
     } catch (err) {
         elCarregando.style.display = 'none';
-        elInvalido.style.display = '';
+        // Item 1: sinal ruim em local de acidente é a regra — falha de rede
+        // ou 429 (rate limit) NUNCA pode virar "link inválido" na tela,
+        // senão o motorista liga pro coordenador, que queima outro token à
+        // toa e o link novo falha pelo mesmo motivo.
+        if (err.rede || err.status === 429) {
+            elErroConexaoTexto.textContent = MSG_SEM_CONEXAO;
+            elErroConexao.style.display = '';
+        } else if (err.status === 404) {
+            elInvalido.style.display = '';
+        } else {
+            elErroConexaoTexto.textContent = MSG_ERRO_NEUTRO;
+            elErroConexao.style.display = '';
+        }
     }
 }
+
+document.getElementById('btn-tentar-novo').addEventListener('click', () => {
+    elErroConexao.style.display = 'none';
+    iniciar();
+});
 
 iniciar();
