@@ -209,9 +209,19 @@ async function enviar() {
     } catch (err) {
         btn.disabled = false;
         btn.textContent = 'Enviar relato';
-        elErroEnvio.textContent = err.status === 400
-            ? 'Conte pelo menos um pouco do que aconteceu antes de enviar.'
-            : 'Não deu pra enviar agora. Seu texto está salvo neste aparelho — tente de novo em instantes.';
+        // Item B do lote 2: enviar() ficou de fora da distinção que
+        // apiPublica() já marca (err.rede / err.status) — tratava tudo que
+        // não era 400 com "tente de novo em instantes", inclusive link
+        // expirado, que nunca vai funcionar de novo por mais que se tente.
+        if (err.status === 400) {
+            elErroEnvio.textContent = 'Conte pelo menos um pouco do que aconteceu antes de enviar.';
+        } else if (err.status === 404) {
+            elErroEnvio.textContent = 'Este link expirou ou já foi usado. Seu texto está salvo neste aparelho, mas não chega mais ao coordenador — peça um link novo.';
+        } else if (err.rede || err.status === 429) {
+            elErroEnvio.textContent = 'Sem conexão com o servidor. Seu texto está salvo neste aparelho — tente de novo em instantes.';
+        } else {
+            elErroEnvio.textContent = MSG_ERRO_NEUTRO;
+        }
         elErroEnvio.style.display = '';
     }
 }
