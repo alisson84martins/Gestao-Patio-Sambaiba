@@ -13,7 +13,6 @@
  */
 import { API_BASE_URL } from './config.js';
 import { aplicarMascara } from './mascaras.js';
-import { escapeHtml } from './escape.js';
 
 const token = new URLSearchParams(window.location.search).get('token');
 
@@ -170,13 +169,18 @@ async function enviarAnexo(inputEl, tipo, elStatusAnexo) {
             body: formData,
         });
         if (!resp.ok) {
+            // O FastAPI devolve {"detail": "..."} — nunca {"erro": ...}.
+            // corpo.erro fica de reserva (nunca existe hoje, mas não custa
+            // nada) e `Erro ${status}` é o último recurso.
             const corpo = await resp.json().catch(() => ({}));
-            throw new Error(corpo.erro || `Erro ${resp.status}`);
+            throw new Error(corpo.detail || corpo.erro || `Erro ${resp.status}`);
         }
         elStatusAnexo.textContent = '✓ enviado';
     } catch (err) {
         elStatusAnexo.textContent = '';
-        elErroAnexo.textContent = `Não deu pra enviar: ${escapeHtml(err.message)}. Pode tentar de novo, ou seguir sem — o relato continua valendo.`;
+        // textContent já não interpreta HTML — escapeHtml aqui só faria o
+        // motorista ver "&lt;" literal na tela por cima da mensagem real.
+        elErroAnexo.textContent = `Não deu pra enviar: ${err.message}. Pode tentar de novo, ou seguir sem — o relato continua valendo.`;
         elErroAnexo.style.display = '';
     }
 }
