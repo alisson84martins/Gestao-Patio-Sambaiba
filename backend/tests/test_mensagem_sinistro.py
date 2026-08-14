@@ -27,6 +27,7 @@ class _Autoridade:
     orgao: _Orgao
     identificacao: str = ""
     responsavel: str = ""
+    observacao: str = ""
 
 
 @dataclass
@@ -159,6 +160,36 @@ def test_blocos_condicionais_aparecem_quando_ha_dado():
     assert "*B.O: N°* 999999" in texto
     assert "*Protocolo:* PROT-001" in texto
     assert texto.endswith("*Coordenador: Coordenador Fictício  9999*")
+    # Autoridade sem observação preenchida não deve imprimir "Obs:" órfão.
+    assert "Obs:" not in texto
+
+
+def test_autoridade_com_observacao_aparece_na_mensagem():
+    """Item 7: a observação da autoridade (ex.: número de B.O. de outro
+    órgão anotado ali) precisa sair na mensagem — antes era lida e nunca
+    impressa."""
+    oc = _ocorrencia_minima()
+    oc.autoridades = [_Autoridade(
+        _Orgao("SPTrans"), "VTR 2114", "Agente Platini / Agente Fulano",
+        observacao="BO SPTRANS 45510/26",
+    )]
+
+    texto = gerar_mensagem_sinistro(oc)
+
+    assert (
+        "*Autoridades No Local*\nSPTrans\nVTR 2114\n"
+        "Responsável: Agente Platini / Agente Fulano\nObs: BO SPTRANS 45510/26"
+    ) in texto
+
+
+def test_autoridade_sem_observacao_nao_imprime_linha_orfa():
+    oc = _ocorrencia_minima()
+    oc.autoridades = [_Autoridade(_Orgao("SAMU"), "AMB-01", "Responsável Fictício")]
+
+    texto = gerar_mensagem_sinistro(oc)
+
+    assert "*Autoridades No Local*\nSAMU\nAMB-01\nResponsável: Responsável Fictício" in texto
+    assert "Obs:" not in texto
 
 
 def test_local_sem_numero_nao_imprime_marcador_n():

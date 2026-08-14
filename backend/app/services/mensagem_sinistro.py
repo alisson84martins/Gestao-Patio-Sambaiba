@@ -115,6 +115,9 @@ def _bloco_autoridades(autoridades) -> str:
         if a.identificacao:
             partes.append(a.identificacao)
         partes.append(f"Responsável: {a.responsavel or ''}")
+        obs_linha = _linha("Obs", a.observacao)
+        if obs_linha:
+            partes.append(obs_linha)
         entradas.append("\n".join(partes))
     return "*Autoridades No Local*\n" + "\n\n".join(entradas)
 
