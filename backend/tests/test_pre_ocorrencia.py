@@ -254,6 +254,38 @@ def test_hora_ocorrencia_inicial_no_fuso_de_sao_paulo_nao_em_utc(ambiente):
     assert _diff_minutos_circular(hora_recebida, esperado_utc) >= 60
 
 
+# ─── Item A (PROMPT-correcoes-lote-2.md) — data da conversão no fuso certo ────
+
+
+def test_conversao_data_ocorrencia_ausente_usa_data_de_sao_paulo_nao_utc(ambiente):
+    """data_ocorrencia é data de parede que a pessoa lê/digita, não um
+    instante — precisa nascer no fuso de operação (America/Sao_Paulo) quando
+    o motorista não preencheu, nunca em UTC.
+
+    ⚠️ Este teste só falha DE VERDADE entre 21h e meia-noite (horário de
+    Brasília) — é a única janela em que a data em São Paulo e a data em UTC
+    divergem. Fora dela, passa com ou sem a correção. O projeto não tem
+    freezegun nem injeção de relógio ainda, e o item pede para não introduzir
+    dependência nova só para isto — a limitação fica documentada aqui em vez
+    de mascarada."""
+    engine = ambiente["engine"]
+    auth_a, _ = _criar_autorizacao(engine, coordenador=_COORD_A)
+    pre_oc_id = _criar_pre_ocorrencia(
+        engine, auth_a,
+        data_ocorrencia=None,
+        motorista_re="60002", prefixo="1721", relato="Relato de teste sem data preenchida.",
+    )
+
+    _autenticar(ambiente, _COORD_A)
+    resp = ambiente["http"].post(f"/pre-ocorrencias/{pre_oc_id}/converter", json={})
+    assert resp.status_code == 200, resp.text
+
+    esperado_sp = datetime.now(ZoneInfo("America/Sao_Paulo")).date()
+    with Session(engine) as db:
+        oc = db.get(Ocorrencia, UUID(resp.json()["ocorrencia_id"]))
+        assert oc.data_ocorrencia == esperado_sp
+
+
 # ─── 4 — CCO chamando GET /pre-ocorrencias/{id} → 403 ─────────────────────────
 
 

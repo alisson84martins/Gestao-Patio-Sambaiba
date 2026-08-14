@@ -13,6 +13,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request,
 from sqlalchemy import select, text
 from sqlalchemy.orm import Session
 
+from app.core.config import FUSO_OPERACAO
 from app.core.database import get_db
 from app.core.deps import exige
 from app.models.cadastro import Funcionario
@@ -321,7 +322,10 @@ def converter(
     nova = Ocorrencia(
         tipo_ocorrencia_id=tipo_id,
         status="RASCUNHO",
-        data_ocorrencia=pre_oc.data_ocorrencia or datetime.now(timezone.utc).date(),
+        # data_ocorrencia é data de parede que a pessoa lê/digita — fuso de
+        # operação, não UTC (Item A do lote 2: uma pré-ocorrência sem data
+        # preenchida perto da meia-noite gravava o dia seguinte).
+        data_ocorrencia=pre_oc.data_ocorrencia or datetime.now(FUSO_OPERACAO).date(),
         hora_ocorrencia=pre_oc.hora_ocorrencia,
         prefixo=pre_oc.prefixo or "0000",
         condutor_re=pre_oc.motorista_re,

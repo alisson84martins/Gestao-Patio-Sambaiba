@@ -1,9 +1,19 @@
 """Configurações da aplicação carregadas de variáveis de ambiente / .env."""
 from functools import lru_cache
 from typing import Optional
+from zoneinfo import ZoneInfo
 
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+# Fuso de operação da garagem — data e hora que uma PESSOA lê e digita
+# (data_ocorrencia, hora_ocorrencia da pré-ocorrência e da ocorrência
+# definitiva) vão neste fuso. Momento que o SISTEMA registra (enviada_em,
+# convertida_em, expira_em, atualizado_em, usada_em, log_acesso) continua em
+# UTC — isso não muda. Módulo compartilhado pra não duplicar a constante
+# entre pre_ocorrencias_publico.py e pre_ocorrencias.py (mesmo precedente de
+# mascaras.js/escape.js: duplicata diverge em silêncio).
+FUSO_OPERACAO = ZoneInfo("America/Sao_Paulo")
 
 
 class Settings(BaseSettings):

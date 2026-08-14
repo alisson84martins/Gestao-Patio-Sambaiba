@@ -21,12 +21,12 @@ com o comentário apontando pra onde ela é aplicada:
 import logging
 from datetime import datetime, timezone
 from typing import Annotated, Optional
-from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, Request, UploadFile, status
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from app.core.config import FUSO_OPERACAO
 from app.core.database import get_db
 from app.core.uploads import ler_upload_limitado, validar_assinatura
 from app.models.pre_ocorrencia import PreOcorrencia, PreOcorrenciaAnexo, PreOcorrenciaAutorizacao
@@ -50,10 +50,10 @@ MAX_ANEXOS_POR_PRE_OCORRENCIA = 5
 _RESPOSTA_GENERICA = "Link inválido ou expirado."
 
 # Item 2: hora_ocorrencia é hora de parede que uma pessoa lê e digita, não
-# um instante — por isso é a ÚNICA exceção à regra de gravar tudo em UTC
-# neste arquivo (enviada_em/convertida_em/expira_em/atualizado_em continuam
-# UTC, e é assim que deve continuar).
-FUSO_OPERACAO = ZoneInfo("America/Sao_Paulo")
+# um instante — por isso é uma exceção à regra de gravar tudo em UTC neste
+# arquivo (enviada_em/convertida_em/expira_em/atualizado_em continuam UTC, e
+# é assim que deve continuar). FUSO_OPERACAO agora vem de app.core.config —
+# pre_ocorrencias.py também precisa dela (data_ocorrencia na conversão).
 
 
 def _ip(request: Request) -> Optional[str]:
