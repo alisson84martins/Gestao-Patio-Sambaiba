@@ -115,7 +115,11 @@ function agendarAutosave() {
     salvarRascunhoLocal(lerFormulario());
     marcarStatus('Digitando…');
     clearTimeout(debounceServidor);
-    debounceServidor = setTimeout(salvarNoServidor, 1200);
+    // 2500ms, não 1200 — o localStorage (linha acima) já salva a cada
+    // tecla e é a rede de segurança imediata; o servidor não precisa de
+    // tanta pressa, e menos chamadas aqui é menos chance de esbarrar no
+    // rate limit por IP durante um relato longo digitado no celular.
+    debounceServidor = setTimeout(salvarNoServidor, 2500);
 }
 
 async function salvarNoServidor() {

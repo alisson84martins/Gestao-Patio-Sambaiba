@@ -52,19 +52,26 @@ class RateLimitExcedido(Exception):
 
 
 def checar_rate_limit_publico(ip: str | None, token_hash: str) -> None:
-    """Levanta RateLimitExcedido se o IP ou o token (pelo hash — nunca o
-    claro fica em memória além do necessário para calcular o hash)
-    estourou o limite. Dois limites porque um token comprometido sendo
-    martelado é um problema diferente de alguém varrendo tokens por IP."""
+    """Levanta RateLimitExcedido se o IP ou o token estourou o limite.
+
+    Os dois contadores medem coisas diferentes de propósito:
+    - por TOKEN: toda tentativa conta, mesmo as que resolvem — cobre um
+      token válido sendo martelado. Autosave legítimo bate nisso sem
+      culpa nenhuma (por isso o limite é bem mais alto, _TOKEN_MAX).
+    - por IP: só conta aqui a checagem de limite já atingido — quem
+      INCREMENTA esse contador é registrar_falha_rate_limit_ip(), chamado
+      só quando o token NÃO resolveu uma autorização válida (ver
+      _carregar_autorizacao() em pre_ocorrencias_publico.py). Um motorista
+      legítimo, com token válido, nunca consome essa cota — ela existe
+      pra pegar quem varre tokens ao acaso, não quem digita um relato.
+    """
     agora = time.time()
     chave_ip = ip or "unknown"
 
     tentativas_ip = [t for t in _TENTATIVAS_POR_IP[chave_ip] if agora - t < _IP_JANELA]
-    if len(tentativas_ip) >= _IP_MAX:
-        _TENTATIVAS_POR_IP[chave_ip] = tentativas_ip
-        raise RateLimitExcedido()
-    tentativas_ip.append(agora)
     _TENTATIVAS_POR_IP[chave_ip] = tentativas_ip
+    if len(tentativas_ip) >= _IP_MAX:
+        raise RateLimitExcedido()
 
     tentativas_token = [t for t in _TENTATIVAS_POR_TOKEN[token_hash] if agora - t < _TOKEN_JANELA]
     if len(tentativas_token) >= _TOKEN_MAX:
@@ -72,3 +79,15 @@ def checar_rate_limit_publico(ip: str | None, token_hash: str) -> None:
         raise RateLimitExcedido()
     tentativas_token.append(agora)
     _TENTATIVAS_POR_TOKEN[token_hash] = tentativas_token
+
+
+def registrar_falha_rate_limit_ip(ip: str | None) -> None:
+    """Conta uma tentativa que NÃO resolveu (token inexistente, expirado,
+    usado ou com hash divergente) pro limite por IP — a cota de varredura.
+    Chamado só nos caminhos de falha de _carregar_autorizacao(), nunca
+    quando o token resolve com sucesso."""
+    agora = time.time()
+    chave_ip = ip or "unknown"
+    tentativas_ip = [t for t in _TENTATIVAS_POR_IP[chave_ip] if agora - t < _IP_JANELA]
+    tentativas_ip.append(agora)
+    _TENTATIVAS_POR_IP[chave_ip] = tentativas_ip

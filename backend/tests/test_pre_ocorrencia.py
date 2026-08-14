@@ -485,3 +485,60 @@ def test_apos_enviar_patch_publico_passa_a_rejeitar(ambiente):
     # Mas o GET continua funcionando — protocolo consultável (regra 7).
     resp_get_depois = ambiente["http"].get("/pre-ocorrencias/publico", headers={"X-Pre-Ocorrencia-Token": token})
     assert resp_get_depois.status_code == 200, resp_get_depois.text
+
+
+# ─── Item 5 (PROMPT-correcoes-pre-ocorrencia.md) — rate limit por IP só conta
+# tentativa que NÃO resolveu, nunca autosave legítimo ──────────────────────
+#
+# Cada teste usa um IP próprio (TestClient(..., client=(ip, porta))) pra não
+# herdar nem deixar sujeira nos contadores globais de outros testes deste
+# arquivo, que sempre usam o IP padrão "testclient" do TestClient. Limpa os
+# dicts do módulo antes de cada um por segurança extra.
+
+
+def _limpar_rate_limit():
+    from app.services import pre_ocorrencia_token as token_mod
+    token_mod._TENTATIVAS_POR_IP.clear()
+    token_mod._TENTATIVAS_POR_TOKEN.clear()
+
+
+def test_rate_limit_por_ip_nao_conta_autosave_com_token_valido(ambiente):
+    """O caso do motorista escrevendo em rajadas curtas: mais chamadas que
+    _IP_MAX, todas com o MESMO token válido — nenhuma pode voltar 429. Sem
+    a correção (contador de IP incrementado em toda tentativa, mesmo as que
+    resolvem), este teste estoura no request de número _IP_MAX + 1."""
+    from app.services.pre_ocorrencia_token import _IP_MAX
+
+    _limpar_rate_limit()
+    engine = ambiente["engine"]
+    auth_id, token = _criar_autorizacao(engine, coordenador=_COORD_A)
+    _criar_pre_ocorrencia(engine, auth_id)
+
+    http = TestClient(app, client=("203.0.113.10", 51000))
+    for i in range(_IP_MAX + 10):
+        resp = http.patch(
+            "/pre-ocorrencias/publico",
+            json={"relato": f"Relato sendo digitado aos poucos, parte {i}."},
+            headers={"X-Pre-Ocorrencia-Token": token},
+        )
+        assert resp.status_code == 200, f"request {i}: {resp.text}"
+
+
+def test_rate_limit_por_ip_ainda_barra_varredura_de_token_invalido(ambiente):
+    """A defesa contra varredura de tokens continua de pé: tentativas que
+    NÃO resolvem (token nunca existiu) seguem contando pro limite por IP.
+    Um token diferente por request, como uma varredura de verdade faria —
+    o limite por TOKEN (que conta por hash) não teria como barrar isso
+    sozinho, cada hash aqui só aparece uma vez."""
+    from app.services.pre_ocorrencia_token import _IP_MAX
+
+    _limpar_rate_limit()
+    http = TestClient(app, client=("203.0.113.11", 51001))
+
+    respostas = [
+        http.get("/pre-ocorrencias/publico", headers={"X-Pre-Ocorrencia-Token": f"token-que-nunca-existiu-{i}"})
+        for i in range(_IP_MAX + 5)
+    ]
+
+    assert all(r.status_code == 404 for r in respostas[:_IP_MAX])
+    assert respostas[_IP_MAX].status_code == 429

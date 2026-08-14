@@ -34,7 +34,9 @@ from app.schemas.pre_ocorrencia import (
     EnviarResponse, PreOcorrenciaAnexoPublicoRead, PreOcorrenciaPublicoRead,
     PreOcorrenciaPublicoUpdate,
 )
-from app.services.pre_ocorrencia_token import RateLimitExcedido, checar_rate_limit_publico, hash_token, token_confere
+from app.services.pre_ocorrencia_token import (
+    RateLimitExcedido, checar_rate_limit_publico, hash_token, registrar_falha_rate_limit_ip, token_confere,
+)
 from app.services.uploads_pre_ocorrencia import PRE_OC_UPLOAD_ROOT, salvar_anexo_pre_ocorrencia
 
 logger = logging.getLogger(__name__)
@@ -85,14 +87,18 @@ def _carregar_autorizacao(
         select(PreOcorrenciaAutorizacao).where(PreOcorrenciaAutorizacao.token_hash == token_h)
     ).scalar_one_or_none()
     if linha is None:
+        registrar_falha_rate_limit_ip(ip)
         raise generica
     # Regra 1 — mesmo já tendo casado pelo índice único de token_hash,
     # a comparação final é explícita e em tempo constante.
     if not token_confere(token, linha.token_hash):
+        registrar_falha_rate_limit_ip(ip)
         raise generica
     if _como_utc(linha.expira_em) < datetime.now(timezone.utc):
+        registrar_falha_rate_limit_ip(ip)
         raise generica
     if exigir_nao_usada and linha.usada_em is not None:
+        registrar_falha_rate_limit_ip(ip)
         raise generica
     return linha
 
