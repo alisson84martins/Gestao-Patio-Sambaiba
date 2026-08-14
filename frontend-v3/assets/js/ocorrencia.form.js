@@ -362,7 +362,7 @@ const CAMPOS_VEICULO = [
     { name: 'estado_placa', label: 'UF', tamanho: 2, mascara: 'uf' },
     { name: 'renavam', label: 'Renavam', mascara: 'renavam' },
     { name: 'proprietario', label: 'Proprietário/Motorista' },
-    { name: 'fones', label: 'Fones', mascara: 'telefone-multi' },
+    { name: 'fones', label: 'Telefones', mascara: 'telefone-multi' },
     { name: 'email', label: 'E-mail' },
     { name: 'endereco', label: 'Endereço', full: true },
     { name: 'cidade', label: 'Cidade' },
@@ -370,7 +370,7 @@ const CAMPOS_VEICULO = [
     { name: 'cpf', label: 'CPF', mascara: 'cpf' },
     { name: 'cnh', label: 'CNH', mascara: 'cnh' },
     { name: 'seguradora', label: 'Seguradora' },
-    { name: 'seguradora_fone', label: 'Fone seguradora', mascara: 'telefone' },
+    { name: 'seguradora_fone', label: 'Telefone seguradora', mascara: 'telefone' },
     { name: 'sinistro_numero', label: 'Sinistro Nº' },
     { name: 'partes_avariadas', label: 'Partes avariadas', tipo: 'textarea', full: true },
 ];
@@ -382,8 +382,8 @@ const CAMPOS_TESTEMUNHA = [
     { name: 'numero', label: 'Nº' },
     { name: 'bairro', label: 'Bairro' },
     { name: 'cidade', label: 'Cidade' },
-    { name: 'fone1', label: 'Fone 1', mascara: 'telefone' },
-    { name: 'fone2', label: 'Fone 2', mascara: 'telefone' },
+    { name: 'fone1', label: 'Telefone 1', mascara: 'telefone' },
+    { name: 'fone2', label: 'Telefone 2', mascara: 'telefone' },
 ];
 
 const CAMPOS_VITIMA = [
@@ -391,7 +391,7 @@ const CAMPOS_VITIMA = [
     { name: 'rg', label: 'RG', mascara: 'rg' },
     { name: 'cpf', label: 'CPF', mascara: 'cpf' },
     { name: 'idade', label: 'Idade', tipo: 'number' },
-    { name: 'fone', label: 'Fone', mascara: 'telefone' },
+    { name: 'fone', label: 'Telefone', mascara: 'telefone' },
     { name: 'endereco', label: 'Endereço' },
     { name: 'numero', label: 'Nº' },
     { name: 'bairro', label: 'Bairro' },
@@ -400,7 +400,7 @@ const CAMPOS_VITIMA = [
     { name: 'destino_socorro', label: 'Socorrida para' },
     { name: 'contato_parentesco', label: 'Parentesco do contato' },
     { name: 'contato_nome', label: 'Nome do contato' },
-    { name: 'contato_fone', label: 'Fone do contato', mascara: 'telefone' },
+    { name: 'contato_fone', label: 'Telefone do contato', mascara: 'telefone' },
     { name: 'dados_pessoais', label: 'Dados pessoais (observações)', tipo: 'textarea', full: true },
 ];
 

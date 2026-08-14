@@ -257,14 +257,14 @@ function blocoVeiculo(v, idx) {
             ${campo('UF', v.estado_placa, 'w25')}
             ${campo('Renavam', v.renavam, 'w33')}
             ${campo('Proprietário/Motorista', v.proprietario, 'w50')}
-            ${campo('Fones', v.fones, 'w50')}
+            ${campo('Telefones', v.fones, 'w50')}
             ${campo('E-mail', v.email, 'w50')}
             ${campo('Endereço', v.endereco, 'w100')}
             ${campo('RG', v.rg, 'w33')}
             ${campo('CPF', v.cpf, 'w33')}
             ${campo('CNH', v.cnh, 'w33')}
             ${campo('Seguradora', v.seguradora, 'w33')}
-            ${campo('Fone seguradora', v.seguradora_fone, 'w33')}
+            ${campo('Telefone seguradora', v.seguradora_fone, 'w33')}
             ${campo('Sinistro nº', v.sinistro_numero, 'w33')}
             ${campo('Partes avariadas', v.partes_avariadas, 'w100')}
         </div>
@@ -353,10 +353,10 @@ function blocoTestemunha(t, idx) {
         <div class="oc-print-linhas">
             ${campo('Nome', t.nome, 'w50')}
             ${campo('RG nº', t.rg, 'w25')}
-            ${campo('Fone 1', t.fone1, 'w25')}
+            ${campo('Telefone 1', t.fone1, 'w25')}
             ${campo('Endereço', t.endereco, 'w50')}
             ${campo('Nº', t.numero, 'w25')}
-            ${campo('Fone 2', t.fone2, 'w25')}
+            ${campo('Telefone 2', t.fone2, 'w25')}
             ${campo('Bairro', t.bairro, 'w50')}
             ${campo('Cidade', t.cidade, 'w50')}
         </div>
@@ -371,7 +371,7 @@ function blocoVitima(v, idx) {
             ${campo('RG nº', v.rg, 'w25')}
             ${campo('CPF', v.cpf, 'w25')}
             ${campo('Idade', v.idade, 'w25')}
-            ${campo('Fone', v.fone, 'w25')}
+            ${campo('Telefone', v.fone, 'w25')}
             <div class="oc-print-f oc-print-w50">
                 <span class="oc-print-rot">Era passageiro do nosso ônibus?</span>${simNao(v.era_passageiro)}
             </div>
@@ -381,7 +381,7 @@ function blocoVitima(v, idx) {
             ${campo('Cidade', v.cidade, 'w33')}
             ${campo('Socorrida para', v.destino_socorro, 'w33')}
             ${campo(v.contato_parentesco || 'Contato', v.contato_nome, 'w33')}
-            ${campo('Fone do contato', v.contato_fone, 'w33')}
+            ${campo('Telefone do contato', v.contato_fone, 'w33')}
         </div>
         ${v.dados_pessoais ? `<div class="oc-print-sub">Dados pessoais (observações)</div><div class="oc-print-txt">${escapeHtml(v.dados_pessoais)}</div>` : ''}
     </div>`;
