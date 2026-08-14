@@ -136,6 +136,7 @@ class Ocorrencia(Base):
     distrito: Mapped[Optional[str]] = mapped_column(String(60), nullable=True)
     numero_to: Mapped[Optional[str]] = mapped_column(String(40), nullable=True)
     numero_bo: Mapped[Optional[str]] = mapped_column(String(40), nullable=True)
+    numero_bo_sptrans: Mapped[Optional[str]] = mapped_column(String(40), nullable=True)
     protocolo: Mapped[Optional[str]] = mapped_column(String(60), nullable=True)
     houve_policia_tecnica: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     nome_perito: Mapped[Optional[str]] = mapped_column(String(120), nullable=True)

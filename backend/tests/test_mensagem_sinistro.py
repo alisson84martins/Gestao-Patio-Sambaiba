@@ -78,6 +78,7 @@ class _Ocorrencia:
     descricao_coordenador: str = ""
     descricao_motorista: str = ""
     numero_bo: str = ""
+    numero_bo_sptrans: str = ""
     protocolo: str = ""
     controlador_acesso: str = ""
     veiculos_terceiro: list = field(default_factory=list)
@@ -220,6 +221,34 @@ def test_tipo_outros_sem_descricao_mostra_so_o_nome():
     texto = gerar_mensagem_sinistro(oc)
 
     assert "*Ocorrência - Outros*" in texto
+
+
+def test_bo_sptrans_aparece_entre_bo_e_protocolo():
+    """Item 8: quando preenchido, o B.O. da SPTrans sai numa linha própria
+    entre o B.O. da polícia e o Protocolo."""
+    oc = _ocorrencia_minima()
+    oc.numero_bo = "1234/2026"
+    oc.numero_bo_sptrans = "45510/26"
+    oc.protocolo = "PROT-9"
+
+    texto = gerar_mensagem_sinistro(oc)
+
+    assert (
+        "*B.O: N°* 1234/2026\n*B.O. SPTrans:* 45510/26\n*Protocolo:* PROT-9"
+    ) in texto
+
+
+def test_bo_sptrans_vazio_nao_imprime_linha_orfa():
+    """Sem numero_bo_sptrans preenchido, a moldura fixa de B.O./Protocolo
+    sai exatamente como antes — nenhuma linha nova."""
+    oc = _ocorrencia_minima()
+    oc.numero_bo = "1234/2026"
+    oc.protocolo = "PROT-9"
+
+    texto = gerar_mensagem_sinistro(oc)
+
+    assert "*B.O: N°* 1234/2026\n*Protocolo:* PROT-9" in texto
+    assert "B.O. SPTrans" not in texto
 
 
 def test_tipo_diferente_de_outros_ignora_descricao_residual():

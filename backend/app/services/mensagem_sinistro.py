@@ -167,7 +167,10 @@ def gerar_mensagem_sinistro(ocorrencia, coordenador_nome: str = "", coordenador_
 
     bo_linha = f"*B.O: N°* {ocorrencia.numero_bo}" if ocorrencia.numero_bo else "*B.O: N°*"
     protocolo_linha = f"*Protocolo:* {ocorrencia.protocolo}" if ocorrencia.protocolo else "*Protocolo:*"
-    blocos.append(f"{bo_linha}\n{protocolo_linha}")
+    if ocorrencia.numero_bo_sptrans:
+        blocos.append(f"{bo_linha}\n*B.O. SPTrans:* {ocorrencia.numero_bo_sptrans}\n{protocolo_linha}")
+    else:
+        blocos.append(f"{bo_linha}\n{protocolo_linha}")
 
     blocos.append(
         f"* *Relatórios entregue Controlador de acesso: {ocorrencia.controlador_acesso or ''}*\n"

@@ -285,13 +285,14 @@ function campoHtml(campo, valor) {
     if (campo.tipo === 'number') {
         return `<input type="number" class="form-input" data-campo="${campo.name}" value="${escapeHtml(String(val))}">`;
     }
-    return `<input type="text" class="form-input" data-campo="${campo.name}" value="${escapeHtml(String(val))}" ${campo.tamanho ? `maxlength="${campo.tamanho}"` : ''}>`;
+    return `<input type="text" class="form-input" data-campo="${campo.name}" value="${escapeHtml(String(val))}" ${campo.tamanho ? `maxlength="${campo.tamanho}"` : ''} ${campo.placeholder ? `placeholder="${escapeHtml(campo.placeholder)}"` : ''}>`;
 }
 
-function renderListaDinamica({ containerId, itens, campos, titulo, vazio, rerender }) {
+function renderListaDinamica({ containerId, itens, campos, titulo, vazio, rerender, onChange }) {
     const container = document.getElementById(containerId);
     if (!itens.length) {
         container.innerHTML = `<div class="oc-vazio">${vazio}</div>`;
+        if (onChange) onChange();
         return;
     }
     container.innerHTML = itens.map((item, idx) => `
@@ -313,6 +314,7 @@ function renderListaDinamica({ containerId, itens, campos, titulo, vazio, rerend
 
     if (somenteLeitura) {
         container.querySelectorAll('[data-campo]').forEach(el => { el.disabled = true; });
+        if (onChange) onChange();
         return;
     }
 
@@ -333,6 +335,7 @@ function renderListaDinamica({ containerId, itens, campos, titulo, vazio, rerend
             // Atualiza só o título do card (sem re-renderizar tudo e perder o foco)
             const tituloEl = card.querySelector('.oc-card-titulo');
             if (tituloEl) tituloEl.textContent = titulo(itens[idx], idx);
+            if (onChange) onChange();
             agendarAutosave();
         });
     });
@@ -344,6 +347,8 @@ function renderListaDinamica({ containerId, itens, campos, titulo, vazio, rerend
             agendarAutosave();
         });
     });
+
+    if (onChange) onChange();
 }
 
 const CAMPOS_VEICULO = [
@@ -402,9 +407,26 @@ const CAMPOS_VITIMA = [
 const CAMPOS_AUTORIDADE = [
     { name: 'orgao_id', label: 'Órgão', tipo: 'select-orgao', full: true },
     { name: 'identificacao', label: 'Identificação (viatura)' },
-    { name: 'responsavel', label: 'Responsável' },
+    { name: 'responsavel', label: 'Responsável(is)', full: true, placeholder: 'Ex: Agente Platini / Agente Souza' },
     { name: 'observacao', label: 'Observação', tipo: 'textarea', full: true },
 ];
+
+// Nº B.O. da SPTrans (Item 8): campo fixo da ocorrência, mas só faz sentido
+// visualmente quando a SPTrans está na lista de autoridades no local — ela é
+// quem emite esse número. Comparado sempre pelo `codigo` do catálogo, nunca
+// pelo nome (mesmo precedente do tipo OUTROS).
+function atualizarVisibilidadeBoSptrans() {
+    const grupo = document.getElementById('grupo-bo-sptrans');
+    if (!grupo) return;
+    const temSptrans = autoridades.some(a => {
+        const orgao = catalogoOrgaos.find(o => o.id === a.orgao_id);
+        return orgao?.codigo === 'SPTRANS';
+    });
+    // O valor do campo NUNCA é apagado quando ele some — é um número de
+    // documento real, não uma descrição que só faz sentido junto do tipo
+    // (diferente de tipo_outros_descricao). Só a visibilidade muda.
+    grupo.style.display = temSptrans ? '' : 'none';
+}
 
 function renderVeiculos() {
     renderListaDinamica({
@@ -442,6 +464,7 @@ function renderAutoridades() {
         },
         vazio: 'Nenhuma autoridade registrada.',
         rerender: renderAutoridades,
+        onChange: atualizarVisibilidadeBoSptrans,
     });
 }
 

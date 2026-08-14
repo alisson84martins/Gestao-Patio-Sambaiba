@@ -299,6 +299,7 @@ class OcorrenciaBase(BaseModel):
     distrito: Optional[str] = Field(None, max_length=60)
     numero_to: Optional[str] = Field(None, max_length=40)
     numero_bo: Optional[str] = Field(None, max_length=40)
+    numero_bo_sptrans: Optional[str] = Field(None, max_length=40)
     protocolo: Optional[str] = Field(None, max_length=60)
     houve_policia_tecnica: bool = False
     nome_perito: Optional[str] = Field(None, max_length=120)
@@ -375,6 +376,7 @@ class OcorrenciaUpdate(BaseModel):
     distrito: Optional[str] = Field(None, max_length=60)
     numero_to: Optional[str] = Field(None, max_length=40)
     numero_bo: Optional[str] = Field(None, max_length=40)
+    numero_bo_sptrans: Optional[str] = Field(None, max_length=40)
     protocolo: Optional[str] = Field(None, max_length=60)
     houve_policia_tecnica: Optional[bool] = None
     nome_perito: Optional[str] = Field(None, max_length=120)
