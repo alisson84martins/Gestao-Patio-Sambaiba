@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Annotated, Optional
 from uuid import UUID
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request, status
 from sqlalchemy import select, text
 from sqlalchemy.orm import Session
 
@@ -22,9 +22,9 @@ from app.models.cadastro import Funcionario
 from app.models.ocorrencia import Ocorrencia, TipoOcorrencia
 from app.models.pre_ocorrencia import PreOcorrencia, PreOcorrenciaAnexo, PreOcorrenciaAutorizacao
 from app.schemas.pre_ocorrencia import (
-    AbrirAutorizacaoRequest, AutorizacaoAbertaResponse, AutorizacaoResumo, AutorizacaoResumoCCO,
-    CancelarAutorizacaoResponse, ConverterRequest, ConverterResponse, PreOcorrenciaDetalhe,
-    PreOcorrenciaFilaItem,
+    AbrirAutorizacaoRequest, AutopreenchimentoPessoaPreOcorrencia, AutorizacaoAbertaResponse,
+    AutorizacaoResumo, AutorizacaoResumoCCO, CancelarAutorizacaoResponse, ConverterRequest,
+    ConverterResponse, PreOcorrenciaDetalhe, PreOcorrenciaFilaItem,
 )
 from app.services.n8n import notificar_autorizacao_aberta
 from app.services.pre_ocorrencia_token import EXPIRACAO_HORAS, gerar_token
@@ -96,6 +96,80 @@ def _exige_pode_ver_pre_ocorrencia(autorizacao: PreOcorrenciaAutorizacao, usuari
     raise HTTPException(status.HTTP_403_FORBIDDEN, detail="Você só pode ver as pré-ocorrências direcionadas a você")
 
 
+def _preencher_pre_ocorrencia_com_dados_conhecidos(
+    db: Session, autorizacao: PreOcorrenciaAutorizacao
+) -> PreOcorrencia:
+    """Cria a PreOcorrencia desta autorização já preenchida com o que se
+    sabe ANTES do motorista abrir o link — decisão de Alisson (15/08/2026),
+    flexibilização pontual da decisão 5 (ver aviso no topo de
+    schemas/pre_ocorrencia.py). Roda aqui, no lado AUTENTICADO — o
+    endpoint público (pre_ocorrencias_publico.py) continua só devolvendo o
+    que já está gravado, nunca consulta o cadastro central por conta própria.
+
+    Mesmos defaults de _carregar_ou_criar_pre_ocorrencia()
+    (pre_ocorrencias_publico.py) pros dois campos NOT NULL: hora de
+    parede no fuso de operação — nunca UTC, regra de 14/08 — e relato
+    vazio que o motorista completa depois.
+
+    Precedência (nunca sobrescreve o que a autorização já trouxe):
+      1. autorização — o que quem abriu digitou
+      2. cadastro central (Funcionario pelo RE) — só nos campos que
+         sobraram vazios
+    Cobrador e prefixo NUNCA vêm do cadastro (decisão 10) — prefixo só
+    quando a autorização informou; cobrador não tem de onde vir aqui
+    (a autorização não tem campo de cobrador).
+    """
+    pre_oc = PreOcorrencia(
+        autorizacao_id=autorizacao.id,
+        hora_ocorrencia=datetime.now(FUSO_OPERACAO).time(),
+        relato="",
+        status="AGUARDANDO",
+        motorista_re=autorizacao.motorista_re,
+        motorista_nome=autorizacao.motorista_nome,
+        prefixo=autorizacao.prefixo,
+    )
+
+    if autorizacao.motorista_re:
+        funcionario = db.execute(
+            select(Funcionario).where(Funcionario.re == autorizacao.motorista_re.strip())
+        ).scalar_one_or_none()
+        if funcionario is not None:
+            # RE não encontrado → segue sem preencher, nunca falha a
+            # abertura da autorização por causa disso (mesmo padrão do
+            # catch silencioso do autopreenchimento de ocorrencias.py).
+            if not pre_oc.motorista_nome:
+                pre_oc.motorista_nome = funcionario.nome
+            pre_oc.motorista_telefone = funcionario.telefone or None
+            pre_oc.motorista_cpf = funcionario.cpf or None
+            pre_oc.motorista_rg = funcionario.rg or None
+            pre_oc.motorista_cnh = funcionario.cnh or None
+
+    db.add(pre_oc)
+    return pre_oc
+
+
+# ============================================================================
+# Autopreencher pessoa (deve vir ANTES de /{pre_ocorrencia_id})
+# ============================================================================
+
+@router.get(
+    "/autopreencher/pessoa",
+    response_model=AutopreenchimentoPessoaPreOcorrencia,
+    summary="Nome e telefone a partir do RE — confirma quem é sem devolver documento (decisão 4)",
+)
+def autopreencher_pessoa(
+    _: EscritaPreOcorrencia,
+    db: Annotated[Session, Depends(get_db)],
+    re: str = Query(..., max_length=20),
+):
+    funcionario = db.execute(
+        select(Funcionario).where(Funcionario.re == re.strip())
+    ).scalar_one_or_none()
+    if funcionario is None:
+        return AutopreenchimentoPessoaPreOcorrencia()
+    return AutopreenchimentoPessoaPreOcorrencia(nome=funcionario.nome, telefone=funcionario.telefone)
+
+
 # ============================================================================
 # Abrir autorização
 # ============================================================================
@@ -156,6 +230,12 @@ def abrir_autorizacao(
     # resposta ser devolvida.
     db.commit()
     db.refresh(autorizacao)
+
+    # A PreOcorrencia já nasce preenchida com o que a autorização e o
+    # cadastro central sabem sobre o motorista — ver
+    # _preencher_pre_ocorrencia_com_dados_conhecidos() acima.
+    _preencher_pre_ocorrencia_com_dados_conhecidos(db, autorizacao)
+    db.commit()
 
     link = f"{get_settings().pre_ocorrencia_link_base}?token={token_claro}"
     background_tasks.add_task(

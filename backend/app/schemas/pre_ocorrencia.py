@@ -5,6 +5,15 @@ CCO (`AutorizacaoResumoCCO`) e para o público (`PreOcorrenciaPublicoRead`)
 são deliberadamente MAGROS — a decisão "CCO não lê conteúdo" e "endpoint
 público é escrita sem leitura de OUTRA linha" vive aqui, no formato da
 resposta, não só na permissão do endpoint.
+
+⚠️ Decisão 5 ("escrita sem leitura") flexibilizada em 15/08/2026 SÓ para
+o dado do PRÓPRIO motorista daquela autorização: a abertura (lado
+autenticado, ver abrir_autorizacao() em pre_ocorrencias.py) agora grava a
+PreOcorrencia já preenchida com o que a autorização informou + o cadastro
+central pelo RE — o GET público continua só devolvendo o que está
+gravado, nunca consulta o cadastro por conta própria. Pra dado de
+TERCEIRO, vítima e testemunha a decisão 5 original continua valendo
+integralmente — nenhuma leitura ali.
 """
 from datetime import date, datetime, time
 from typing import Literal, Optional
@@ -81,6 +90,16 @@ class CancelarAutorizacaoResponse(BaseModel):
     status: StatusAutorizacao
 
 
+class AutopreenchimentoPessoaPreOcorrencia(BaseModel):
+    """GET /pre-ocorrencias/autopreencher/pessoa — SÓ nome e telefone,
+    nunca CPF/RG/CNH. Quem abre autorização inclui o CCO (decisão 4: CCO
+    só roteia, não lê conteúdo) — os documentos são copiados pro servidor
+    na abertura (ver abrir_autorizacao()), sem nunca passar por esta tela.
+    Sempre 200, corpo vazio quando o RE não é encontrado."""
+    nome: Optional[str] = None
+    telefone: Optional[str] = None
+
+
 # ============================================================================
 # Formulário público (token) — o motorista
 # ============================================================================
@@ -92,10 +111,12 @@ class PreOcorrenciaAnexoPublicoRead(ORMBase):
 
 
 class PreOcorrenciaPublicoRead(ORMBase):
-    """GET /pre-ocorrencias/publico — só os campos que o PRÓPRIO motorista
-    preencheu nesta pré-ocorrência (não devolve nada da autorização nem de
-    qualquer outra linha — decisão 5, escrita sem leitura de dado alheio).
-    """
+    """GET /pre-ocorrencias/publico — só os campos desta pré-ocorrência
+    (nunca de qualquer OUTRA linha — decisão 5, escrita sem leitura de
+    dado alheio). Alguns já podem vir preenchidos: a abertura da
+    autorização (lado autenticado) grava a linha com o que já era
+    conhecido antes do motorista abrir o link — ver
+    AutopreenchimentoPessoaPreOcorrencia acima."""
     motorista_re: Optional[str] = None
     motorista_nome: Optional[str] = None
     motorista_telefone: Optional[str] = None

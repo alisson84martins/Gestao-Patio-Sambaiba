@@ -17,7 +17,7 @@ from zoneinfo import ZoneInfo
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine, event
+from sqlalchemy import create_engine, event, select
 from sqlalchemy.orm import Session
 from sqlalchemy.pool import StaticPool
 
@@ -685,6 +685,143 @@ def test_apagar_autorizacao_ja_convertida_e_bloqueado(ambiente):
     _autenticar(ambiente, _ADMIN)
     resp = ambiente["http"].delete(f"/pre-ocorrencias/autorizacoes/{auth_id}")
     assert resp.status_code == 409, resp.text
+
+
+def _funcionario_cadastrado(engine, **campos) -> Funcionario:
+    """Cria e persiste um Funcionario extra além dos 4 fixos do módulo
+    (_COORD_A/B, _CCO, _ADMIN) — usado pelos testes de pré-preenchimento
+    (item 5) que precisam de RG/CNH/telefone/CPF no cadastro central."""
+    func = Funcionario(id=uuid4(), **campos)
+    with Session(engine) as db:
+        db.add(func)
+        db.commit()
+    return func
+
+
+# ─── PROMPT 15/08/2026, item 5 — pré-preenchimento na abertura ────────────────
+
+
+def test_autorizacao_com_re_conhecido_pre_preenche_pre_ocorrencia(ambiente):
+    engine = ambiente["engine"]
+    _funcionario_cadastrado(
+        engine, re="60010", nome="Motorista Cadastrado", telefone="11988880000",
+        cpf="11122233344", rg="123456789", cnh="98765432100",
+    )
+
+    _autenticar(ambiente, _COORD_A)
+    resp = ambiente["http"].post(
+        "/pre-ocorrencias/autorizacoes",
+        json={"telefone_destino": "11999990000", "motorista_re": "60010"},
+    )
+    assert resp.status_code == 201, resp.text
+    auth_id = UUID(resp.json()["id"])
+
+    with Session(engine) as db:
+        pre_oc = db.execute(
+            select(PreOcorrencia).where(PreOcorrencia.autorizacao_id == auth_id)
+        ).scalar_one()
+        assert pre_oc.motorista_nome == "Motorista Cadastrado"
+        assert pre_oc.motorista_telefone == "11988880000"
+        assert pre_oc.motorista_cpf == "11122233344"
+        assert pre_oc.motorista_rg == "123456789"
+        assert pre_oc.motorista_cnh == "98765432100"
+        # NOT NULL satisfeitos, mesmos defaults do fluxo público.
+        assert pre_oc.relato == ""
+        assert pre_oc.status == "AGUARDANDO"
+
+
+def test_autorizacao_com_re_inexistente_abre_normalmente_sem_erro(ambiente):
+    _autenticar(ambiente, _COORD_A)
+    resp = ambiente["http"].post(
+        "/pre-ocorrencias/autorizacoes",
+        json={"telefone_destino": "11999990000", "motorista_re": "60099-nao-existe"},
+    )
+    assert resp.status_code == 201, resp.text
+
+    with Session(ambiente["engine"]) as db:
+        pre_oc = db.execute(
+            select(PreOcorrencia).where(PreOcorrencia.autorizacao_id == UUID(resp.json()["id"]))
+        ).scalar_one()
+        assert pre_oc.motorista_nome is None
+        assert pre_oc.motorista_telefone is None
+
+
+def test_autorizacao_sem_re_abre_normalmente(ambiente):
+    _autenticar(ambiente, _COORD_A)
+    resp = ambiente["http"].post(
+        "/pre-ocorrencias/autorizacoes",
+        json={"telefone_destino": "11999990000"},
+    )
+    assert resp.status_code == 201, resp.text
+
+
+def test_valor_informado_na_autorizacao_nao_e_sobrescrito_pelo_cadastro(ambiente):
+    engine = ambiente["engine"]
+    _funcionario_cadastrado(engine, re="60011", nome="Nome do Cadastro Central")
+
+    _autenticar(ambiente, _COORD_A)
+    resp = ambiente["http"].post(
+        "/pre-ocorrencias/autorizacoes",
+        json={
+            "telefone_destino": "11999990000",
+            "motorista_re": "60011",
+            "motorista_nome": "Nome Digitado Por Quem Abriu",
+        },
+    )
+    assert resp.status_code == 201, resp.text
+
+    with Session(engine) as db:
+        pre_oc = db.execute(
+            select(PreOcorrencia).where(PreOcorrencia.autorizacao_id == UUID(resp.json()["id"]))
+        ).scalar_one()
+        assert pre_oc.motorista_nome == "Nome Digitado Por Quem Abriu"
+
+
+def test_cobrador_continua_sem_pre_preenchimento(ambiente):
+    """Decisão 10, reafirmada — nem autorização nem cadastro têm de onde
+    vir dado de cobrador; a linha nasce sempre vazia nesses campos."""
+    engine = ambiente["engine"]
+    _funcionario_cadastrado(engine, re="60012", nome="Alguém Qualquer", telefone="11977776666")
+
+    _autenticar(ambiente, _COORD_A)
+    resp = ambiente["http"].post(
+        "/pre-ocorrencias/autorizacoes",
+        json={"telefone_destino": "11999990000", "motorista_re": "60012"},
+    )
+    assert resp.status_code == 201, resp.text
+
+    with Session(engine) as db:
+        pre_oc = db.execute(
+            select(PreOcorrencia).where(PreOcorrencia.autorizacao_id == UUID(resp.json()["id"]))
+        ).scalar_one()
+        assert pre_oc.cobrador_re is None
+        assert pre_oc.cobrador_nome is None
+        assert pre_oc.cobrador_telefone is None
+
+
+def test_autopreencher_pessoa_nao_devolve_cpf_rg_nem_cnh(ambiente):
+    """🔴 Teste explícito sobre a RESPOSTA, não sobre a intenção — é o que
+    garante que o CCO (que também chama este endpoint) nunca passe a ler
+    documento."""
+    engine = ambiente["engine"]
+    _funcionario_cadastrado(
+        engine, re="60013", nome="Motorista Sigiloso", telefone="11955554444",
+        cpf="99988877766", rg="555444333", cnh="11122233344",
+    )
+
+    _autenticar(ambiente, _COORD_A)
+    resp = ambiente["http"].get("/pre-ocorrencias/autopreencher/pessoa?re=60013")
+    assert resp.status_code == 200, resp.text
+    corpo = resp.json()
+    assert corpo == {"nome": "Motorista Sigiloso", "telefone": "11955554444"}
+    assert "cpf" not in corpo and "rg" not in corpo and "cnh" not in corpo
+
+
+def test_autopreencher_pessoa_re_inexistente_retorna_200_vazio(ambiente):
+    _autenticar(ambiente, _COORD_A)
+    resp = ambiente["http"].get("/pre-ocorrencias/autopreencher/pessoa?re=nao-existe-999")
+    assert resp.status_code == 200, resp.text
+    assert resp.json() == {"nome": None, "telefone": None}
 
 
 def test_rate_limit_por_ip_ainda_barra_varredura_de_token_invalido(ambiente):

@@ -166,6 +166,12 @@ function setupModalAbrir() {
     aplicarMascara(document.getElementById('abrir-re'), 're');
     if (ehCCO) aplicarMascara(document.getElementById('abrir-coordenador-re'), 're');
 
+    // Item 5 (15/08/2026): digitar o RE já confirma nome e telefone da
+    // pessoa — quem abre inclui o CCO, que só roteia, não lê conteúdo
+    // (decisão 4). Por isso o endpoint devolve só nome/telefone, nunca
+    // documento.
+    document.getElementById('abrir-re').addEventListener('change', autopreencherPessoaAbrir);
+
     document.getElementById('btn-abrir').addEventListener('click', () => abrirModal('modal-abrir'));
     document.getElementById('modal-abrir-fechar').addEventListener('click', () => fecharModal('modal-abrir'));
     document.getElementById('btn-cancelar-abrir').addEventListener('click', () => fecharModal('modal-abrir'));
@@ -231,6 +237,37 @@ async function confirmarAbrir() {
     } catch (err) {
         erro.textContent = err instanceof ApiError ? err.message : 'Não foi possível abrir. Tente de novo.';
         erro.style.display = '';
+    }
+}
+
+// Marca visualmente o campo autopreenchido; some no primeiro input do
+// usuário — mesmo padrão de ocorrencia.form.js::marcarAutopreenchido().
+function marcarAutopreenchido(el) {
+    el.classList.add('oc-autopreenchido');
+    el.addEventListener('input', function limpar() {
+        el.classList.remove('oc-autopreenchido');
+    }, { once: true });
+}
+
+// Nunca sobrescreve o que quem abre já digitou — mesmo princípio de
+// preencherSeVazio() em ocorrencia.form.js.
+function preencherSeVazio(el, valor) {
+    if (!el || el.value || !valor) return;
+    el.value = valor;
+    marcarAutopreenchido(el);
+}
+
+async function autopreencherPessoaAbrir() {
+    const re = document.getElementById('abrir-re').value.trim();
+    if (!re) return;
+    try {
+        const dados = await apiGet(`/pre-ocorrencias/autopreencher/pessoa?re=${encodeURIComponent(re)}`);
+        preencherSeVazio(document.getElementById('abrir-nome'), dados.nome);
+        preencherSeVazio(document.getElementById('abrir-telefone'), dados.telefone);
+    } catch (err) {
+        // Falha de rede ou RE sem cadastro nunca trava a abertura da
+        // autorização — mesmo padrão de ocorrencia.form.js.
+        console.warn('[pre-ocorrencias] autopreenchimento de pessoa indisponível:', err);
     }
 }
 
