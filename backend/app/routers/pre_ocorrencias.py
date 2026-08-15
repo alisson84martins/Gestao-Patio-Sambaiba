@@ -13,7 +13,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request,
 from sqlalchemy import select, text
 from sqlalchemy.orm import Session
 
-from app.core.config import FUSO_OPERACAO
+from app.core.config import FUSO_OPERACAO, get_settings
 from app.core.database import get_db
 from app.core.deps import exige
 from app.models.cadastro import Funcionario
@@ -32,12 +32,6 @@ router = APIRouter(prefix="/pre-ocorrencias", tags=["pré-ocorrência"])
 
 LeituraPreOcorrencia = Annotated[Funcionario, Depends(exige("pre_ocorrencia"))]
 EscritaPreOcorrencia = Annotated[Funcionario, Depends(exige("pre_ocorrencia", escrever=True))]
-
-# URL base do frontend pra montar o link do motorista — mesmo princípio de
-# config.js no frontend (auto-detect por ambiente), mas aqui, no backend,
-# não tem como detectar o host de quem vai RECEBER o link (é o telefone
-# do motorista, não uma requisição HTTP) — por isso vem do .env.
-_LINK_BASE_PADRAO = "https://gestaopatiosambaiba.com.br/pre-ocorrencia.html"
 
 
 def _eh_admin(db: Session, funcionario_id: UUID) -> bool:
@@ -154,7 +148,7 @@ def abrir_autorizacao(
     db.commit()
     db.refresh(autorizacao)
 
-    link = f"{_LINK_BASE_PADRAO}?token={token_claro}"
+    link = f"{get_settings().pre_ocorrencia_link_base}?token={token_claro}"
     background_tasks.add_task(
         notificar_autorizacao_aberta,
         autorizacao_id=autorizacao.id,

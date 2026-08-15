@@ -64,6 +64,14 @@ class Settings(BaseSettings):
     n8n_webhook_url: Optional[str] = None
     n8n_webhook_token: Optional[str] = None
 
+    # Pré-ocorrência do motorista — URL base do link que vai por
+    # WhatsApp/SMS. Precisa vir de configuração (não dá pra detectar o
+    # host de quem vai RECEBER o link — é o telefone do motorista, não
+    # uma requisição HTTP). Default já correto (com www — é o host que o
+    # frontend é servido de fato, confirmado em produção em 15/08/2026):
+    # o .env só existe pra trocar sem precisar de redeploy.
+    pre_ocorrencia_link_base: str = "https://www.gestaopatiosambaiba.com.br/pre-ocorrencia.html"
+
     @property
     def cors_origins_list(self) -> list[str]:
         """Retorna a lista de origens permitidas para CORS."""
