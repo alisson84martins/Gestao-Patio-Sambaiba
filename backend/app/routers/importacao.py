@@ -8,15 +8,19 @@ from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
-from app.core.deps import CurrentUser, OperadorOuAdmin
+from app.core.deps import exige
 from app.core.uploads import ler_upload_limitado
 from app.core.utils import PaginationParams
-from app.models import Escala, ImportacaoEscala, PerfilUsuarioEnum, TipoEscalaEnum
+from app.models import Escala, ImportacaoEscala, TipoEscalaEnum, Usuario
+from app.models.cadastro import Funcionario
 from app.schemas import ImportacaoEscalaRead
 from app.schemas.importacao import ErroLinha, ImportacaoUploadResponse
 from app.services.importacao_excel import importar_escala
 
 router = APIRouter(prefix="/importacoes", tags=["importação Excel"])
+
+LeituraEscala = Annotated[Funcionario, Depends(exige("escala"))]
+EscritaEscala = Annotated[Funcionario, Depends(exige("escala", escrever=True))]
 
 ALLOWED_TYPES = {
     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",  # .xlsx
@@ -25,8 +29,19 @@ ALLOWED_TYPES = {
 TAMANHO_MAXIMO = 10 * 1024 * 1024  # 10 MB
 
 
-def _pode_importar(user) -> bool:
-    return user.perfil in (PerfilUsuarioEnum.ADMIN, PerfilUsuarioEnum.COORDENADOR)
+def _resolver_usuario_legado(db: Session, funcionario: Funcionario) -> Optional[UUID]:
+    """ImportacaoEscala.importado_por e Alerta.registrado_por (ambos
+    escritos por importar_escala()) ainda apontam pra usuario.id — schema
+    legado, não migrado. funcionario.id e usuario.id são UUIDs DIFERENTES
+    mesmo pra mesma pessoa: o espelho em `usuario` (criado por
+    _criar_ou_atualizar_espelho_usuario em funcionarios.py, ver
+    app/core/deps.py::get_current_user) tem id próprio, ligado ao
+    Funcionario só pelo RE. Passar funcionario.id direto nesses campos
+    quebraria a FK em produção (Postgres); resolve pelo RE, mesmo padrão
+    já usado em get_current_user(). None é aceitável — as duas colunas são
+    nullable com ON DELETE SET NULL."""
+    espelho = db.execute(select(Usuario).where(Usuario.re == funcionario.re)).scalar_one_or_none()
+    return espelho.id if espelho else None
 
 
 @router.post(
@@ -36,7 +51,7 @@ def _pode_importar(user) -> bool:
     summary="Upload de planilha Excel de escala",
 )
 async def importar(
-    user: CurrentUser,
+    usuario: EscritaEscala,
     db: Annotated[Session, Depends(get_db)],
     request: Request,
     arquivo: Annotated[UploadFile, File(description=".xlsx (formato: numero_frota | linha_codigo | horario | re_motorista | tipo)")],
@@ -57,15 +72,14 @@ async def importar(
 
     Se `substituir_existentes` for true, todas as escalas dessa data viram soft delete.
     """
-    if not _pode_importar(user):
-        raise HTTPException(403, "Apenas ADMIN ou COORDENADOR pode importar escala")
-
     if arquivo.content_type and arquivo.content_type not in ALLOWED_TYPES and not arquivo.filename.endswith((".xlsx", ".xls")):
         raise HTTPException(415, f"Formato não suportado: {arquivo.content_type}. Envie um .xlsx")
 
     # SEV-12: lê em blocos, abortando ao estourar — nunca a planilha
     # inteira em memória antes de saber se ela cabe no limite.
     conteudo = await ler_upload_limitado(arquivo, TAMANHO_MAXIMO, request)
+
+    importado_por_id = _resolver_usuario_legado(db, usuario)
 
     try:
         imp, erros, substituidas, presos_criados = importar_escala(
@@ -74,7 +88,7 @@ async def importar(
             conteudo=conteudo,
             data_escala=data_escala,
             tipo_default=tipo_default,
-            importado_por_id=user.id,
+            importado_por_id=importado_por_id,
             substituir_existentes=substituir_existentes,
         )
     except Exception as exc:  # noqa: BLE001
@@ -93,13 +107,11 @@ async def importar(
 
 @router.get("", response_model=list[ImportacaoEscalaRead])
 def listar(
-    user: OperadorOuAdmin,
+    _: LeituraEscala,
     db: Annotated[Session, Depends(get_db)],
     pag: Annotated[PaginationParams, Depends()],
     data: Annotated[Optional[date_type], Query()] = None,
 ):
-    if not _pode_importar(user):
-        raise HTTPException(403, "Apenas ADMIN ou COORDENADOR pode listar importacoes")
     q = select(ImportacaoEscala)
     if data:
         q = q.where(ImportacaoEscala.data_escala == data)
@@ -108,9 +120,7 @@ def listar(
 
 
 @router.get("/{imp_id}", response_model=ImportacaoEscalaRead)
-def buscar(imp_id: UUID, user: OperadorOuAdmin, db: Annotated[Session, Depends(get_db)]):
-    if not _pode_importar(user):
-        raise HTTPException(403, "Apenas ADMIN ou COORDENADOR pode acessar importacoes")
+def buscar(imp_id: UUID, _: LeituraEscala, db: Annotated[Session, Depends(get_db)]):
     imp = db.get(ImportacaoEscala, imp_id)
     if not imp:
         raise HTTPException(404, "Importacao nao encontrada")
@@ -122,9 +132,7 @@ def buscar(imp_id: UUID, user: OperadorOuAdmin, db: Annotated[Session, Depends(g
     response_model=dict,
     summary="Reverte uma importacao (soft delete das escalas geradas)",
 )
-def reverter(imp_id: UUID, user: OperadorOuAdmin, db: Annotated[Session, Depends(get_db)]):
-    if not _pode_importar(user):
-        raise HTTPException(403, "Apenas ADMIN ou COORDENADOR pode reverter")
+def reverter(imp_id: UUID, _: EscritaEscala, db: Annotated[Session, Depends(get_db)]):
     imp = db.get(ImportacaoEscala, imp_id)
     if not imp:
         raise HTTPException(404, "Importação não encontrada")
