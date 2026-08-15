@@ -125,17 +125,54 @@ def test_integrity_error_constraint_conhecida_continua_com_mensagem_especifica()
 # ─── SEV-11 — CORS allow_headers restrito ──────────────────────────────────────
 
 
-def test_cors_allow_headers_restrito_a_authorization_e_content_type():
+def test_cors_allow_headers_restrito_a_tres_cabecalhos_conhecidos():
     """Antes: allow_headers=["*"] combinado com allow_credentials=True —
     qualquer cabeçalho passava numa requisição já autenticada. O
-    frontend-v3 inteiro só manda Authorization e Content-Type (conferido
-    em api.js, importacao.js, ocorrencia.form.js — o upload multipart
-    tem Content-Type posto pelo navegador, não manual)."""
+    frontend-v3 manda três cabeçalhos, não dois: Authorization e
+    Content-Type (api.js, importacao.js, ocorrencia.form.js — o upload
+    multipart tem Content-Type posto pelo navegador, não manual) e
+    X-Pre-Ocorrencia-Token (pre-ocorrencia.page.js) — o formulário
+    público do motorista não tem JWT pra mandar, então não passa por
+    api.js e se autentica por um token de uso único em cabeçalho
+    próprio. Esse terceiro ficou de fora da varredura original (SEV-11,
+    11/08) porque nasceu no mesmo dia: a varredura cobriu os módulos que
+    passam pelo cliente HTTP padrão, e o único que escapa dela é
+    justamente o que foi escrito para não usar esse cliente."""
     cors = next(m for m in app.user_middleware if m.cls is CORSMiddleware)
     allow_headers = cors.kwargs["allow_headers"]
 
-    assert set(allow_headers) == {"Authorization", "Content-Type"}
+    assert set(allow_headers) == {"Authorization", "Content-Type", "X-Pre-Ocorrencia-Token"}
     assert "*" not in allow_headers
+
+
+def test_cors_preflight_autoriza_x_pre_ocorrencia_token():
+    """Guarda a funcionalidade, não só a lista: se X-Pre-Ocorrencia-Token
+    sair de allow_headers no futuro, as 4 chamadas públicas do
+    formulário do motorista (carregar, autosave, upload de anexo,
+    enviar — pre-ocorrencia.page.js) voltam a ser bloqueadas no
+    preflight, e o motorista volta a ver "Sem conexão com o servidor"
+    mesmo com a API no ar. Prova pela porta que o navegador usa (OPTIONS
+    de verdade via TestClient), não por introspecção do middleware —
+    é o preflight que decide se o fetch real sai do navegador."""
+    from fastapi.testclient import TestClient
+
+    client = TestClient(app)
+    # Usa uma origem de fato configurada em allow_origins deste ambiente
+    # (cors_origins vem do .env, varia por máquina) — só o cabeçalho é o
+    # que este teste quer provar, não a lista de origens.
+    cors = next(m for m in app.user_middleware if m.cls is CORSMiddleware)
+    origem = cors.kwargs["allow_origins"][0] if cors.kwargs["allow_origins"] != ["*"] else "https://exemplo.invalid"
+    resp = client.options(
+        "/pre-ocorrencias/publico",
+        headers={
+            "Origin": origem,
+            "Access-Control-Request-Method": "GET",
+            "Access-Control-Request-Headers": "x-pre-ocorrencia-token",
+        },
+    )
+    assert resp.status_code == 200
+    permitidos = {h.strip().lower() for h in resp.headers.get("access-control-allow-headers", "").split(",")}
+    assert "x-pre-ocorrencia-token" in permitidos
 
 
 def test_cors_allow_credentials_continua_true():
