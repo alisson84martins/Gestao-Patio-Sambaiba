@@ -23,7 +23,6 @@
     <div class="pre-oc-header">
         <div class="pre-oc-empresa">Eu ♥ Sambaíba</div>
         <div class="pre-oc-titulo">Relato da ocorrência</div>
-        <div class="pre-oc-sub">Conte o que aconteceu. Nada aqui é obrigatório além do relato — preencha o que der.</div>
     </div>
 
     <!-- Estado: carregando / link inválido — some assim que o formulário carrega -->
@@ -70,7 +69,7 @@
         <section class="pre-oc-bloco">
             <h2 class="pre-oc-bloco-titulo">Local</h2>
             <div class="form-group">
-                <label class="form-label" for="f-logradouro">Rua / avenida</label>
+                <label class="form-label" for="f-logradouro">Endereço</label>
                 <input type="text" id="f-logradouro" name="local_logradouro" class="form-input" maxlength="200">
             </div>
             <div class="pre-oc-linha-dupla">
@@ -87,16 +86,11 @@
                 <label class="form-label" for="f-cidade">Cidade</label>
                 <input type="text" id="f-cidade" name="local_cidade" class="form-input" maxlength="80">
             </div>
-            <div class="form-group">
-                <label class="form-label" for="f-referencia">Ponto de referência</label>
-                <input type="text" id="f-referencia" name="local_referencia" class="form-input" maxlength="200" placeholder="Ex: em frente ao mercado X">
-            </div>
         </section>
 
         <!-- 3 — Documentos -->
         <section class="pre-oc-bloco">
             <h2 class="pre-oc-bloco-titulo">Documentos</h2>
-            <p class="pre-oc-bloco-hint">Se conseguir agora, envie foto da CNH e do documento do veículo. Se não der, envie o relato mesmo assim — dá pra mandar os documentos depois, pelo mesmo link.</p>
 
             <div class="pre-oc-anexo-item">
                 <span>CNH</span>
@@ -107,7 +101,7 @@
                 <span class="pre-oc-anexo-status" id="status-anexo-cnh"></span>
             </div>
             <div class="pre-oc-anexo-item">
-                <span>Documento do veículo</span>
+                <span>Documento do coletivo</span>
                 <label class="btn btn-ghost pre-oc-btn-anexo">
                     📷 Enviar foto
                     <input type="file" id="f-anexo-doc" accept="image/jpeg,image/png,application/pdf" hidden>
@@ -153,7 +147,7 @@
                 <input type="text" id="f-mot-cnh" name="motorista_cnh" class="form-input" inputmode="numeric" maxlength="20">
             </div>
 
-            <h3 class="pre-oc-bloco-subtitulo">Cobrador (se tinha)</h3>
+            <h3 class="pre-oc-bloco-subtitulo">Cobrador</h3>
             <div class="pre-oc-linha-dupla">
                 <div class="form-group">
                     <label class="form-label" for="f-cob-re">RE do cobrador</label>
@@ -173,7 +167,6 @@
         <!-- 5 — Terceiro: lista de coleta, tudo opcional -->
         <section class="pre-oc-bloco">
             <h2 class="pre-oc-bloco-titulo">Outro veículo envolvido</h2>
-            <p class="pre-oc-bloco-hint">Se teve outro carro envolvido, colete o que conseguir com a pessoa. Nada aqui é obrigatório.</p>
             <div class="pre-oc-linha-dupla">
                 <div class="form-group">
                     <label class="form-label" for="f-terc-placa">Placa</label>

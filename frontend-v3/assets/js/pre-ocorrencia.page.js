@@ -1,9 +1,17 @@
 /*
  * Pré-ocorrência do motorista — formulário público, SEM login.
  * ---------------------------------------------------------------
- * Quem preenche acabou de se envolver num acidente: em pé, na rua,
- * no celular, possivelmente abalado, com sinal ruim. Tudo aqui se
- * subordina a isso — ver PROMPT-pre-ocorrencia-motorista.md §3.1.
+ * Uso real (confirmado por Alisson em 15/08/2026): esta tela serve pra
+ * ocorrência PEQUENA, preenchida com calma pelo condutor depois do
+ * expediente — não em pé, na rua, no calor do momento. Ocorrência grave
+ * não passa por aqui: a coordenação se desloca até o local e registra
+ * junto com o condutor. O valor é alimentar o relatório sem consumir
+ * tempo de coordenação, não capturar relato sob emergência.
+ *
+ * As decisões de robustez abaixo continuam valendo mesmo sem a urgência
+ * original — são baratas e úteis de qualquer forma — mas a régua de
+ * "poluição visual" mudou: menos texto de apoio compete com os campos
+ * (ver item 4 do prompt de 15/08/2026).
  *
  * ⛔ Nada aqui é obrigatório. Nada bloqueia envio. O token nunca vai pro
  * path de nenhuma chamada de API — só no cabeçalho X-Pre-Ocorrencia-Token
@@ -29,11 +37,13 @@ const elErroAnexo = document.getElementById('pre-oc-anexo-erro');
 const MSG_SEM_CONEXAO = 'Sem conexão com o servidor. Verifique o sinal e tente de novo — o link continua válido.';
 const MSG_ERRO_NEUTRO = 'Algo deu errado. Tente de novo em instantes.';
 
+// local_referencia saiu da tela (item 4, 15/08/2026) — a coluna continua
+// no banco, só não faz mais parte do que esta tela lê/grava.
 const CAMPOS = [
     'motorista_re', 'motorista_nome', 'motorista_telefone', 'motorista_cpf', 'motorista_rg', 'motorista_cnh',
     'cobrador_re', 'cobrador_nome', 'cobrador_telefone', 'prefixo',
     'data_ocorrencia', 'hora_ocorrencia',
-    'local_logradouro', 'local_numero', 'local_bairro', 'local_cidade', 'local_referencia',
+    'local_logradouro', 'local_numero', 'local_bairro', 'local_cidade',
     'relato',
     'terceiro_placa', 'terceiro_modelo_cor', 'terceiro_nome', 'terceiro_telefone', 'terceiro_seguradora',
 ];
