@@ -8,7 +8,7 @@
  * de cadastros.js/permissoes.js).
  */
 import { requireAuth, getCurrentUser, logout } from './auth.js';
-import { apiGet, apiPost, apiPatch, ApiError } from './api.js';
+import { apiGet, apiPost, apiPatch, apiDelete, ApiError } from './api.js';
 import { podeLer, temFuncao } from './sessao.js';
 import { escapeHtml } from './escape.js';
 import { aplicarMascara } from './mascaras.js';
@@ -19,12 +19,14 @@ if (!requireAuth()) {
 
 const ehCCO = temFuncao('CCO');
 const veFila = podeLer('pre_ocorrencia'); // CCO não tem — decisão 4
+const ehAdmin = temFuncao('ADMIN'); // item 2 — exclusão definitiva
 
 document.addEventListener('DOMContentLoaded', () => {
     setupHeader();
     setupModalAbrir();
     setupModalDetalhe();
     setupModalCancelar();
+    setupModalApagar();
     carregarMinhasAutorizacoes();
     if (veFila) {
         document.getElementById('secao-fila').style.display = '';
@@ -53,8 +55,13 @@ async function carregarMinhasAutorizacoes() {
             return;
         }
         container.innerHTML = lista.map(a => ehCCO ? cardAutorizacaoCCO(a) : cardAutorizacaoCompleta(a)).join('');
+        // Mesmos botões nos dois tipos de card (data-acao/data-id) — um só
+        // par de listeners delegados cobre CCO e coordenador/ADMIN.
         container.querySelectorAll('[data-acao="cancelar"]').forEach(btn => {
             btn.addEventListener('click', (e) => { e.stopPropagation(); abrirConfirmarCancelar(btn.dataset.id); });
+        });
+        container.querySelectorAll('[data-acao="apagar"]').forEach(btn => {
+            btn.addEventListener('click', (e) => { e.stopPropagation(); abrirConfirmarApagar(btn.dataset.id); });
         });
     } catch (err) {
         container.innerHTML = `<div class="patio-loading" style="color:var(--accent)">Erro ao carregar: ${escapeHtml(err.message)}</div>`;
@@ -63,12 +70,14 @@ async function carregarMinhasAutorizacoes() {
 
 function botoesAcaoAutorizacao(id, jaCancelada) {
     // Cancelar: quem abriu ou ADMIN (checado de novo no backend — aqui é
-    // só pra não mostrar um botão que ia levar a um 403 óbvio). Já
-    // cancelada não ganha botão de cancelar de novo.
-    if (jaCancelada) return '';
+    // só pra não mostrar um botão que ia levar a um 403 óbvio). Apagar:
+    // só ADMIN. Já cancelada não ganha botão de cancelar de novo.
+    const podeCancelar = !jaCancelada;
+    if (!podeCancelar && !ehAdmin) return '';
     return `
         <div style="margin-top:8px;display:flex;gap:8px">
-            <button type="button" class="btn btn-ghost" data-acao="cancelar" data-id="${id}" style="font-size:0.75rem;padding:4px 10px">Cancelar</button>
+            ${podeCancelar ? `<button type="button" class="btn btn-ghost" data-acao="cancelar" data-id="${id}" style="font-size:0.75rem;padding:4px 10px">Cancelar</button>` : ''}
+            ${ehAdmin ? `<button type="button" class="btn btn-danger" data-acao="apagar" data-id="${id}" style="font-size:0.75rem;padding:4px 10px">🗑️ Apagar definitivamente</button>` : ''}
         </div>`;
 }
 
@@ -311,6 +320,35 @@ async function confirmarCancelar() {
         // Mensagem da API direto na tela (ex: 409 "já virou ocorrência
         // definitiva") — mesmo padrão de ocorrencia.excluir.js.
         erro.textContent = err instanceof ApiError ? err.message : 'Não foi possível cancelar.';
+        erro.style.display = '';
+    }
+}
+
+// ─── Modal: apagar definitivamente — só ADMIN (item 2) ───────────────────
+
+function setupModalApagar() {
+    document.getElementById('modal-apagar-fechar').addEventListener('click', () => fecharModal('modal-apagar'));
+    document.getElementById('btn-apagar-voltar').addEventListener('click', () => fecharModal('modal-apagar'));
+    document.getElementById('btn-apagar-confirmar').addEventListener('click', confirmarApagar);
+}
+
+function abrirConfirmarApagar(id) {
+    idAcaoPendente = id;
+    document.getElementById('apagar-erro').style.display = 'none';
+    abrirModal('modal-apagar');
+}
+
+async function confirmarApagar() {
+    if (!idAcaoPendente) return;
+    const erro = document.getElementById('apagar-erro');
+    erro.style.display = 'none';
+    try {
+        await apiDelete(`/pre-ocorrencias/autorizacoes/${idAcaoPendente}`);
+        fecharModal('modal-apagar');
+        idAcaoPendente = null;
+        carregarMinhasAutorizacoes();
+    } catch (err) {
+        erro.textContent = err instanceof ApiError ? err.message : 'Não foi possível apagar.';
         erro.style.display = '';
     }
 }

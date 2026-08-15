@@ -48,7 +48,7 @@ class PreOcorrencia(Base):
     id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True, default=uuid4)
     autorizacao_id: Mapped[UUID] = mapped_column(
         PG_UUID(as_uuid=True),
-        ForeignKey(f"{SCHEMA}.pre_ocorrencia_autorizacao.id"),
+        ForeignKey(f"{SCHEMA}.pre_ocorrencia_autorizacao.id", ondelete="CASCADE"),
         nullable=False, unique=True,
     )
 
@@ -100,7 +100,7 @@ class PreOcorrenciaAnexo(Base):
 
     id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True, default=uuid4)
     pre_ocorrencia_id: Mapped[UUID] = mapped_column(
-        PG_UUID(as_uuid=True), ForeignKey(f"{SCHEMA}.pre_ocorrencia.id"), nullable=False
+        PG_UUID(as_uuid=True), ForeignKey(f"{SCHEMA}.pre_ocorrencia.id", ondelete="CASCADE"), nullable=False
     )
     tipo: Mapped[str] = mapped_column(String(15), nullable=False)
     caminho: Mapped[str] = mapped_column(String(255), nullable=False)

@@ -137,6 +137,18 @@
     </div>
 </div>
 
+<!-- Modal: apagar definitivamente — só ADMIN, irreversível -->
+<div class="modal-overlay" id="modal-apagar">
+    <div class="modal">
+        <button type="button" class="modal-close" id="modal-apagar-fechar">✕</button>
+        <div class="modal-title">Apagar definitivamente?</div>
+        <p style="color:var(--muted);font-size:0.85rem;margin-bottom:10px">Isso é <strong>irreversível</strong>. A autorização, a pré-ocorrência e os documentos anexados (CNH, documento do coletivo) serão apagados, inclusive do disco.</p>
+        <div id="apagar-erro" style="display:none;color:var(--accent);font-size:0.85rem;margin-bottom:10px"></div>
+        <button type="button" class="btn btn-danger btn-full" id="btn-apagar-confirmar">🗑️ Apagar definitivamente</button>
+        <button type="button" class="btn btn-ghost btn-full btn-modal-stack" id="btn-apagar-voltar">Voltar</button>
+    </div>
+</div>
+
 <script type="module" src="./assets/js/pre-ocorrencias.page.js"></script>
 </body>
 </html>

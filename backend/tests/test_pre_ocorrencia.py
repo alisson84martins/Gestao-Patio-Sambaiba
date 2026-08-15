@@ -84,6 +84,9 @@ def ambiente():
     @event.listens_for(engine, "connect")
     def _attach(dbapi_conn, _):
         dbapi_conn.execute("ATTACH DATABASE ':memory:' AS coordenadoria")
+        # Sem isso o SQLite ignora ON DELETE CASCADE por padrão — precisa
+        # pra provar o cascade de apagar_autorizacao() (item 2, 15/08/2026).
+        dbapi_conn.execute("PRAGMA foreign_keys=ON")
 
     Base.metadata.create_all(engine, tables=_TABELAS)
 
@@ -623,6 +626,65 @@ def test_apos_cancelar_o_token_para_de_funcionar_nas_rotas_publicas(ambiente):
     # Backend padroniza erro em {"erro": "...", "status_code": N}, não no
     # "detail" padrão do FastAPI (ver app/core/exception_handlers.py).
     assert resp_depois.json()["erro"] == "Link inválido ou expirado."
+
+
+# ─── PROMPT 15/08/2026, item 2 — exclusão definitiva (só ADMIN) ───────────────
+
+
+def test_admin_apaga_autorizacao_definitivamente(ambiente, tmp_path, monkeypatch):
+    from app.routers import pre_ocorrencias as router_mod
+
+    monkeypatch.setattr(router_mod, "UPLOADS_BASE", tmp_path)
+
+    engine = ambiente["engine"]
+    auth_id, _ = _criar_autorizacao(engine, coordenador=_COORD_A)
+    pre_oc_id = _criar_pre_ocorrencia(engine, auth_id, relato="Relato de teste — vai ser apagado.")
+
+    caminho_relativo = f"pre_ocorrencias/{pre_oc_id}/arquivo-teste.jpg"
+    caminho_absoluto = tmp_path / caminho_relativo
+    caminho_absoluto.parent.mkdir(parents=True, exist_ok=True)
+    caminho_absoluto.write_bytes(b"conteudo ficticio de teste, nunca documento real")
+    anexo_id = uuid4()
+    with Session(engine) as db:
+        db.add(PreOcorrenciaAnexo(
+            id=anexo_id, pre_ocorrencia_id=pre_oc_id, tipo="CNH",
+            caminho=caminho_relativo, nome_original="arquivo-teste.jpg",
+            mime_type="image/jpeg", tamanho_bytes=len(caminho_absoluto.read_bytes()),
+        ))
+        db.commit()
+    assert caminho_absoluto.exists()
+
+    _autenticar(ambiente, _ADMIN)
+    resp = ambiente["http"].delete(f"/pre-ocorrencias/autorizacoes/{auth_id}")
+    assert resp.status_code == 204, resp.text
+
+    assert not caminho_absoluto.exists()
+    with Session(engine) as db:
+        assert db.get(PreOcorrenciaAutorizacao, auth_id) is None
+        assert db.get(PreOcorrencia, pre_oc_id) is None
+        assert db.get(PreOcorrenciaAnexo, anexo_id) is None
+
+
+def test_autor_nao_admin_nao_apaga_definitivamente(ambiente):
+    engine = ambiente["engine"]
+    auth_id, _ = _criar_autorizacao(engine, coordenador=_COORD_A, aberta_por=_COORD_A)
+
+    _autenticar(ambiente, _COORD_A)
+    resp = ambiente["http"].delete(f"/pre-ocorrencias/autorizacoes/{auth_id}")
+    assert resp.status_code == 403, resp.text
+
+    with Session(engine) as db:
+        assert db.get(PreOcorrenciaAutorizacao, auth_id) is not None
+
+
+def test_apagar_autorizacao_ja_convertida_e_bloqueado(ambiente):
+    engine = ambiente["engine"]
+    auth_id, _ = _criar_autorizacao(engine, coordenador=_COORD_A)
+    _criar_pre_ocorrencia(engine, auth_id, status="CONVERTIDA", relato="Já virou ocorrência.")
+
+    _autenticar(ambiente, _ADMIN)
+    resp = ambiente["http"].delete(f"/pre-ocorrencias/autorizacoes/{auth_id}")
+    assert resp.status_code == 409, resp.text
 
 
 def test_rate_limit_por_ip_ainda_barra_varredura_de_token_invalido(ambiente):

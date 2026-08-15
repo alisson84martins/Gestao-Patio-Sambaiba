@@ -6,6 +6,7 @@ _handoff-claude/DESENHO-pre-ocorrencia.md.
 """
 import logging
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from typing import Annotated, Optional
 from uuid import UUID
 
@@ -16,6 +17,7 @@ from sqlalchemy.orm import Session
 from app.core.config import FUSO_OPERACAO, get_settings
 from app.core.database import get_db
 from app.core.deps import exige
+from app.core.uploads import resolver_caminho_seguro
 from app.models.cadastro import Funcionario
 from app.models.ocorrencia import Ocorrencia, TipoOcorrencia
 from app.models.pre_ocorrencia import PreOcorrencia, PreOcorrenciaAnexo, PreOcorrenciaAutorizacao
@@ -26,6 +28,12 @@ from app.schemas.pre_ocorrencia import (
 )
 from app.services.n8n import notificar_autorizacao_aberta
 from app.services.pre_ocorrencia_token import EXPIRACAO_HORAS, gerar_token
+
+# Mesma base de app/routers/ocorrencias.py e
+# app/services/uploads_pre_ocorrencia.py (Path("uploads")) — anexo.caminho
+# já inclui o prefixo "pre_ocorrencias/", por isso a base pra
+# resolver_caminho_seguro() é a raiz de uploads, não PRE_OC_UPLOAD_ROOT.
+UPLOADS_BASE = Path("uploads")
 
 logger = logging.getLogger(__name__)
 
@@ -267,6 +275,56 @@ def cancelar_autorizacao(
     db.commit()
     db.refresh(autorizacao)
     return CancelarAutorizacaoResponse(id=autorizacao.id, status=autorizacao.status)
+
+
+# ============================================================================
+# Apagar definitivamente (item 2) — só ADMIN, remove anexos do disco antes
+# ============================================================================
+
+@router.delete(
+    "/autorizacoes/{autorizacao_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Exclusão definitiva — só ADMIN; apaga autorização, pré-ocorrência e os arquivos dos anexos",
+)
+def apagar_autorizacao(
+    autorizacao_id: UUID,
+    usuario: EscritaPreOcorrencia,
+    db: Annotated[Session, Depends(get_db)],
+) -> None:
+    # Exclusivamente ADMIN — nem o autor. É válvula pra limpar lixo de
+    # teste, não ação de rotina (diferente de cancelar_autorizacao acima).
+    if not _eh_admin(db, usuario.id):
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN, detail="Só o ADMIN pode apagar definitivamente uma autorização"
+        )
+
+    autorizacao = _carregar_autorizacao_para_gestao(db, autorizacao_id)
+    pre_oc = _pre_ocorrencia_da_autorizacao(db, autorizacao_id)
+    _exige_nao_convertida(pre_oc)
+
+    if pre_oc is not None:
+        anexos = db.execute(
+            select(PreOcorrenciaAnexo).where(PreOcorrenciaAnexo.pre_ocorrencia_id == pre_oc.id)
+        ).scalars().all()
+        # 🔴 Os arquivos são removidos do disco ANTES do DELETE — o
+        # ON DELETE CASCADE da migration 022 apaga a LINHA, nunca o
+        # arquivo. Anexo órfão de CNH é o dado mais sensível do sistema
+        # (foto, filiação, CPF e RG numa imagem só) ficando invisível pra
+        # qualquer auditoria. Arquivo ausente/sem permissão nunca pode
+        # impedir a limpeza do banco — loga e segue.
+        for anexo in anexos:
+            try:
+                caminho_disco = resolver_caminho_seguro(UPLOADS_BASE, anexo.caminho)
+                caminho_disco.unlink(missing_ok=True)
+            except Exception:
+                logger.warning(
+                    "Não foi possível remover do disco o arquivo do anexo %s (pré-ocorrência %s)",
+                    anexo.id, pre_oc.id,
+                )
+
+    # O banco cascateia pre_ocorrencia → pre_ocorrencia_anexo a partir daqui.
+    db.delete(autorizacao)
+    db.commit()
 
 
 # ============================================================================
