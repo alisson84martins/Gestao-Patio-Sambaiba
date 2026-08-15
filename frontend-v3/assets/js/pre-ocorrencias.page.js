@@ -8,7 +8,7 @@
  * de cadastros.js/permissoes.js).
  */
 import { requireAuth, getCurrentUser, logout } from './auth.js';
-import { apiGet, apiPost, ApiError } from './api.js';
+import { apiGet, apiPost, apiPatch, ApiError } from './api.js';
 import { podeLer, temFuncao } from './sessao.js';
 import { escapeHtml } from './escape.js';
 import { aplicarMascara } from './mascaras.js';
@@ -24,6 +24,7 @@ document.addEventListener('DOMContentLoaded', () => {
     setupHeader();
     setupModalAbrir();
     setupModalDetalhe();
+    setupModalCancelar();
     carregarMinhasAutorizacoes();
     if (veFila) {
         document.getElementById('secao-fila').style.display = '';
@@ -52,19 +53,36 @@ async function carregarMinhasAutorizacoes() {
             return;
         }
         container.innerHTML = lista.map(a => ehCCO ? cardAutorizacaoCCO(a) : cardAutorizacaoCompleta(a)).join('');
+        container.querySelectorAll('[data-acao="cancelar"]').forEach(btn => {
+            btn.addEventListener('click', (e) => { e.stopPropagation(); abrirConfirmarCancelar(btn.dataset.id); });
+        });
     } catch (err) {
         container.innerHTML = `<div class="patio-loading" style="color:var(--accent)">Erro ao carregar: ${escapeHtml(err.message)}</div>`;
     }
+}
+
+function botoesAcaoAutorizacao(id, jaCancelada) {
+    // Cancelar: quem abriu ou ADMIN (checado de novo no backend — aqui é
+    // só pra não mostrar um botão que ia levar a um 403 óbvio). Já
+    // cancelada não ganha botão de cancelar de novo.
+    if (jaCancelada) return '';
+    return `
+        <div style="margin-top:8px;display:flex;gap:8px">
+            <button type="button" class="btn btn-ghost" data-acao="cancelar" data-id="${id}" style="font-size:0.75rem;padding:4px 10px">Cancelar</button>
+        </div>`;
 }
 
 function cardAutorizacaoCCO(a) {
     // 🔴 Só status_texto — nada mais chega nesta resposta (ver
     // schemas/pre_ocorrencia.py AutorizacaoResumoCCO). Não tem o que
     // esconder na tela porque o backend já não manda.
+    // CCO pode cancelar o que ele mesmo abriu (aberta_por) — não é
+    // conteúdo, é ação sobre o próprio convite.
     return `
         <div class="remanejo-card">
             <div>${escapeHtml(a.status_texto)}</div>
             <div style="font-size:0.75rem;color:var(--muted);margin-top:4px">Aberta em ${fmtDataHora(a.criada_em)}</div>
+            ${botoesAcaoAutorizacao(a.id, a.status_texto === 'cancelada')}
         </div>`;
 }
 
@@ -84,6 +102,7 @@ function cardAutorizacaoCompleta(a) {
             <div style="font-size:0.75rem;color:var(--muted);margin-top:4px">
                 Tel. ${escapeHtml(a.telefone_destino)} · aberta em ${fmtDataHora(a.criada_em)}
             </div>
+            ${botoesAcaoAutorizacao(a.id, a.status === 'CANCELADA')}
         </div>`;
 }
 
@@ -259,6 +278,39 @@ async function converter() {
         window.location.href = `ocorrencia-form.html?id=${resultado.ocorrencia_id}`;
     } catch (err) {
         erro.textContent = err instanceof ApiError ? err.message : 'Não foi possível converter.';
+        erro.style.display = '';
+    }
+}
+
+// ─── Modal: cancelar autorização (item 1) ────────────────────────────────
+
+let idAcaoPendente = null;
+
+function setupModalCancelar() {
+    document.getElementById('modal-cancelar-fechar').addEventListener('click', () => fecharModal('modal-cancelar'));
+    document.getElementById('btn-cancelar-voltar').addEventListener('click', () => fecharModal('modal-cancelar'));
+    document.getElementById('btn-cancelar-confirmar').addEventListener('click', confirmarCancelar);
+}
+
+function abrirConfirmarCancelar(id) {
+    idAcaoPendente = id;
+    document.getElementById('cancelar-erro').style.display = 'none';
+    abrirModal('modal-cancelar');
+}
+
+async function confirmarCancelar() {
+    if (!idAcaoPendente) return;
+    const erro = document.getElementById('cancelar-erro');
+    erro.style.display = 'none';
+    try {
+        await apiPatch(`/pre-ocorrencias/autorizacoes/${idAcaoPendente}/cancelar`, {});
+        fecharModal('modal-cancelar');
+        idAcaoPendente = null;
+        carregarMinhasAutorizacoes();
+    } catch (err) {
+        // Mensagem da API direto na tela (ex: 409 "já virou ocorrência
+        // definitiva") — mesmo padrão de ocorrencia.excluir.js.
+        erro.textContent = err instanceof ApiError ? err.message : 'Não foi possível cancelar.';
         erro.style.display = '';
     }
 }

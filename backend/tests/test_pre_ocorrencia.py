@@ -556,6 +556,75 @@ def test_rate_limit_por_ip_nao_conta_autosave_com_token_valido(ambiente):
         assert resp.status_code == 200, f"request {i}: {resp.text}"
 
 
+# ─── PROMPT 15/08/2026, item 1 — cancelar autorização ─────────────────────────
+
+
+def test_autor_cancela_a_propria_autorizacao(ambiente):
+    engine = ambiente["engine"]
+    auth_id, _ = _criar_autorizacao(engine, coordenador=_COORD_A)
+
+    _autenticar(ambiente, _COORD_A)
+    resp = ambiente["http"].patch(f"/pre-ocorrencias/autorizacoes/{auth_id}/cancelar")
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["status"] == "CANCELADA"
+
+    with Session(engine) as db:
+        assert db.get(PreOcorrenciaAutorizacao, auth_id).status == "CANCELADA"
+
+
+def test_outro_coordenador_nao_cancela_autorizacao_alheia(ambiente):
+    engine = ambiente["engine"]
+    auth_id, _ = _criar_autorizacao(engine, coordenador=_COORD_A, aberta_por=_COORD_A)
+
+    _autenticar(ambiente, _COORD_B)
+    resp = ambiente["http"].patch(f"/pre-ocorrencias/autorizacoes/{auth_id}/cancelar")
+    assert resp.status_code == 403, resp.text
+
+
+def test_admin_cancela_a_autorizacao_de_outro(ambiente):
+    engine = ambiente["engine"]
+    auth_id, _ = _criar_autorizacao(engine, coordenador=_COORD_A, aberta_por=_COORD_A)
+
+    _autenticar(ambiente, _ADMIN)
+    resp = ambiente["http"].patch(f"/pre-ocorrencias/autorizacoes/{auth_id}/cancelar")
+    assert resp.status_code == 200, resp.text
+
+
+def test_cancelar_autorizacao_ja_convertida_e_bloqueado(ambiente):
+    engine = ambiente["engine"]
+    auth_id, _ = _criar_autorizacao(engine, coordenador=_COORD_A)
+    _criar_pre_ocorrencia(
+        engine, auth_id, status="CONVERTIDA",
+        relato="Já virou ocorrência definitiva.",
+    )
+
+    _autenticar(ambiente, _COORD_A)
+    resp = ambiente["http"].patch(f"/pre-ocorrencias/autorizacoes/{auth_id}/cancelar")
+    assert resp.status_code == 409, resp.text
+
+
+def test_apos_cancelar_o_token_para_de_funcionar_nas_rotas_publicas(ambiente):
+    """🔴 É este teste que prova a regra — token cancelado precisa devolver
+    a MESMA resposta genérica que inválido/expirado/usado, nas 4 rotas
+    públicas (aqui, GET representa as 4 — todas passam por
+    _carregar_autorizacao())."""
+    engine = ambiente["engine"]
+    auth_id, token = _criar_autorizacao(engine, coordenador=_COORD_A)
+
+    resp_antes = ambiente["http"].get("/pre-ocorrencias/publico", headers={"X-Pre-Ocorrencia-Token": token})
+    assert resp_antes.status_code == 200, resp_antes.text
+
+    _autenticar(ambiente, _COORD_A)
+    resp_cancelar = ambiente["http"].patch(f"/pre-ocorrencias/autorizacoes/{auth_id}/cancelar")
+    assert resp_cancelar.status_code == 200, resp_cancelar.text
+
+    resp_depois = ambiente["http"].get("/pre-ocorrencias/publico", headers={"X-Pre-Ocorrencia-Token": token})
+    assert resp_depois.status_code == 404
+    # Backend padroniza erro em {"erro": "...", "status_code": N}, não no
+    # "detail" padrão do FastAPI (ver app/core/exception_handlers.py).
+    assert resp_depois.json()["erro"] == "Link inválido ou expirado."
+
+
 def test_rate_limit_por_ip_ainda_barra_varredura_de_token_invalido(ambiente):
     """A defesa contra varredura de tokens continua de pé: tentativas que
     NÃO resolvem (token nunca existiu) seguem contando pro limite por IP.

@@ -21,7 +21,8 @@ from app.models.ocorrencia import Ocorrencia, TipoOcorrencia
 from app.models.pre_ocorrencia import PreOcorrencia, PreOcorrenciaAnexo, PreOcorrenciaAutorizacao
 from app.schemas.pre_ocorrencia import (
     AbrirAutorizacaoRequest, AutorizacaoAbertaResponse, AutorizacaoResumo, AutorizacaoResumoCCO,
-    ConverterRequest, ConverterResponse, PreOcorrenciaDetalhe, PreOcorrenciaFilaItem,
+    CancelarAutorizacaoResponse, ConverterRequest, ConverterResponse, PreOcorrenciaDetalhe,
+    PreOcorrenciaFilaItem,
 )
 from app.services.n8n import notificar_autorizacao_aberta
 from app.services.pre_ocorrencia_token import EXPIRACAO_HORAS, gerar_token
@@ -175,6 +176,11 @@ def _como_utc(dt: datetime) -> datetime:
 
 
 def _status_texto_cco(autorizacao: PreOcorrenciaAutorizacao, coordenador_nome: str) -> str:
+    # Checado ANTES de usada_em/expira_em — cancelar é uma ação deliberada
+    # do CCO (item 1, 15/08/2026) e precisa aparecer como tal, não como
+    # "aguardando" pra sempre (nem usada_em nem expira_em mudam ao cancelar).
+    if autorizacao.status == "CANCELADA":
+        return "cancelada"
     if autorizacao.usada_em is not None:
         return f"enviada, com o coordenador {coordenador_nome}"
     if _como_utc(autorizacao.expira_em) < datetime.now(timezone.utc):
@@ -203,6 +209,64 @@ def minhas_autorizacoes(usuario: EscritaPreOcorrencia, db: Annotated[Session, De
         return resultado
 
     return [AutorizacaoResumo.model_validate(a) for a in linhas]
+
+
+# ============================================================================
+# Cancelar autorização (item 1) — autor ou ADMIN, registro permanece
+# ============================================================================
+
+def _carregar_autorizacao_para_gestao(db: Session, autorizacao_id: UUID) -> PreOcorrenciaAutorizacao:
+    autorizacao = db.get(PreOcorrenciaAutorizacao, autorizacao_id)
+    if autorizacao is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Autorização não encontrada")
+    return autorizacao
+
+
+def _pre_ocorrencia_da_autorizacao(db: Session, autorizacao_id: UUID) -> Optional[PreOcorrencia]:
+    return db.execute(
+        select(PreOcorrencia).where(PreOcorrencia.autorizacao_id == autorizacao_id)
+    ).scalar_one_or_none()
+
+
+def _exige_nao_convertida(pre_oc: Optional[PreOcorrencia]) -> None:
+    """Bloqueio comum a cancelar() e apagar(): uma vez virada Ocorrencia
+    definitiva, o registro deixa de ser um convite e vira documento — não
+    se cancela nem se apaga mais pela tela."""
+    if pre_oc is not None and (pre_oc.status == "CONVERTIDA" or pre_oc.convertida_em is not None):
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            detail="Esta pré-ocorrência já virou ocorrência definitiva e não pode mais ser alterada por aqui",
+        )
+
+
+@router.patch(
+    "/autorizacoes/{autorizacao_id}/cancelar",
+    response_model=CancelarAutorizacaoResponse,
+    summary="Cancela a autorização — quem abriu ou ADMIN; o token para de funcionar na hora",
+)
+def cancelar_autorizacao(
+    autorizacao_id: UUID,
+    usuario: EscritaPreOcorrencia,
+    db: Annotated[Session, Depends(get_db)],
+):
+    autorizacao = _carregar_autorizacao_para_gestao(db, autorizacao_id)
+    if autorizacao.aberta_por != usuario.id and not _eh_admin(db, usuario.id):
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN,
+            detail="Só quem abriu esta autorização ou o ADMIN pode cancelá-la",
+        )
+
+    pre_oc = _pre_ocorrencia_da_autorizacao(db, autorizacao_id)
+    _exige_nao_convertida(pre_oc)
+
+    autorizacao.status = "CANCELADA"
+    # Descarta a pré-ocorrência ligada, se ela existir e ainda não tiver
+    # virado ocorrência (já garantido pelo _exige_nao_convertida acima).
+    if pre_oc is not None:
+        pre_oc.status = "DESCARTADA"
+    db.commit()
+    db.refresh(autorizacao)
+    return CancelarAutorizacaoResponse(id=autorizacao.id, status=autorizacao.status)
 
 
 # ============================================================================

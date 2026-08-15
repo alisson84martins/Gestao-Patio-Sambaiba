@@ -97,6 +97,14 @@ def _carregar_autorizacao(
     if _como_utc(linha.expira_em) < datetime.now(timezone.utc):
         registrar_falha_rate_limit_ip(ip)
         raise generica
+    # Item 1 (15/08/2026): autorização cancelada morre na hora, para TODAS
+    # as 4 rotas públicas — inclusive GET, diferente de usada_em (regra 7),
+    # que continua liberado depois de enviado pra mostrar o protocolo.
+    # Cancelar não é "concluir", é revogar — token continuar aceito depois
+    # de cancelado é buraco de segurança, não detalhe de tela.
+    if linha.status == "CANCELADA":
+        registrar_falha_rate_limit_ip(ip)
+        raise generica
     if exigir_nao_usada and linha.usada_em is not None:
         registrar_falha_rate_limit_ip(ip)
         raise generica

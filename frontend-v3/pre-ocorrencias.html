@@ -125,6 +125,18 @@
     </div>
 </div>
 
+<!-- Modal: cancelar autorização — registro continua existindo, só o link morre -->
+<div class="modal-overlay" id="modal-cancelar">
+    <div class="modal">
+        <button type="button" class="modal-close" id="modal-cancelar-fechar">✕</button>
+        <div class="modal-title">Cancelar autorização?</div>
+        <p style="color:var(--muted);font-size:0.85rem;margin-bottom:10px">O registro continua existindo, mas o link do motorista para de funcionar imediatamente.</p>
+        <div id="cancelar-erro" style="display:none;color:var(--accent);font-size:0.85rem;margin-bottom:10px"></div>
+        <button type="button" class="btn btn-danger btn-full" id="btn-cancelar-confirmar">Cancelar autorização</button>
+        <button type="button" class="btn btn-ghost btn-full btn-modal-stack" id="btn-cancelar-voltar">Voltar</button>
+    </div>
+</div>
+
 <script type="module" src="./assets/js/pre-ocorrencias.page.js"></script>
 </body>
 </html>

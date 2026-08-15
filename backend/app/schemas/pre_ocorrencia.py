@@ -73,6 +73,14 @@ class AutorizacaoResumo(ORMBase):
     usada_em: Optional[datetime] = None
 
 
+class CancelarAutorizacaoResponse(BaseModel):
+    """PATCH .../cancelar — id + status, nada de conteúdo. Serve tanto pra
+    coordenador/ADMIN quanto pro CCO (que pode cancelar o que ele mesmo
+    abriu — decisão 4 não muda: CCO continua sem ver relato/documento)."""
+    id: UUID
+    status: StatusAutorizacao
+
+
 # ============================================================================
 # Formulário público (token) — o motorista
 # ============================================================================
