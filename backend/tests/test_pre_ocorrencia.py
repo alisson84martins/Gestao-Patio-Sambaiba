@@ -922,3 +922,71 @@ def test_admin_continua_vendo_a_fila_inteira(ambiente):
     resp = ambiente["http"].get("/pre-ocorrencias")
     assert resp.status_code == 200, resp.text
     assert len(resp.json()) == 1
+
+
+# ─── PROMPT 19/08/2026, item 2 — convertida/descartada saem da tela ───────────
+
+
+def test_convertida_nao_aparece_na_fila(ambiente):
+    engine = ambiente["engine"]
+    auth_a, _ = _criar_autorizacao(engine, coordenador=_COORD_A)
+    _criar_pre_ocorrencia(engine, auth_a, status="CONVERTIDA")
+
+    _autenticar(ambiente, _COORD_A)
+    resp = ambiente["http"].get("/pre-ocorrencias")
+    assert resp.status_code == 200, resp.text
+    assert resp.json() == []
+
+
+def test_descartada_nao_aparece_na_fila(ambiente):
+    engine = ambiente["engine"]
+    auth_a, _ = _criar_autorizacao(engine, coordenador=_COORD_A)
+    _criar_pre_ocorrencia(engine, auth_a, status="DESCARTADA")
+
+    _autenticar(ambiente, _COORD_A)
+    resp = ambiente["http"].get("/pre-ocorrencias")
+    assert resp.status_code == 200, resp.text
+    assert resp.json() == []
+
+
+def test_convertida_nao_aparece_em_minhas_autorizacoes(ambiente):
+    engine = ambiente["engine"]
+    auth_a, _ = _criar_autorizacao(engine, coordenador=_COORD_A, aberta_por=_COORD_A)
+    _criar_pre_ocorrencia(engine, auth_a, status="CONVERTIDA")
+
+    _autenticar(ambiente, _COORD_A)
+    resp = ambiente["http"].get("/pre-ocorrencias/autorizacoes")
+    assert resp.status_code == 200, resp.text
+    assert resp.json() == []
+
+
+def test_cancelar_ja_tira_a_autorizacao_de_minhas_autorizacoes(ambiente):
+    """Efeito colateral desejado do item 2: cancelar_autorizacao() marca a
+    pré-ocorrência ligada como DESCARTADA, e isso já basta pra sumir da
+    lista — sem filtro extra nenhum além do de status."""
+    engine = ambiente["engine"]
+    auth_a, _ = _criar_autorizacao(engine, coordenador=_COORD_A, aberta_por=_COORD_A)
+    _criar_pre_ocorrencia(engine, auth_a)
+
+    _autenticar(ambiente, _COORD_A)
+    resp_cancelar = ambiente["http"].patch(f"/pre-ocorrencias/autorizacoes/{auth_a}/cancelar")
+    assert resp_cancelar.status_code == 200, resp_cancelar.text
+
+    resp = ambiente["http"].get("/pre-ocorrencias/autorizacoes")
+    assert resp.status_code == 200, resp.text
+    assert resp.json() == []
+
+
+def test_autorizacao_sem_pre_ocorrencia_continua_em_minhas_autorizacoes(ambiente):
+    """Não conte com abrir_autorizacao() sempre criar uma PreOcorrencia —
+    uma autorização "nua" (sem pré-ocorrência ligada) precisa continuar
+    aparecendo; o outer join não pode virar filtro que a esconde."""
+    engine = ambiente["engine"]
+    auth_a, _ = _criar_autorizacao(engine, coordenador=_COORD_A, aberta_por=_COORD_A)
+    # Sem _criar_pre_ocorrencia() de propósito.
+
+    _autenticar(ambiente, _COORD_A)
+    resp = ambiente["http"].get("/pre-ocorrencias/autorizacoes")
+    assert resp.status_code == 200, resp.text
+    assert len(resp.json()) == 1
+    assert resp.json()[0]["id"] == str(auth_a)

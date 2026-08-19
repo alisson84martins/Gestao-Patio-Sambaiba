@@ -11,7 +11,7 @@ from typing import Annotated, Optional
 from uuid import UUID
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request, status
-from sqlalchemy import select, text
+from sqlalchemy import or_, select, text
 from sqlalchemy.orm import Session
 
 from app.core.config import FUSO_OPERACAO, get_settings
@@ -285,9 +285,15 @@ def _status_texto_cco(autorizacao: PreOcorrenciaAutorizacao, coordenador_nome: s
 
 @router.get("/autorizacoes", summary="O que a pessoa abriu e está aguardando")
 def minhas_autorizacoes(usuario: EscritaPreOcorrencia, db: Annotated[Session, Depends(get_db)]):
+    # Item 2 (19/08/2026): mesma regra de listar() — convertida/descartada
+    # não têm mais o que fazer aqui. outerjoin porque a PreOcorrencia
+    # pode não existir (autorização sem pré-ocorrência continua
+    # aparecendo — não conte com abrir_autorizacao() sempre criar uma).
     linhas = db.execute(
         select(PreOcorrenciaAutorizacao)
+        .outerjoin(PreOcorrencia, PreOcorrencia.autorizacao_id == PreOcorrenciaAutorizacao.id)
         .where(PreOcorrenciaAutorizacao.aberta_por == usuario.id)
+        .where(or_(PreOcorrencia.id.is_(None), PreOcorrencia.status.notin_(("CONVERTIDA", "DESCARTADA"))))
         .order_by(PreOcorrenciaAutorizacao.criada_em.desc())
     ).scalars().all()
 
@@ -439,9 +445,15 @@ def _pendencias(db: Session, pre_oc_id: UUID) -> list[str]:
 
 @router.get("", response_model=list[PreOcorrenciaFilaItem], summary="Pré-ocorrências direcionadas a você")
 def listar(usuario: LeituraPreOcorrencia, db: Annotated[Session, Depends(get_db)]):
+    # Item 2 (19/08/2026): convertida virou Ocorrência (vive na tela de
+    # Ocorrências) e descartada morreu com o cancelamento — nenhuma das
+    # duas tem o que fazer na fila. Sem filtro "ver convertidas": uma
+    # pré-ocorrência ou vira ocorrência ou é descartada, nos dois casos
+    # sai daqui.
     q = (
         select(PreOcorrencia, PreOcorrenciaAutorizacao)
         .join(PreOcorrenciaAutorizacao, PreOcorrenciaAutorizacao.id == PreOcorrencia.autorizacao_id)
+        .where(PreOcorrencia.status.notin_(("CONVERTIDA", "DESCARTADA")))
         .order_by(PreOcorrencia.criado_em.desc())
     )
     if not _ve_todas_pre_ocorrencias(db, usuario.id):
