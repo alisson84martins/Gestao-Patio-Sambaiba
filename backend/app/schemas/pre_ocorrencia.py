@@ -194,6 +194,11 @@ class EnviarResponse(BaseModel):
 
 class PreOcorrenciaFilaItem(BaseModel):
     id: UUID
+    # Item 1.2 (19/08/2026): o botão de apagar na fila (item 1.4) chama o
+    # mesmo endpoint DELETE /pre-ocorrencias/autorizacoes/{autorizacao_id}
+    # dos cards de "Minhas autorizações" — precisa do id da autorização,
+    # não só da pré-ocorrência.
+    autorizacao_id: UUID
     status: StatusPreOcorrencia
     motorista_nome: Optional[str] = None
     prefixo: Optional[str] = None

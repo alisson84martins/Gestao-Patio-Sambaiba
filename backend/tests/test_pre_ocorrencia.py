@@ -63,6 +63,10 @@ _COORD_A = Funcionario(id=uuid4(), re="50001", nome="Coordenador A")
 _COORD_B = Funcionario(id=uuid4(), re="50002", nome="Coordenador B")
 _CCO = Funcionario(id=uuid4(), re="50003", nome="CCO Teste")
 _ADMIN = Funcionario(id=uuid4(), re="5598", nome="Admin Teste")
+# Item 1.1 (19/08/2026): precisa de alguém com ENCARREGADO pra provar que
+# ele NÃO vê mais a fila inteira (perdeu o que tinha em comum com
+# _ve_todas_ocorrencias()).
+_ENCARREGADO = Funcionario(id=uuid4(), re="50005", nome="Encarregado Teste")
 
 
 def _dependency_de(annotated_type):
@@ -92,17 +96,20 @@ def ambiente():
 
     tipo_outros_id = uuid4()
     with Session(engine) as setup:
-        for f in (_COORD_A, _COORD_B, _CCO, _ADMIN):
+        for f in (_COORD_A, _COORD_B, _CCO, _ADMIN, _ENCARREGADO):
             setup.add(Funcionario(id=f.id, re=f.re, nome=f.nome))
-        # Funções — só o suficiente pra _eh_cco()/_eh_admin()/_ve_todas_pre_ocorrencias()
+        # Funções — só o suficiente pra
+        # _eh_cco()/_eh_admin()/_ve_todas_pre_ocorrencias()
         f_cco = Funcao(id=uuid4(), codigo="CCO", nome="CCO", categoria="OPERACAO", nivel=6)
         f_admin = Funcao(id=uuid4(), codigo="ADMIN", nome="Admin", categoria="SISTEMA", nivel=1)
         f_coord = Funcao(id=uuid4(), codigo="COORDENADOR_TRAFEGO", nome="Coordenador", categoria="GESTAO", nivel=4)
-        setup.add_all([f_cco, f_admin, f_coord])
+        f_encarregado = Funcao(id=uuid4(), codigo="ENCARREGADO", nome="Encarregado", categoria="GESTAO", nivel=3)
+        setup.add_all([f_cco, f_admin, f_coord, f_encarregado])
         setup.add(FuncionarioFuncao(id=uuid4(), funcionario_id=_CCO.id, funcao_id=f_cco.id, ativo=True))
         setup.add(FuncionarioFuncao(id=uuid4(), funcionario_id=_ADMIN.id, funcao_id=f_admin.id, ativo=True))
         setup.add(FuncionarioFuncao(id=uuid4(), funcionario_id=_COORD_A.id, funcao_id=f_coord.id, ativo=True))
         setup.add(FuncionarioFuncao(id=uuid4(), funcionario_id=_COORD_B.id, funcao_id=f_coord.id, ativo=True))
+        setup.add(FuncionarioFuncao(id=uuid4(), funcionario_id=_ENCARREGADO.id, funcao_id=f_encarregado.id, ativo=True))
         setup.add(TipoOcorrencia(
             id=tipo_outros_id, codigo="OUTROS", nome="Outros",
             exige_vitima=False, exige_terceiro=False, exige_analise=False, ordem=99, ativo=True,
@@ -665,11 +672,43 @@ def test_admin_apaga_autorizacao_definitivamente(ambiente, tmp_path, monkeypatch
         assert db.get(PreOcorrenciaAnexo, anexo_id) is None
 
 
-def test_autor_nao_admin_nao_apaga_definitivamente(ambiente):
+def test_coordenador_destinatario_apaga_a_propria_autorizacao(ambiente):
+    """PROMPT 19/08/2026, item 1.3: na fila, o coordenador apaga só o que
+    é dele — o destinatário passa a poder apagar definitivamente, não só
+    o ADMIN. Substitui o antigo teste (que barrava exatamente este caso,
+    de propósito, sob a regra anterior)."""
     engine = ambiente["engine"]
     auth_id, _ = _criar_autorizacao(engine, coordenador=_COORD_A, aberta_por=_COORD_A)
 
     _autenticar(ambiente, _COORD_A)
+    resp = ambiente["http"].delete(f"/pre-ocorrencias/autorizacoes/{auth_id}")
+    assert resp.status_code == 204, resp.text
+
+    with Session(engine) as db:
+        assert db.get(PreOcorrenciaAutorizacao, auth_id) is None
+
+
+def test_coordenador_de_outra_autorizacao_nao_apaga(ambiente):
+    """Quem não é o destinatário nem ADMIN continua barrado — inclusive
+    outro coordenador comum, não só o CCO."""
+    engine = ambiente["engine"]
+    auth_id, _ = _criar_autorizacao(engine, coordenador=_COORD_B, aberta_por=_COORD_B)
+
+    _autenticar(ambiente, _COORD_A)
+    resp = ambiente["http"].delete(f"/pre-ocorrencias/autorizacoes/{auth_id}")
+    assert resp.status_code == 403, resp.text
+
+    with Session(engine) as db:
+        assert db.get(PreOcorrenciaAutorizacao, auth_id) is not None
+
+
+def test_cco_que_abriu_nao_apaga_so_o_destinatario_ou_admin(ambiente):
+    """Quem só abriu (CCO) não apaga — só cancela, que já é a ação dele
+    (cancelar_autorizacao acima)."""
+    engine = ambiente["engine"]
+    auth_id, _ = _criar_autorizacao(engine, coordenador=_COORD_A, aberta_por=_CCO)
+
+    _autenticar(ambiente, _CCO)
     resp = ambiente["http"].delete(f"/pre-ocorrencias/autorizacoes/{auth_id}")
     assert resp.status_code == 403, resp.text
 
@@ -842,3 +881,44 @@ def test_rate_limit_por_ip_ainda_barra_varredura_de_token_invalido(ambiente):
 
     assert all(r.status_code == 404 for r in respostas[:_IP_MAX])
     assert respostas[_IP_MAX].status_code == 429
+
+
+# ─── PROMPT 19/08/2026, item 1.1 — só ADMIN vê a fila inteira ─────────────────
+
+
+def test_encarregado_nao_ve_mais_a_fila_de_outro_coordenador(ambiente):
+    """Decisão de 19/08/2026: o paralelo com _ve_todas_ocorrencias() (que
+    inclui ENCARREGADO/GERENTE_GERAL/GERENTE_OPERACIONAL) deixa de
+    existir de propósito — só ADMIN enxerga a fila inteira agora.
+    ENCARREGADO cai no mesmo filtro por coordenador_id que qualquer
+    coordenador comum, e não é o destinatário de nada aqui."""
+    engine = ambiente["engine"]
+    auth_a, _ = _criar_autorizacao(engine, coordenador=_COORD_A)
+    _criar_pre_ocorrencia(engine, auth_a, relato="Relato direcionado ao coordenador A.")
+
+    _autenticar(ambiente, _ENCARREGADO)
+    resp = ambiente["http"].get("/pre-ocorrencias")
+    assert resp.status_code == 200, resp.text
+    assert resp.json() == []
+
+
+def test_encarregado_nao_acessa_detalhe_de_pre_ocorrencia_alheia(ambiente):
+    engine = ambiente["engine"]
+    auth_a, _ = _criar_autorizacao(engine, coordenador=_COORD_A)
+    pre_oc_a = _criar_pre_ocorrencia(engine, auth_a)
+
+    _autenticar(ambiente, _ENCARREGADO)
+    resp = ambiente["http"].get(f"/pre-ocorrencias/{pre_oc_a}")
+    assert resp.status_code == 403, resp.text
+
+
+def test_admin_continua_vendo_a_fila_inteira(ambiente):
+    """Controle positivo do item 1.1 — a exceção é só ADMIN, ninguém mais."""
+    engine = ambiente["engine"]
+    auth_a, _ = _criar_autorizacao(engine, coordenador=_COORD_A)
+    _criar_pre_ocorrencia(engine, auth_a, relato="Relato do coordenador A.")
+
+    _autenticar(ambiente, _ADMIN)
+    resp = ambiente["http"].get("/pre-ocorrencias")
+    assert resp.status_code == 200, resp.text
+    assert len(resp.json()) == 1

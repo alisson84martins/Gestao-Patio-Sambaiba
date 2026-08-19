@@ -68,17 +68,24 @@ def _eh_cco(db: Session, funcionario_id: UUID) -> bool:
 
 
 def _ve_todas_pre_ocorrencias(db: Session, funcionario_id: UUID) -> bool:
-    """Mesmo conjunto de funções de _ve_todas_ocorrencias() em
-    ocorrencias.py (ADMIN, ENCARREGADO, GERENTE_GERAL,
-    GERENTE_OPERACIONAL) — duplicado aqui de propósito: os dois recursos
-    (`ocorrencia` e `pre_ocorrencia`) são independentes no RBAC, e uma
-    função helper compartilhada exigiria um módulo novo só pra isso."""
+    """Só ADMIN enxerga a fila inteira — decisão de Alisson (19/08/2026).
+
+    Até essa data espelhava _ve_todas_ocorrencias() de ocorrencias.py
+    (ADMIN, ENCARREGADO, GERENTE_GERAL, GERENTE_OPERACIONAL). O paralelo
+    deixa de existir de propósito: pré-ocorrência carrega dado de
+    terceiro cru, digitado pelo motorista e ainda não revisado por
+    nenhum coordenador — gerência e encarregado não têm por que ver isso.
+    Eles leem a OCORRÊNCIA DEFINITIVA depois de convertida, que é o
+    documento deles. Na fila, cada coordenador vê só o que é dele: o que
+    ele mesmo abriu ou o que o CCO direcionou a ele.
+
+    Usada em listar() e em _exige_pode_ver_pre_ocorrencia() — a regra é
+    uma só, não duplicar."""
     row = db.execute(
         text(
             "SELECT 1 FROM funcionario_funcao ff "
             "JOIN funcao f ON f.id = ff.funcao_id "
-            "WHERE ff.funcionario_id = :fid AND ff.ativo "
-            "AND f.codigo IN ('ADMIN','ENCARREGADO','GERENTE_GERAL','GERENTE_OPERACIONAL')"
+            "WHERE ff.funcionario_id = :fid AND ff.ativo AND f.codigo = 'ADMIN'"
         ),
         {"fid": funcionario_id},
     ).first()
@@ -364,21 +371,26 @@ def cancelar_autorizacao(
 @router.delete(
     "/autorizacoes/{autorizacao_id}",
     status_code=status.HTTP_204_NO_CONTENT,
-    summary="Exclusão definitiva — só ADMIN; apaga autorização, pré-ocorrência e os arquivos dos anexos",
+    summary="Exclusão definitiva — ADMIN ou o coordenador destinatário; apaga autorização, pré-ocorrência e os arquivos dos anexos",
 )
 def apagar_autorizacao(
     autorizacao_id: UUID,
     usuario: EscritaPreOcorrencia,
     db: Annotated[Session, Depends(get_db)],
 ) -> None:
-    # Exclusivamente ADMIN — nem o autor. É válvula pra limpar lixo de
-    # teste, não ação de rotina (diferente de cancelar_autorizacao acima).
-    if not _eh_admin(db, usuario.id):
+    autorizacao = _carregar_autorizacao_para_gestao(db, autorizacao_id)
+
+    # ADMIN ou o coordenador destinatário (decisão de 19/08/2026, item 1)
+    # — quem só abriu (CCO) não apaga, só cancela: cancelar_autorizacao()
+    # acima já é a ação dele. Continua sendo exclusão definitiva, não
+    # ação de rotina — mesma ordem de checagem de cancelar_autorizacao
+    # (carrega primeiro, autoriza depois).
+    if autorizacao.coordenador_id != usuario.id and not _eh_admin(db, usuario.id):
         raise HTTPException(
-            status.HTTP_403_FORBIDDEN, detail="Só o ADMIN pode apagar definitivamente uma autorização"
+            status.HTTP_403_FORBIDDEN,
+            detail="Só o coordenador destinatário ou o ADMIN podem apagar definitivamente esta autorização",
         )
 
-    autorizacao = _carregar_autorizacao_para_gestao(db, autorizacao_id)
     pre_oc = _pre_ocorrencia_da_autorizacao(db, autorizacao_id)
     _exige_nao_convertida(pre_oc)
 
@@ -439,6 +451,11 @@ def listar(usuario: LeituraPreOcorrencia, db: Annotated[Session, Depends(get_db)
     return [
         PreOcorrenciaFilaItem(
             id=pre_oc.id,
+            # Item 1.2 (19/08/2026): o botão de apagar na fila (item 1.4)
+            # chama o mesmo endpoint DELETE .../autorizacoes/{autorizacao_id}
+            # dos cards de "Minhas autorizações" — precisa do id da
+            # autorização, não só da pré-ocorrência.
+            autorizacao_id=autorizacao.id,
             status=pre_oc.status,
             motorista_nome=pre_oc.motorista_nome or autorizacao.motorista_nome,
             prefixo=pre_oc.prefixo or autorizacao.prefixo,

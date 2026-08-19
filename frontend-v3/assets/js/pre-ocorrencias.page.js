@@ -127,12 +127,19 @@ async function carregarFila() {
     try {
         const lista = await apiGet('/pre-ocorrencias');
         if (lista.length === 0) {
-            container.innerHTML = '<div class="patio-loading">Nada na fila.</div>';
+            container.innerHTML = '<div class="patio-loading">Nada na fila — aqui aparecem apenas as pré-ocorrências direcionadas a você.</div>';
             return;
         }
         container.innerHTML = lista.map(cardFila).join('');
         container.querySelectorAll('[data-id]').forEach(el => {
             el.addEventListener('click', () => abrirDetalhe(el.dataset.id));
+        });
+        // Item 1.4 (19/08/2026): apagar direto da fila — o backend é a
+        // trava (ADMIN ou o coordenador destinatário, item 1.3); não
+        // escondemos o botão por função aqui, o 403 (se vier) já aparece
+        // em apagar-erro via confirmarApagar().
+        container.querySelectorAll('[data-acao="apagar-fila"]').forEach(btn => {
+            btn.addEventListener('click', (e) => { e.stopPropagation(); abrirConfirmarApagar(btn.dataset.autorizacaoId); });
         });
     } catch (err) {
         container.innerHTML = `<div class="patio-loading" style="color:var(--accent)">Erro ao carregar: ${escapeHtml(err.message)}</div>`;
@@ -154,6 +161,9 @@ function cardFila(item) {
             </div>
             <div style="font-size:0.75rem;color:var(--muted);margin-top:4px">${fmtDataHora(item.criado_em)}</div>
             ${pendencias}
+            <div style="margin-top:8px;display:flex;gap:8px">
+                <button type="button" class="btn btn-danger" data-acao="apagar-fila" data-autorizacao-id="${item.autorizacao_id}" style="font-size:0.75rem;padding:4px 10px">🗑️ Apagar</button>
+            </div>
         </div>`;
 }
 
@@ -383,7 +393,11 @@ async function confirmarApagar() {
         await apiDelete(`/pre-ocorrencias/autorizacoes/${idAcaoPendente}`);
         fecharModal('modal-apagar');
         idAcaoPendente = null;
+        // Item 1.4 (19/08/2026): agora o botão de apagar existe nas duas
+        // listas (minhas autorizações e fila) — recarrega as duas, não só
+        // a de origem do clique.
         carregarMinhasAutorizacoes();
+        if (veFila) carregarFila();
     } catch (err) {
         erro.textContent = err instanceof ApiError ? err.message : 'Não foi possível apagar.';
         erro.style.display = '';
