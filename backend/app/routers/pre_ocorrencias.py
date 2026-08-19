@@ -21,7 +21,7 @@ from app.core.database import get_db
 from app.core.deps import exige
 from app.core.uploads import resolver_caminho_seguro
 from app.models.cadastro import Funcionario
-from app.models.ocorrencia import Ocorrencia, OcorrenciaAnexo, TipoOcorrencia
+from app.models.ocorrencia import Ocorrencia, OcorrenciaAnexo, OcorrenciaVeiculoTerceiro, TipoOcorrencia
 from app.models.pre_ocorrencia import PreOcorrencia, PreOcorrenciaAnexo, PreOcorrenciaAutorizacao
 from app.schemas.pre_ocorrencia import (
     AbrirAutorizacaoRequest, AutopreenchimentoPessoaPreOcorrencia, AutorizacaoAbertaResponse,
@@ -543,6 +543,24 @@ def baixar_anexo(
 # Converter em Ocorrencia definitiva
 # ============================================================================
 
+def _truncar(valor: Optional[str], tamanho: int) -> Optional[str]:
+    return valor[:tamanho] if valor else None
+
+
+def _dividir_modelo_cor(valor: Optional[str]) -> tuple[Optional[str], Optional[str]]:
+    """terceiro_modelo_cor (item 7, 19/08/2026) é um campo só de 120
+    caracteres no formulário do motorista; ocorrencia_veiculo_terceiro
+    tem duas colunas menores (modelo VARCHAR(60), cor VARCHAR(30)). Com
+    '/', a parte antes vira modelo e a de depois vira cor; sem '/', tudo
+    vira modelo. Trunca nos dois casos — 120 não cabe em 60."""
+    if not valor:
+        return None, None
+    if "/" in valor:
+        bruto_modelo, bruto_cor = valor.split("/", 1)
+        return _truncar(bruto_modelo.strip(), 60), _truncar(bruto_cor.strip(), 30)
+    return _truncar(valor.strip(), 60), None
+
+
 def _copiar_anexos_para_ocorrencia(db: Session, pre_oc: PreOcorrencia, ocorrencia: Ocorrencia, usuario_id: UUID) -> None:
     """Item 3.4 (19/08/2026) — a CNH e o documento do veículo que o
     motorista mandou seguem pra ocorrência definitiva na conversão.
@@ -626,12 +644,10 @@ def converter(
     elif db.get(TipoOcorrencia, tipo_id) is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Tipo de ocorrência não encontrado")
 
-    partes_relato = [f"[Pré-ocorrência do motorista]\n{pre_oc.relato}"]
-    if pre_oc.terceiro_nome or pre_oc.terceiro_placa:
-        partes_relato.append(
-            f"Terceiro informado pelo motorista: {pre_oc.terceiro_nome or '—'} "
-            f"({pre_oc.terceiro_placa or 'placa não informada'})"
-        )
+    # Item 7 (19/08/2026): dado de terceiro NÃO entra mais no relato — vai
+    # pra ocorrencia_veiculo_terceiro (ver abaixo), o campo certo, já
+    # renderizado no formulário da ocorrência definitiva.
+    descricao_motorista = f"[Pré-ocorrência do motorista]\n{pre_oc.relato}"
 
     # 🔴 registrado_por = o COORDENADOR que converteu, nunca o motorista —
     # é o que decide quem edita, apaga e VÊ a ocorrência depois. Ver
@@ -656,13 +672,33 @@ def converter(
         numero_local=pre_oc.local_numero,
         bairro=pre_oc.local_bairro,
         cidade=pre_oc.local_cidade or "São Paulo",
-        descricao_motorista="\n\n".join(partes_relato),
+        descricao_motorista=descricao_motorista,
         via_urbana=False, via_rodoviaria=False, area_interna=False, corredor=False,
         tem_fotos=False, monitoramento=False, ocorrencia_policial=False, houve_policia_tecnica=False,
         registrado_por=usuario.id,
     )
     db.add(nova)
     db.flush()
+
+    # Item 7 (19/08/2026): terceiro vai pra ocorrencia_veiculo_terceiro,
+    # nunca pro relato — só cria a linha se ALGUM dos cinco campos veio
+    # preenchido. Sem vítima, avaria ou análise: o motorista não preenche
+    # isso, o coordenador completa depois no formulário.
+    if any((
+        pre_oc.terceiro_placa, pre_oc.terceiro_modelo_cor, pre_oc.terceiro_nome,
+        pre_oc.terceiro_telefone, pre_oc.terceiro_seguradora,
+    )):
+        modelo, cor = _dividir_modelo_cor(pre_oc.terceiro_modelo_cor)
+        db.add(OcorrenciaVeiculoTerceiro(
+            ocorrencia_id=nova.id,
+            ordem=1,
+            placa=_truncar(pre_oc.terceiro_placa, 10),
+            modelo=modelo,
+            cor=cor,
+            proprietario=_truncar(pre_oc.terceiro_nome, 120),
+            fones=_truncar(pre_oc.terceiro_telefone, 60),
+            seguradora=_truncar(pre_oc.terceiro_seguradora, 80),
+        ))
 
     _copiar_anexos_para_ocorrencia(db, pre_oc, nova, usuario.id)
 

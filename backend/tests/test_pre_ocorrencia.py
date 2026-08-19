@@ -24,7 +24,7 @@ from sqlalchemy.pool import StaticPool
 from app.core.database import Base, get_db
 from app.main import app
 from app.models.cadastro import Funcao, Funcionario, FuncionarioFuncao
-from app.models.ocorrencia import Ocorrencia, TipoOcorrencia
+from app.models.ocorrencia import Ocorrencia, OcorrenciaVeiculoTerceiro, TipoOcorrencia
 from app.models.pre_ocorrencia import PreOcorrencia, PreOcorrenciaAnexo, PreOcorrenciaAutorizacao
 from app.routers import pre_ocorrencias as router_mod
 from app.services.pre_ocorrencia_token import gerar_token
@@ -55,7 +55,7 @@ def _simular_identity_numero(mapper, connection, target):
 
 _TABELAS = [
     Funcionario.__table__, Funcao.__table__, FuncionarioFuncao.__table__,
-    TipoOcorrencia.__table__, Ocorrencia.__table__,
+    TipoOcorrencia.__table__, Ocorrencia.__table__, OcorrenciaVeiculoTerceiro.__table__,
     PreOcorrenciaAutorizacao.__table__, PreOcorrencia.__table__, PreOcorrenciaAnexo.__table__,
 ]
 
@@ -1059,3 +1059,107 @@ def test_baixar_anexo_da_propria_pre_ocorrencia_funciona(ambiente, tmp_path, mon
     resp = ambiente["http"].get(f"/pre-ocorrencias/{pre_oc_a}/anexos/{anexo_id}/arquivo")
     assert resp.status_code == 200, resp.text
     assert resp.content == b"conteudo ficticio de teste, nunca documento real"
+
+
+# ─── PROMPT 19/08/2026, item 7 — terceiro vai pra veiculo_terceiro, não
+# pro relato ─────────────────────────────────────────────────────────────
+
+
+def test_converter_com_terceiro_cria_uma_linha_em_veiculos_terceiro(ambiente):
+    engine = ambiente["engine"]
+    auth_a, _ = _criar_autorizacao(engine, coordenador=_COORD_A)
+    pre_oc_id = _criar_pre_ocorrencia(
+        engine, auth_a,
+        relato="Colisão na Marginal, terceiro envolvido.",
+        terceiro_placa="ABC1D23", terceiro_modelo_cor="Onix / Prata",
+        terceiro_nome="Fulano de Tal", terceiro_telefone="11977776666",
+        terceiro_seguradora="Seguradora Exemplo",
+    )
+
+    _autenticar(ambiente, _COORD_A)
+    resp = ambiente["http"].post(f"/pre-ocorrencias/{pre_oc_id}/converter", json={})
+    assert resp.status_code == 200, resp.text
+    ocorrencia_id = UUID(resp.json()["ocorrencia_id"])
+
+    with Session(engine) as db:
+        oc = db.get(Ocorrencia, ocorrencia_id)
+        assert "Terceiro" not in oc.descricao_motorista
+
+        terceiros = db.execute(
+            select(OcorrenciaVeiculoTerceiro).where(OcorrenciaVeiculoTerceiro.ocorrencia_id == ocorrencia_id)
+        ).scalars().all()
+        assert len(terceiros) == 1
+        terceiro = terceiros[0]
+        assert terceiro.ordem == 1
+        assert terceiro.placa == "ABC1D23"
+        assert terceiro.modelo == "Onix"
+        assert terceiro.cor == "Prata"
+        assert terceiro.proprietario == "Fulano de Tal"
+        assert terceiro.fones == "11977776666"
+        assert terceiro.seguradora == "Seguradora Exemplo"
+
+
+def test_converter_sem_terceiro_nao_cria_linha_nenhuma(ambiente):
+    engine = ambiente["engine"]
+    auth_a, _ = _criar_autorizacao(engine, coordenador=_COORD_A)
+    pre_oc_id = _criar_pre_ocorrencia(engine, auth_a, relato="Sem nenhum terceiro envolvido.")
+
+    _autenticar(ambiente, _COORD_A)
+    resp = ambiente["http"].post(f"/pre-ocorrencias/{pre_oc_id}/converter", json={})
+    assert resp.status_code == 200, resp.text
+    ocorrencia_id = UUID(resp.json()["ocorrencia_id"])
+
+    with Session(engine) as db:
+        terceiros = db.execute(
+            select(OcorrenciaVeiculoTerceiro).where(OcorrenciaVeiculoTerceiro.ocorrencia_id == ocorrencia_id)
+        ).scalars().all()
+        assert terceiros == []
+
+
+def test_converter_modelo_cor_sem_barra_vai_tudo_pra_modelo(ambiente):
+    engine = ambiente["engine"]
+    auth_a, _ = _criar_autorizacao(engine, coordenador=_COORD_A)
+    pre_oc_id = _criar_pre_ocorrencia(
+        engine, auth_a, relato="Terceiro sem separador no modelo/cor.",
+        terceiro_modelo_cor="Gol prata",
+    )
+
+    _autenticar(ambiente, _COORD_A)
+    resp = ambiente["http"].post(f"/pre-ocorrencias/{pre_oc_id}/converter", json={})
+    assert resp.status_code == 200, resp.text
+    ocorrencia_id = UUID(resp.json()["ocorrencia_id"])
+
+    with Session(engine) as db:
+        terceiro = db.execute(
+            select(OcorrenciaVeiculoTerceiro).where(OcorrenciaVeiculoTerceiro.ocorrencia_id == ocorrencia_id)
+        ).scalar_one()
+        assert terceiro.modelo == "Gol prata"
+        assert terceiro.cor is None
+
+
+def test_converter_trunca_modelo_e_cor_que_excedem_o_limite_da_coluna(ambiente):
+    """120 (terceiro_modelo_cor) não cabe em 60 (modelo) + 30 (cor) — o
+    SQLite dos testes não aplica limite de VARCHAR, então isto prova só o
+    truncamento em Python, mas é exatamente o que impede o INSERT de
+    estourar contra o Postgres real de produção."""
+    engine = ambiente["engine"]
+    auth_a, _ = _criar_autorizacao(engine, coordenador=_COORD_A)
+    modelo_longo = "M" * 80
+    cor_longa = "C" * 50
+    pre_oc_id = _criar_pre_ocorrencia(
+        engine, auth_a,
+        relato="Terceiro com modelo/cor longos demais.",
+        terceiro_modelo_cor=f"{modelo_longo}/{cor_longa}",
+    )
+
+    _autenticar(ambiente, _COORD_A)
+    resp = ambiente["http"].post(f"/pre-ocorrencias/{pre_oc_id}/converter", json={})
+    assert resp.status_code == 200, resp.text
+    ocorrencia_id = UUID(resp.json()["ocorrencia_id"])
+
+    with Session(engine) as db:
+        terceiro = db.execute(
+            select(OcorrenciaVeiculoTerceiro).where(OcorrenciaVeiculoTerceiro.ocorrencia_id == ocorrencia_id)
+        ).scalar_one()
+        assert len(terceiro.modelo) == 60
+        assert len(terceiro.cor) == 30
