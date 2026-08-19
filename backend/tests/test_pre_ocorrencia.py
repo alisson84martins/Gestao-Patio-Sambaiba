@@ -171,6 +171,22 @@ def _criar_pre_ocorrencia(engine, autorizacao_id, **campos) -> UUID:
     return pre_oc_id
 
 
+def _criar_anexo_pre_ocorrencia(engine, pre_ocorrencia_id, **campos) -> UUID:
+    anexo_id = uuid4()
+    with Session(engine) as db:
+        db.add(PreOcorrenciaAnexo(
+            id=anexo_id, pre_ocorrencia_id=pre_ocorrencia_id,
+            tipo=campos.pop("tipo", "CNH"),
+            caminho=campos.pop("caminho", f"pre_ocorrencias/{pre_ocorrencia_id}/arquivo-teste.jpg"),
+            nome_original=campos.pop("nome_original", "arquivo-teste.jpg"),
+            mime_type=campos.pop("mime_type", "image/jpeg"),
+            tamanho_bytes=campos.pop("tamanho_bytes", 123),
+            **campos,
+        ))
+        db.commit()
+    return anexo_id
+
+
 # ─── 1 — token inválido / expirado / usado: MESMA resposta ────────────────────
 
 
@@ -990,3 +1006,56 @@ def test_autorizacao_sem_pre_ocorrencia_continua_em_minhas_autorizacoes(ambiente
     assert resp.status_code == 200, resp.text
     assert len(resp.json()) == 1
     assert resp.json()[0]["id"] == str(auth_a)
+
+
+# ─── PROMPT 19/08/2026, item 3.2 — baixar anexo da pré-ocorrência ─────────────
+
+
+def test_baixar_anexo_de_pre_ocorrencia_que_nao_e_sua_e_403(ambiente):
+    engine = ambiente["engine"]
+    auth_b, _ = _criar_autorizacao(engine, coordenador=_COORD_B)
+    pre_oc_b = _criar_pre_ocorrencia(engine, auth_b)
+    anexo_id = _criar_anexo_pre_ocorrencia(engine, pre_oc_b)
+
+    _autenticar(ambiente, _COORD_A)
+    resp = ambiente["http"].get(f"/pre-ocorrencias/{pre_oc_b}/anexos/{anexo_id}/arquivo")
+    assert resp.status_code == 403, resp.text
+
+
+def test_baixar_anexo_de_outra_pre_ocorrencia_com_id_valido_e_404(ambiente):
+    """O id do anexo existe de verdade — só que é de OUTRA pré-ocorrência.
+    A busca filtra por id E por pre_ocorrencia_id juntos, então um anexo
+    "certo" preso a um caminho de pré-ocorrência "errado" nunca aparece
+    como se fosse dela."""
+    engine = ambiente["engine"]
+    auth_a, _ = _criar_autorizacao(engine, coordenador=_COORD_A)
+    pre_oc_a = _criar_pre_ocorrencia(engine, auth_a)
+
+    auth_b, _ = _criar_autorizacao(engine, coordenador=_COORD_B)
+    pre_oc_b = _criar_pre_ocorrencia(engine, auth_b)
+    anexo_de_b = _criar_anexo_pre_ocorrencia(engine, pre_oc_b)
+
+    _autenticar(ambiente, _COORD_A)
+    resp = ambiente["http"].get(f"/pre-ocorrencias/{pre_oc_a}/anexos/{anexo_de_b}/arquivo")
+    assert resp.status_code == 404, resp.text
+
+
+def test_baixar_anexo_da_propria_pre_ocorrencia_funciona(ambiente, tmp_path, monkeypatch):
+    """Controle positivo do item 3.2."""
+    from app.routers import pre_ocorrencias as router_mod
+    monkeypatch.setattr(router_mod, "UPLOADS_BASE", tmp_path)
+
+    engine = ambiente["engine"]
+    auth_a, _ = _criar_autorizacao(engine, coordenador=_COORD_A)
+    pre_oc_a = _criar_pre_ocorrencia(engine, auth_a)
+
+    caminho_relativo = f"pre_ocorrencias/{pre_oc_a}/arquivo-teste.jpg"
+    caminho_absoluto = tmp_path / caminho_relativo
+    caminho_absoluto.parent.mkdir(parents=True, exist_ok=True)
+    caminho_absoluto.write_bytes(b"conteudo ficticio de teste, nunca documento real")
+    anexo_id = _criar_anexo_pre_ocorrencia(engine, pre_oc_a, caminho=caminho_relativo)
+
+    _autenticar(ambiente, _COORD_A)
+    resp = ambiente["http"].get(f"/pre-ocorrencias/{pre_oc_a}/anexos/{anexo_id}/arquivo")
+    assert resp.status_code == 200, resp.text
+    assert resp.content == b"conteudo ficticio de teste, nunca documento real"

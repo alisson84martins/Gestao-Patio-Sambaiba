@@ -148,7 +148,19 @@ def obter(
     # reabrir o link, e não muda a superfície de risco: GET nunca grava.
     autorizacao = _carregar_autorizacao(db, x_pre_ocorrencia_token, _ip(request), exigir_nao_usada=False)
     pre_oc = _carregar_ou_criar_pre_ocorrencia(db, autorizacao)
-    return pre_oc
+
+    # Item 3.1 (19/08/2026): PreOcorrencia não tem relationship `anexos`
+    # (de propósito — cascade/lazy do lado público é risco desnecessário),
+    # então o Pydantic sozinho sempre caía no default `[]`. Consulta
+    # explícita, mesmo padrão de detalhar() no router autenticado — sem
+    # isso o motorista que reabre o link nunca via que já tinha enviado a
+    # CNH e mandava de novo.
+    anexos = db.execute(
+        select(PreOcorrenciaAnexo).where(PreOcorrenciaAnexo.pre_ocorrencia_id == pre_oc.id)
+    ).scalars().all()
+    resultado = PreOcorrenciaPublicoRead.model_validate(pre_oc)
+    resultado.anexos = anexos
+    return resultado
 
 
 # ============================================================================

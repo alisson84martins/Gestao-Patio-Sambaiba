@@ -12,6 +12,10 @@ import { apiGet, apiPost, apiPatch, apiDelete, ApiError } from './api.js';
 import { podeLer, temFuncao } from './sessao.js';
 import { escapeHtml } from './escape.js';
 import { aplicarMascara } from './mascaras.js';
+import { API_BASE_URL, TOKEN_KEY } from './config.js';
+
+// Item 3.3 (19/08/2026): rótulo legível pro anexo — mesma tela.
+const ROTULO_ANEXO = { CNH: 'CNH', DOC_VEICULO: 'Documento do coletivo', OUTRO: 'Outro' };
 
 if (!requireAuth()) {
     throw new Error('Sessao nao autenticada');
@@ -300,6 +304,13 @@ async function abrirDetalhe(id) {
 
     try {
         const d = await apiGet(`/pre-ocorrencias/${id}`);
+        // Item 3.3 (19/08/2026): anexo clicável, não só o texto do tipo —
+        // era a única tela do sistema onde a CNH que o motorista mandou
+        // ficava invisível pra qualquer coordenador.
+        const anexosHtml = d.anexos.length
+            ? d.anexos.map(a => `<button type="button" class="pre-oc-anexo-abrir" data-pre-id="${escapeHtml(d.id)}" data-anexo-id="${escapeHtml(a.id)}" style="background:none;border:none;color:var(--accent4);text-decoration:underline;cursor:pointer;padding:0;font:inherit;margin-right:10px">${escapeHtml(ROTULO_ANEXO[a.tipo] || a.tipo)}</button>`).join('')
+            : 'nenhum';
+
         conteudo.innerHTML = linhaDetalhe('Motorista', d.motorista_nome, d.motorista_re)
             + linhaDetalhe('Telefone', d.motorista_telefone)
             + linhaDetalhe('CPF', d.motorista_cpf) + linhaDetalhe('RG', d.motorista_rg) + linhaDetalhe('CNH', d.motorista_cnh)
@@ -309,7 +320,11 @@ async function abrirDetalhe(id) {
             + linhaDetalhe('Local', [d.local_logradouro, d.local_numero, d.local_bairro, d.local_cidade].filter(Boolean).join(', ') || null)
             + `<div style="margin-top:0.75rem"><strong>Relato:</strong><br>${escapeHtml(d.relato || '—').replace(/\n/g, '<br>')}</div>`
             + (d.terceiro_nome || d.terceiro_placa ? `<div style="margin-top:0.75rem"><strong>Terceiro:</strong><br>${escapeHtml(d.terceiro_nome || '—')} · ${escapeHtml(d.terceiro_placa || '—')}</div>` : '')
-            + `<div style="margin-top:0.75rem"><strong>Anexos:</strong> ${d.anexos.length ? d.anexos.map(a => escapeHtml(a.tipo)).join(', ') : 'nenhum'}</div>`;
+            + `<div style="margin-top:0.75rem"><strong>Anexos:</strong> ${anexosHtml}</div>`;
+
+        conteudo.querySelectorAll('.pre-oc-anexo-abrir').forEach(btn => {
+            btn.addEventListener('click', () => baixarAnexoPreOcorrencia(btn.dataset.preId, btn.dataset.anexoId));
+        });
 
         const btnConverter = document.getElementById('btn-converter');
         btnConverter.style.display = d.ocorrencia_id ? 'none' : '';
@@ -317,6 +332,25 @@ async function abrirDetalhe(id) {
         conteudo.innerHTML = '';
         document.getElementById('modal-detalhe-erro').textContent = err.message;
         document.getElementById('modal-detalhe-erro').style.display = '';
+    }
+}
+
+// Item 3.3 (19/08/2026) — mesmo padrão de baixarAnexo() em
+// ocorrencia.form.js: rota protegida por Bearer, <a href> puro não manda
+// o header.
+async function baixarAnexoPreOcorrencia(preOcorrenciaId, anexoId) {
+    const token = localStorage.getItem(TOKEN_KEY);
+    try {
+        const resp = await fetch(`${API_BASE_URL}/pre-ocorrencias/${preOcorrenciaId}/anexos/${anexoId}/arquivo`, {
+            headers: token ? { Authorization: `Bearer ${token}` } : {},
+        });
+        if (!resp.ok) throw new Error('Falha ao baixar');
+        const blob = await resp.blob();
+        const url = URL.createObjectURL(blob);
+        window.open(url, '_blank');
+        setTimeout(() => URL.revokeObjectURL(url), 60000);
+    } catch {
+        alert('Não foi possível abrir o anexo.');
     }
 }
 

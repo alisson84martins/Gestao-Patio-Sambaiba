@@ -5,12 +5,14 @@ pre_ocorrencias_publico.py — nunca neste arquivo. Ver
 _handoff-claude/DESENHO-pre-ocorrencia.md.
 """
 import logging
+import shutil
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Annotated, Optional
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request, status
+from fastapi.responses import FileResponse
 from sqlalchemy import or_, select, text
 from sqlalchemy.orm import Session
 
@@ -19,7 +21,7 @@ from app.core.database import get_db
 from app.core.deps import exige
 from app.core.uploads import resolver_caminho_seguro
 from app.models.cadastro import Funcionario
-from app.models.ocorrencia import Ocorrencia, TipoOcorrencia
+from app.models.ocorrencia import Ocorrencia, OcorrenciaAnexo, TipoOcorrencia
 from app.models.pre_ocorrencia import PreOcorrencia, PreOcorrenciaAnexo, PreOcorrenciaAutorizacao
 from app.schemas.pre_ocorrencia import (
     AbrirAutorizacaoRequest, AutopreenchimentoPessoaPreOcorrencia, AutorizacaoAbertaResponse,
@@ -500,8 +502,98 @@ def detalhar(pre_ocorrencia_id: UUID, usuario: LeituraPreOcorrencia, db: Annotat
 
 
 # ============================================================================
+# Baixar anexo (item 3.2, 19/08/2026) — espelha baixar_anexo() de
+# ocorrencias.py: mesma ordem de checagens, mesma defesa SEV-14.
+# ============================================================================
+
+@router.get(
+    "/{pre_ocorrencia_id}/anexos/{anexo_id}/arquivo",
+    summary="Baixa o arquivo do anexo da pré-ocorrência — mesmo acesso de detalhar() (nunca público)",
+)
+def baixar_anexo(
+    pre_ocorrencia_id: UUID, anexo_id: UUID, usuario: LeituraPreOcorrencia, db: Annotated[Session, Depends(get_db)]
+):
+    pre_oc = db.get(PreOcorrencia, pre_ocorrencia_id)
+    if pre_oc is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Pré-ocorrência não encontrada")
+    autorizacao = db.get(PreOcorrenciaAutorizacao, pre_oc.autorizacao_id)
+    _exige_pode_ver_pre_ocorrencia(autorizacao, usuario, db)
+
+    anexo = db.execute(
+        select(PreOcorrenciaAnexo).where(
+            PreOcorrenciaAnexo.id == anexo_id, PreOcorrenciaAnexo.pre_ocorrencia_id == pre_ocorrencia_id
+        )
+    ).scalar_one_or_none()
+    if anexo is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Anexo não encontrado")
+
+    # SEV-14 (mesma defesa de ocorrencias.py::baixar_anexo) — caminho
+    # absoluto conferido contra UPLOADS_BASE antes de servir.
+    caminho_disco = resolver_caminho_seguro(UPLOADS_BASE, anexo.caminho)
+    if not caminho_disco.is_file():
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Arquivo não encontrado no servidor")
+
+    return FileResponse(
+        caminho_disco, media_type=anexo.mime_type or "application/octet-stream",
+        filename=anexo.nome_original or caminho_disco.name,
+    )
+
+
+# ============================================================================
 # Converter em Ocorrencia definitiva
 # ============================================================================
+
+def _copiar_anexos_para_ocorrencia(db: Session, pre_oc: PreOcorrencia, ocorrencia: Ocorrencia, usuario_id: UUID) -> None:
+    """Item 3.4 (19/08/2026) — a CNH e o documento do veículo que o
+    motorista mandou seguem pra ocorrência definitiva na conversão.
+    COPIA o arquivo (nunca move nem aponta pro mesmo caminho): a
+    pré-ocorrência tem ciclo de vida próprio e um dia entra em política
+    de retenção — perder o anexo junto seria perder prova da ocorrência.
+
+    tipo="OUTRO" porque o CHECK da migration 012 em ocorrencia_anexo só
+    aceita ('FOTO_ACIDENTE','FOTO_RELATORIO','CROQUI','BO_PDF','OUTRO') —
+    "CNH" não é valor válido ali e o CHECK não muda por isto.
+
+    Falha ao copiar (arquivo sumiu do disco, permissão) não pode
+    derrubar a conversão — mesmo padrão do except em
+    apagar_autorizacao(): loga e segue, a conversão é o passo caro."""
+    anexos = db.execute(
+        select(PreOcorrenciaAnexo).where(PreOcorrenciaAnexo.pre_ocorrencia_id == pre_oc.id)
+    ).scalars().all()
+
+    destino_dir = UPLOADS_BASE / "ocorrencias" / str(ocorrencia.id)
+    for ordem, anexo in enumerate(anexos, start=1):
+        try:
+            origem = resolver_caminho_seguro(UPLOADS_BASE, anexo.caminho)
+            destino_dir.mkdir(parents=True, exist_ok=True)
+            extensao = Path(anexo.nome_original or "").suffix
+            nome_arquivo = f"{uuid4()}{extensao}"
+            shutil.copy2(origem, destino_dir / nome_arquivo)
+
+            if anexo.tipo == "CNH":
+                descricao = "CNH enviada pelo motorista na pré-ocorrência"
+            elif anexo.tipo == "DOC_VEICULO":
+                descricao = "Documento do coletivo enviado pelo motorista na pré-ocorrência"
+            else:
+                descricao = "Anexo enviado pelo motorista na pré-ocorrência"
+
+            db.add(OcorrenciaAnexo(
+                ocorrencia_id=ocorrencia.id,
+                tipo="OUTRO",
+                caminho=f"ocorrencias/{ocorrencia.id}/{nome_arquivo}",
+                nome_original=anexo.nome_original,
+                mime_type=anexo.mime_type,
+                tamanho_bytes=anexo.tamanho_bytes,
+                descricao=descricao,
+                ordem=ordem,
+                enviado_por=usuario_id,
+            ))
+        except Exception:
+            logger.warning(
+                "Não foi possível copiar o anexo %s da pré-ocorrência %s para a ocorrência %s",
+                anexo.id, pre_oc.id, ocorrencia.id,
+            )
+
 
 @router.post("/{pre_ocorrencia_id}/converter", response_model=ConverterResponse)
 def converter(
@@ -571,6 +663,8 @@ def converter(
     )
     db.add(nova)
     db.flush()
+
+    _copiar_anexos_para_ocorrencia(db, pre_oc, nova, usuario.id)
 
     pre_oc.status = "CONVERTIDA"
     pre_oc.convertida_em = datetime.now(timezone.utc)

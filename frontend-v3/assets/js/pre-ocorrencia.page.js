@@ -270,6 +270,16 @@ async function iniciar() {
         }
         preencherFormulario(mesclado);
 
+        // Item 3.1 (19/08/2026): o motorista que reabre o link precisa ver
+        // que já mandou a CNH/documento — sem isso ele manda de novo.
+        // Antes de ligar os listeners, pra não competir com o "Enviando…"
+        // que enviarAnexo() escreve no primeiro upload.
+        if (Array.isArray(dados.anexos)) {
+            const tiposEnviados = new Set(dados.anexos.map(a => a.tipo));
+            if (tiposEnviados.has('CNH')) document.getElementById('status-anexo-cnh').textContent = '✓ enviado';
+            if (tiposEnviados.has('DOC_VEICULO')) document.getElementById('status-anexo-doc').textContent = '✓ enviado';
+        }
+
         elForm.style.display = '';
         ligarAutosave();
 

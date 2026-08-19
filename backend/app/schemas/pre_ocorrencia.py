@@ -108,6 +108,9 @@ class PreOcorrenciaAnexoPublicoRead(ORMBase):
     id: UUID
     tipo: TipoAnexoPreOcorrencia
     nome_original: Optional[str] = None
+    # Item 3.2 (19/08/2026): o front decide entre abrir imagem inline e
+    # baixar PDF a partir disto — nome_original sozinho não diz o tipo.
+    mime_type: Optional[str] = None
 
 
 class PreOcorrenciaPublicoRead(ORMBase):
