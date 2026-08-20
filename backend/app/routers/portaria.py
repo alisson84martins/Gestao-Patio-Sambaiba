@@ -19,11 +19,11 @@ from app.core.database import get_db
 from app.core.deps import exige
 from app.models.cadastro import Funcionario
 from app.models.portaria import MovimentoPortaria, VeiculoPortaria
-from app.routers.portaria_veiculos import _veiculo_read
 from app.schemas.portaria import (
     BuscaVeiculoResponse, MovimentoCreate, MovimentoCreateResponse, MovimentoRead,
-    PortariaDentroResponse, Propriedade, Sentido, normalizar_placa,
+    PortariaDentroResponse, Propriedade, Sentido, VeiculoCandidato, normalizar_placa,
 )
+from app.services.portaria import veiculo_read
 
 router = APIRouter(prefix="/portaria", tags=["portaria"])
 
@@ -104,10 +104,27 @@ def alertas_sem_saida(
 # confirmação, mesmo semáforo (D15).
 # ============================================================================
 
+_MAX_CANDIDATOS = 8
+
+
+def _candidato(veiculo: VeiculoPortaria, db: Session) -> VeiculoCandidato:
+    ultimo = db.execute(
+        select(MovimentoPortaria)
+        .where(MovimentoPortaria.veiculo_id == veiculo.id)
+        .order_by(MovimentoPortaria.momento.desc())
+        .limit(1)
+    ).scalar_one_or_none()
+    return VeiculoCandidato(
+        veiculo=veiculo_read(veiculo, db),
+        dentro=(ultimo is not None and ultimo.sentido == "ENTRADA"),
+        ultimo_movimento=MovimentoRead.model_validate(ultimo) if ultimo else None,
+    )
+
+
 @router.get(
     "/buscar",
     response_model=BuscaVeiculoResponse,
-    summary="Autocomplete por placa, RE ou nome — veículo + situação + último movimento",
+    summary="Autocomplete por placa, RE ou nome — candidatos pro controlador confirmar, nunca um palpite (§3.6-C)",
 )
 def buscar(
     usuario: LeituraAcesso,
@@ -117,50 +134,62 @@ def buscar(
     termo = q.strip()
     termo_placa = normalizar_placa(termo)
 
-    veiculo = db.execute(
+    # Match exato de placa -> índice único WHERE ativo garante no máximo 1
+    # linha; vai direto ao card de confirmação (caminho de <=8s).
+    exato = db.execute(
         select(VeiculoPortaria).where(VeiculoPortaria.placa == termo_placa, VeiculoPortaria.ativo.is_(True))
     ).scalar_one_or_none()
+    if exato is not None:
+        return BuscaVeiculoResponse(candidatos=[_candidato(exato, db)], exato=True)
 
-    if veiculo is None:
-        veiculo = db.execute(
-            select(VeiculoPortaria)
-            .join(Funcionario, Funcionario.id == VeiculoPortaria.funcionario_id)
-            .where(VeiculoPortaria.ativo.is_(True), Funcionario.re == termo)
-        ).scalar_one_or_none()
+    # 🔴 §3.6-B/C: sem match exato, junta candidatos de placa/RE/nome, todos
+    # com .limit(_MAX_CANDIDATOS) — nunca .scalar_one_or_none() numa consulta
+    # que pode devolver mais de uma linha (RE com 2 veículos quebrava com
+    # MultipleResultsFound -> 500), e nunca escolhendo o primeiro em
+    # silêncio (prefixo de placa ou nome batendo 2+ registrava o carro
+    # errado sem ninguém perceber).
+    candidatos: list[VeiculoPortaria] = []
+    vistos: set[UUID] = set()
 
-    if veiculo is None and len(termo_placa) >= 3:
-        veiculo = db.execute(
+    def _acrescenta(veiculos: list[VeiculoPortaria]) -> None:
+        for v in veiculos:
+            if v.id not in vistos:
+                vistos.add(v.id)
+                candidatos.append(v)
+
+    if len(termo_placa) >= 2:
+        _acrescenta(db.execute(
             select(VeiculoPortaria)
             .where(VeiculoPortaria.ativo.is_(True), VeiculoPortaria.placa.ilike(f"{termo_placa}%"))
             .order_by(VeiculoPortaria.placa)
-            .limit(1)
-        ).scalar_one_or_none()
+            .limit(_MAX_CANDIDATOS)
+        ).scalars().all())
 
-    if veiculo is None:
-        veiculo = db.execute(
+    if len(candidatos) < _MAX_CANDIDATOS:
+        _acrescenta(db.execute(
+            select(VeiculoPortaria)
+            .join(Funcionario, Funcionario.id == VeiculoPortaria.funcionario_id)
+            .where(VeiculoPortaria.ativo.is_(True), Funcionario.re == termo)
+            .order_by(VeiculoPortaria.placa)
+            .limit(_MAX_CANDIDATOS)
+        ).scalars().all())
+
+    if len(candidatos) < _MAX_CANDIDATOS:
+        _acrescenta(db.execute(
             select(VeiculoPortaria)
             .join(Funcionario, Funcionario.id == VeiculoPortaria.funcionario_id)
             .where(VeiculoPortaria.ativo.is_(True), Funcionario.nome.ilike(f"%{termo}%"))
-            .order_by(Funcionario.nome)
-            .limit(1)
-        ).scalar_one_or_none()
+            .order_by(VeiculoPortaria.placa)
+            .limit(_MAX_CANDIDATOS)
+        ).scalars().all())
 
-    if veiculo is None:
-        return BuscaVeiculoResponse(encontrado=False)
+    candidatos.sort(key=lambda v: v.placa)
+    candidatos = candidatos[:_MAX_CANDIDATOS]
 
-    ultimo = db.execute(
-        select(MovimentoPortaria)
-        .where(MovimentoPortaria.veiculo_id == veiculo.id)
-        .order_by(MovimentoPortaria.momento.desc())
-        .limit(1)
-    ).scalar_one_or_none()
-
-    return BuscaVeiculoResponse(
-        encontrado=True,
-        veiculo=_veiculo_read(veiculo, db),
-        dentro=(ultimo is not None and ultimo.sentido == "ENTRADA"),
-        ultimo_movimento=MovimentoRead.model_validate(ultimo) if ultimo else None,
-    )
+    # [] é resultado válido — ⛔ nunca 404, a regra número um vale pra
+    # busca também: sem candidato, o controlador segue pro fluxo de
+    # "não encontrado" (cadastrar agora / registrar avulso).
+    return BuscaVeiculoResponse(candidatos=[_candidato(v, db) for v in candidatos], exato=False)
 
 
 # ============================================================================

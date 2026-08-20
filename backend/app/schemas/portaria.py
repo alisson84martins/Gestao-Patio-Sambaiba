@@ -112,7 +112,13 @@ class VeiculoUpdate(BaseModel):
     cor: Optional[str] = Field(None, max_length=30)
     exige_hodometro: Optional[bool] = None
     observacao: Optional[str] = None
-    ativo: Optional[bool] = None
+    # 🔴 Sem `ativo` de propósito (revisão 20/08 — §3.6-A). Desativar é ato
+    # de AUTORIZAÇÃO, não de cadastro: com `ativo` aqui, o controlador (que
+    # só tem escrever em `veiculo_portaria`) conseguia apagar um veículo
+    # AUTORIZADO da busca/listagem sem ter `autorizacao_veicular` — e nem
+    # encarregado nem gerência conseguiam desfazer pela API, porque os
+    # endpoints de situação filtravam `ativo` também. BAIXADO já cobre a
+    # intenção legítima de "esse carro não vale mais".
 
 
 class VeiculoRead(ORMBase, AuditoriaSchema):
@@ -183,6 +189,11 @@ class BloquearPorReResponse(BaseModel):
     funcionario_nome: str
     re: str
     veiculos_suspensos: list[VeiculoRead]
+    # §3.6-D.1: quem já estava SUSPENSO não entra em veiculos_suspensos de
+    # novo — rebloquear gerava linha SUSPENSO→SUSPENSO no histórico e
+    # sobrescrevia o motivo anterior. Separado aqui pra tela dizer o que fez
+    # e o que não precisou fazer.
+    ja_suspensos: list[VeiculoRead] = Field(default_factory=list)
 
 
 # ============================================================================
@@ -261,13 +272,27 @@ class MovimentoCreateResponse(MovimentoRead):
 # ============================================================================
 # BUSCA — autocomplete (placa/RE/nome) e leitura de QR no Bloco E reusam o
 # mesmo payload (D15: "cai exatamente no mesmo card de confirmação").
+#
+# §3.6-C: devolve CANDIDATOS, nunca um palpite. Antes da revisão de 20/08 a
+# busca por prefixo de placa e por nome terminava em .limit(1) — duas placas
+# batendo o mesmo prefixo (ou dois "Silva") faziam o app escolher uma em
+# silêncio, e o controlador podia confirmar o carro errado sem perceber
+# nada de errado na tela.
 # ============================================================================
 
-class BuscaVeiculoResponse(BaseModel):
-    encontrado: bool
-    veiculo: Optional[VeiculoRead] = None
+class VeiculoCandidato(BaseModel):
+    veiculo: VeiculoRead
     dentro: bool = False
     ultimo_movimento: Optional[MovimentoRead] = None
+
+
+class BuscaVeiculoResponse(BaseModel):
+    # exato=True (placa completa bateu) -> sempre 1 item; a tela vai direto
+    # ao card de confirmação (caminho de <=8s). exato=False -> até 8
+    # candidatos pra tocar; [] é resultado válido (⛔ nunca 404 — regra
+    # número um também vale pra busca).
+    candidatos: list[VeiculoCandidato] = Field(default_factory=list)
+    exato: bool = False
 
 
 # ============================================================================

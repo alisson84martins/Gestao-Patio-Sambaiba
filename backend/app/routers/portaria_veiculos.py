@@ -27,6 +27,7 @@ from app.schemas.portaria import (
     VeiculoDivergenciaRead, VeiculoRead, VeiculoSituacaoHistRead,
     VeiculoSituacaoUpdate, VeiculoUpdate,
 )
+from app.services.portaria import veiculo_read
 
 router = APIRouter(prefix="/portaria", tags=["portaria"])
 
@@ -34,30 +35,6 @@ LeituraCadastro = Annotated[Funcionario, Depends(exige("veiculo_portaria"))]
 EscritaCadastro = Annotated[Funcionario, Depends(exige("veiculo_portaria", escrever=True))]
 LeituraAutorizacao = Annotated[Funcionario, Depends(exige("autorizacao_veicular"))]
 EscritaAutorizacao = Annotated[Funcionario, Depends(exige("autorizacao_veicular", escrever=True))]
-
-
-def _veiculo_read(veiculo: VeiculoPortaria, db: Session) -> VeiculoRead:
-    """Monta VeiculoRead com os nomes resolvidos por join simples — a tela
-    do controlador e a ficha do veículo mostram nome, não UUID cru."""
-    extras: dict[str, Optional[str]] = {}
-    if veiculo.funcionario_id:
-        dono = db.get(Funcionario, veiculo.funcionario_id)
-        if dono is not None:
-            extras["funcionario_nome"] = dono.nome
-            extras["funcionario_re"] = dono.re
-    if veiculo.empresa_terceira_id:
-        empresa = db.get(EmpresaTerceira, veiculo.empresa_terceira_id)
-        if empresa is not None:
-            extras["empresa_terceira_nome"] = empresa.nome
-    if veiculo.criado_por:
-        autor = db.get(Funcionario, veiculo.criado_por)
-        if autor is not None:
-            extras["criado_por_nome"] = autor.nome
-    if veiculo.situacao_por:
-        decisor = db.get(Funcionario, veiculo.situacao_por)
-        if decisor is not None:
-            extras["situacao_por_nome"] = decisor.nome
-    return VeiculoRead.model_validate(veiculo).model_copy(update=extras)
 
 
 # ============================================================================
@@ -84,7 +61,7 @@ def listar_veiculos(
     stmt = stmt.order_by(VeiculoPortaria.placa).offset(skip).limit(limit)
 
     veiculos = db.execute(stmt).scalars().all()
-    return [_veiculo_read(v, db) for v in veiculos]
+    return [veiculo_read(v, db) for v in veiculos]
 
 
 @router.post(
@@ -120,7 +97,7 @@ def cadastrar_veiculo(payload: VeiculoCreate, usuario: EscritaCadastro, db: Anno
     db.add(novo)
     db.commit()
     db.refresh(novo)
-    return _veiculo_read(novo, db)
+    return veiculo_read(novo, db)
 
 
 @router.patch(
@@ -147,7 +124,7 @@ def atualizar_veiculo(
 
     db.commit()
     db.refresh(veiculo)
-    return _veiculo_read(veiculo, db)
+    return veiculo_read(veiculo, db)
 
 
 @router.get("/empresas", response_model=list[EmpresaTerceiraRead], summary="Lista empresas prestadoras/terceiras")
@@ -194,7 +171,7 @@ def listar_pendentes(usuario: LeituraAutorizacao, db: Annotated[Session, Depends
         .where(VeiculoPortaria.situacao == "PENDENTE", VeiculoPortaria.ativo.is_(True))
         .order_by(VeiculoPortaria.criado_em)
     ).scalars().all()
-    return [_veiculo_read(v, db) for v in veiculos]
+    return [veiculo_read(v, db) for v in veiculos]
 
 
 @router.get(
@@ -215,9 +192,30 @@ def listar_divergencias(usuario: LeituraAutorizacao, db: Annotated[Session, Depe
         .order_by(VeiculoPortaria.placa)
     ).all()
     return [
-        VeiculoDivergenciaRead(**_veiculo_read(v, db).model_dump(), funcionario_status=status_bruto)
+        VeiculoDivergenciaRead(**veiculo_read(v, db).model_dump(), funcionario_status=status_bruto)
         for v, status_bruto in linhas
     ]
+
+
+# 🔴 §3.6-D.3: registrada AQUI, depois de /veiculos/pendentes e
+# /veiculos/divergencias — se viesse antes, o FastAPI casaria "pendentes" e
+# "divergencias" como se fossem {veiculo_id} (UUID inválido -> 422), e a
+# fila dos responsáveis quebraria. Mesma armadilha de ordem que main.py já
+# documenta para /pre-ocorrencias/publico. Fica com o recurso `veiculo_portaria`
+# (mesmo da listagem/cadastro) mesmo estando fisicamente no bloco de
+# autorização — é só posição, a permissão continua sendo a de cadastro.
+@router.get(
+    "/veiculos/{veiculo_id}",
+    response_model=VeiculoRead,
+    summary="Ficha do veículo (registrar sempre depois de /pendentes e /divergencias — ver comentário acima)",
+)
+def detalhar_veiculo(
+    veiculo_id: UUID, usuario: LeituraCadastro, db: Annotated[Session, Depends(get_db)]
+):
+    veiculo = db.get(VeiculoPortaria, veiculo_id)
+    if veiculo is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Veículo não encontrado")
+    return veiculo_read(veiculo, db)
 
 
 @router.get(
@@ -260,7 +258,11 @@ def mudar_situacao(
     db: Annotated[Session, Depends(get_db)],
 ):
     veiculo = db.get(VeiculoPortaria, veiculo_id)
-    if veiculo is None or not veiculo.ativo:
+    # 🔴 §3.6-A.2: SEM checar `ativo` aqui, ao contrário do PATCH cadastral.
+    # Quem tem autorizacao_veicular precisa alcançar o registro pra
+    # consertar mesmo que ele esteja `ativo=false` — senão o veículo fica
+    # inalcançável pela API pra sempre.
+    if veiculo is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Veículo não encontrado")
 
     # ⚠️ Armadilha conhecida do projeto: capturar o valor ANTIGO antes do
@@ -286,7 +288,7 @@ def mudar_situacao(
     ))
     db.commit()
     db.refresh(veiculo)
-    return _veiculo_read(veiculo, db)
+    return veiculo_read(veiculo, db)
 
 
 @router.post(
@@ -311,8 +313,14 @@ def bloquear_por_re(
         )
     ).scalars().all()
 
+    # §3.6-D.1: quem já está SUSPENSO fica de fora do laço — rebloquear
+    # gerava linha SUSPENSO->SUSPENSO no histórico e sobrescrevia o motivo
+    # anterior sem necessidade nenhuma.
+    a_suspender = [v for v in veiculos if v.situacao != "SUSPENSO"]
+    ja_suspensos = [v for v in veiculos if v.situacao == "SUSPENSO"]
+
     agora = datetime.now(timezone.utc)
-    for veiculo in veiculos:
+    for veiculo in a_suspender:
         situacao_anterior = veiculo.situacao
         veiculo.situacao = "SUSPENSO"
         veiculo.situacao_por = usuario.id
@@ -330,12 +338,13 @@ def bloquear_por_re(
         ))
 
     db.commit()
-    for v in veiculos:
+    for v in a_suspender:
         db.refresh(v)
 
     return BloquearPorReResponse(
         funcionario_id=funcionario.id,
         funcionario_nome=funcionario.nome,
         re=funcionario.re,
-        veiculos_suspensos=[_veiculo_read(v, db) for v in veiculos],
+        veiculos_suspensos=[veiculo_read(v, db) for v in a_suspender],
+        ja_suspensos=[veiculo_read(v, db) for v in ja_suspensos],
     )
