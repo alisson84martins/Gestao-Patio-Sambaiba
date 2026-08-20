@@ -3206,3 +3206,302 @@ body.modal-open {
         grid-template-columns: 1fr;
     }
 }
+
+/* ============================================================
+   MÓDULO PORTARIA — controle de acesso veicular
+   Celular, uma mão, à noite, com carro esperando. Metas: saída em
+   1 toque, entrada em <=8s. Ver frontend-v3/portaria.html.
+   ============================================================ */
+
+.portaria-contador {
+    text-align: center;
+    padding: 6px 0 18px;
+}
+
+.portaria-contador-numero {
+    font-family: var(--display);
+    font-weight: 800;
+    font-size: 56px;
+    line-height: 1;
+    color: var(--accent3);
+}
+
+.portaria-contador-label {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 2px;
+    color: var(--muted);
+    text-transform: uppercase;
+    margin-top: 4px;
+}
+
+.portaria-busca-bar {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 10px;
+}
+
+.portaria-busca-bar .form-input {
+    flex: 1;
+}
+
+.portaria-acoes-rapidas {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 18px;
+}
+
+.portaria-acoes-rapidas .btn {
+    flex: 1;
+}
+
+/* Lista de candidatos da busca (§3.6-C) — nunca escolhida em silêncio,
+   sempre tocada pelo controlador. */
+.portaria-candidatos {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin-bottom: 18px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 8px;
+}
+
+.portaria-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 10px;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 12px 14px;
+    cursor: pointer;
+    width: 100%;
+    text-align: left;
+    color: var(--text);
+    font-family: var(--display);
+}
+
+.portaria-item:hover,
+.portaria-item:active {
+    border-color: var(--muted);
+}
+
+.portaria-item-placa {
+    font-family: var(--mono);
+    font-weight: 800;
+    font-size: 15px;
+    letter-spacing: 1px;
+}
+
+.portaria-item-sub {
+    font-size: 12px;
+    color: var(--muted);
+    margin-top: 2px;
+}
+
+.portaria-item-hora {
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--muted);
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+
+.portaria-secao {
+    margin-bottom: 22px;
+}
+
+.portaria-secao-titulo {
+    font-size: 12px;
+    font-weight: 800;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    color: var(--muted);
+    font-family: var(--mono);
+    margin-bottom: 10px;
+}
+
+/* Lista "sem_saida" (D17/§1.4) — apagada de propósito, rótulo honesto,
+   nunca somada ao número grande de "dentro agora". */
+.portaria-secao-apagada {
+    opacity: 0.6;
+}
+
+.portaria-secao-apagada .portaria-item {
+    background: transparent;
+}
+
+/* Semáforo do card de confirmação — 🟢🟡⚪🔴 (§4.1) */
+.portaria-semaforo {
+    border-radius: 10px;
+    padding: 12px 14px;
+    margin-bottom: 14px;
+    font-size: 13px;
+    line-height: 1.5;
+}
+
+.portaria-semaforo-verde {
+    background: rgba(16, 185, 129, 0.12);
+    border: 1px solid var(--accent3);
+    color: #6ee7b7;
+}
+
+.portaria-semaforo-amarelo {
+    background: rgba(245, 158, 11, 0.12);
+    border: 1px solid #f59e0b;
+    color: #fcd34d;
+}
+
+.portaria-semaforo-vermelho {
+    background: rgba(204, 31, 31, 0.16);
+    border: 1px solid var(--accent);
+    color: #fca5a5;
+}
+
+.portaria-semaforo-cinza {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    color: var(--muted);
+}
+
+.portaria-ficha-placa {
+    font-family: var(--mono);
+    font-weight: 800;
+    font-size: 22px;
+    letter-spacing: 1px;
+}
+
+.portaria-ficha-linha {
+    font-size: 13px;
+    color: var(--muted);
+    margin-top: 4px;
+}
+
+.portaria-aviso {
+    font-size: 12px;
+    color: #fcd34d;
+    background: rgba(245, 158, 11, 0.1);
+    border: 1px solid #f59e0b;
+    border-radius: 8px;
+    padding: 8px 10px;
+    margin-bottom: 8px;
+}
+
+.portaria-form-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+    margin-bottom: 12px;
+}
+
+.portaria-form-grid-full {
+    grid-column: 1 / -1;
+}
+
+.portaria-tabela-wrap {
+    overflow-x: auto;
+}
+
+.portaria-tabela {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+}
+
+.portaria-tabela th {
+    text-align: left;
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    color: var(--muted);
+    padding: 8px 10px;
+    border-bottom: 1px solid var(--border);
+    white-space: nowrap;
+}
+
+.portaria-tabela td {
+    padding: 8px 10px;
+    border-bottom: 1px solid var(--border);
+    white-space: nowrap;
+}
+
+.portaria-tabela tr:hover td {
+    background: var(--surface2);
+}
+
+.portaria-badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 20px;
+    font-family: var(--mono);
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+}
+
+.portaria-badge-pendente {
+    background: rgba(245, 158, 11, 0.15);
+    color: #fcd34d;
+    border: 1px solid #f59e0b;
+}
+
+.portaria-badge-autorizado {
+    background: rgba(16, 185, 129, 0.15);
+    color: #6ee7b7;
+    border: 1px solid var(--accent3);
+}
+
+.portaria-badge-suspenso {
+    background: rgba(204, 31, 31, 0.15);
+    color: #fca5a5;
+    border: 1px solid var(--accent);
+}
+
+.portaria-badge-baixado {
+    background: var(--surface2);
+    color: var(--muted);
+    border: 1px solid var(--border);
+}
+
+.portaria-linha-lista {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 0;
+    border-bottom: 1px solid var(--border);
+}
+
+.portaria-linha-lista:last-child {
+    border-bottom: none;
+}
+
+.portaria-hist-item {
+    padding: 8px 0;
+    border-bottom: 1px solid var(--border);
+    font-size: 12px;
+}
+
+.portaria-hist-item:last-child {
+    border-bottom: none;
+}
+
+.portaria-hist-motivo {
+    color: var(--muted);
+    margin-top: 2px;
+}
+
+@media (max-width: 480px) {
+    .portaria-form-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .portaria-contador-numero {
+        font-size: 44px;
+    }
+}

@@ -23,8 +23,8 @@ from app.models.cadastro import Funcionario
 from app.models.portaria import EmpresaTerceira, VeiculoPortaria, VeiculoSituacaoHist
 from app.schemas.portaria import (
     BloquearPorReRequest, BloquearPorReResponse, EmpresaTerceiraCreate,
-    EmpresaTerceiraRead, Propriedade, SituacaoVeiculo, VeiculoCreate,
-    VeiculoDivergenciaRead, VeiculoRead, VeiculoSituacaoHistRead,
+    EmpresaTerceiraRead, FuncionarioPortariaBusca, Propriedade, SituacaoVeiculo,
+    VeiculoCreate, VeiculoDivergenciaRead, VeiculoRead, VeiculoSituacaoHistRead,
     VeiculoSituacaoUpdate, VeiculoUpdate,
 )
 from app.services.portaria import veiculo_read
@@ -40,6 +40,31 @@ EscritaAutorizacao = Annotated[Funcionario, Depends(exige("autorizacao_veicular"
 # ============================================================================
 # CADASTRO — exige("veiculo_portaria", ...)
 # ============================================================================
+
+# 🔧 Adição do Bloco C (frontend), fora do desenho original: o cadastro de
+# veículo PARTICULAR precisa resolver RE -> funcionario_id (UUID), e
+# /funcionarios/busca é gated por exige("ocorrencia") — recurso que
+# CONTROLADOR_ACESSO não tem — além de não devolver id. Registrada aqui
+# (não em silêncio) por divergir do prompt original.
+@router.get(
+    "/funcionarios/busca",
+    response_model=list[FuncionarioPortariaBusca],
+    summary="Autocomplete RE/nome -> id, só pra resolver o dono do veículo PARTICULAR",
+)
+def buscar_funcionario_portaria(
+    usuario: LeituraCadastro,
+    db: Annotated[Session, Depends(get_db)],
+    q: str = Query(..., min_length=2, max_length=80),
+):
+    termo = f"%{q.strip()}%"
+    funcionarios = db.execute(
+        select(Funcionario)
+        .where(Funcionario.status == "ATIVO", (Funcionario.re.ilike(termo) | Funcionario.nome.ilike(termo)))
+        .order_by(Funcionario.nome)
+        .limit(20)
+    ).scalars().all()
+    return [FuncionarioPortariaBusca(id=f.id, re=f.re, nome=f.nome) for f in funcionarios]
+
 
 @router.get("/veiculos", response_model=list[VeiculoRead], summary="Lista veículos cadastrados")
 def listar_veiculos(

@@ -25,9 +25,14 @@ const PAGINA_INICIAL = {
     COORDENADORIA: 'ocorrencias.html',   // ainda não existe — Etapa 6
     FISCALIZACAO: 'fiscal.html',         // ainda não existe — Etapa 7
     ADMINISTRACAO: 'cadastros.html',
+    // 🔴 Sem isto (e sem 'PORTARIA' em PAGINAS_PRONTAS logo abaixo), o
+    // controlador loga e cai em modulos.html?indisponivel=PORTARIA — porque
+    // funcao.modulo_padrao='PORTARIA' já foi gravado pela migration 024, e
+    // paginaModulo() só resolve o que está em PAGINAS_PRONTAS (§4.4).
+    PORTARIA: 'portaria.html',
 };
 
-const PAGINAS_PRONTAS = new Set(['PATIO', 'ADMINISTRACAO', 'COORDENADORIA']);
+const PAGINAS_PRONTAS = new Set(['PATIO', 'ADMINISTRACAO', 'COORDENADORIA', 'PORTARIA']);
 
 function _dadosSessao() {
     const raw = localStorage.getItem(USER_KEY);

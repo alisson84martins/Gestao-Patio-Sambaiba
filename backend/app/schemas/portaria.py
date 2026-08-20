@@ -179,6 +179,19 @@ class VeiculoSituacaoHistRead(ORMBase):
     decidido_em: datetime
 
 
+class FuncionarioPortariaBusca(BaseModel):
+    """Autocomplete de RE/nome -> id, só pra resolver `funcionario_id` no
+    cadastro de veículo PARTICULAR (Bloco C). Existe porque /funcionarios/busca
+    (app/routers/funcionarios.py) é gated por `exige("ocorrencia")` — recurso
+    que o CONTROLADOR_ACESSO não tem — e de propósito não devolve `id`
+    (FuncionarioBusca vira RE+nome snapshot em ocorrência, nunca FK). Aqui o
+    id é o próprio propósito do endpoint. Nunca cpf/rg/cnh/telefone."""
+
+    id: UUID
+    re: str
+    nome: str
+
+
 class BloquearPorReRequest(BaseModel):
     re: str = Field(..., min_length=1, max_length=20)
     motivo: str = Field(..., min_length=1)

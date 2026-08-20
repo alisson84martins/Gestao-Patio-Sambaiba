@@ -27,6 +27,13 @@ const LINKS = [
     { href: 'pre-ocorrencias.html', texto: 'Pré-ocorrências', recurso: 'pre_ocorrencia', qualquerAcesso: true },
     { href: 'cadastros.html', texto: 'Cadastros', recurso: 'usuarios' },
     { href: 'permissoes.html', texto: 'Permissões', recurso: 'usuarios' },
+    // Módulo Portaria (migration 024) — cada link só aparece com podeLer()
+    // no recurso, igual aos demais. Não usar qualquerAcesso aqui: esse
+    // parâmetro existe pro CCO, que escreve sem ler; não é o caso do
+    // controlador de acesso.
+    { href: 'portaria.html', texto: 'Portaria', recurso: 'acesso_veicular' },
+    { href: 'portaria-veiculos.html', texto: 'Veículos', recurso: 'veiculo_portaria' },
+    { href: 'portaria-consulta.html', texto: 'Consulta Portaria', recurso: 'acesso_veicular' },
 ];
 
 export function initNav() {
