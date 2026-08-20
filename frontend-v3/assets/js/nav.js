@@ -33,7 +33,7 @@ const LINKS = [
     // controlador de acesso.
     { href: 'portaria.html', texto: 'Portaria', recurso: 'acesso_veicular' },
     { href: 'portaria-veiculos.html', texto: 'Veículos', recurso: 'veiculo_portaria' },
-    { href: 'portaria-consulta.html', texto: 'Consulta Portaria', recurso: 'acesso_veicular' },
+    { href: 'portaria-consulta.html', texto: 'Histórico', recurso: 'acesso_veicular' },
 ];
 
 export function initNav() {

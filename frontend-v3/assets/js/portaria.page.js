@@ -159,7 +159,12 @@ async function iniciarSaidaDaLista(mov) {
     let candidato = null;
     try {
         const resp = await apiGet(`/portaria/buscar?q=${encodeURIComponent(mov.placa_registrada)}`);
-        candidato = resp.candidatos[0] || null;
+        // §4.5-C: guarda explícita, mesmo buscando por placa completa (que
+        // só bate exato) — sem isso esta linha vira o molde que alguém
+        // copia pra um contexto de prefixo, e aí é o bug da §3.6-C de novo.
+        if (resp.exato && resp.candidatos.length === 1) {
+            candidato = resp.candidatos[0];
+        }
     } catch (err) {
         if (err instanceof ApiError && err.status === 401) return;
         console.error('[portaria] erro ao buscar veículo pra saída:', err);
@@ -590,7 +595,8 @@ async function salvarCadastroRapido() {
         // Recarrega a busca — agora encontra o veículo recém-cadastrado
         // (PENDENTE, 🟡) e cai no card de confirmação normal.
         const resp = await apiGet(`/portaria/buscar?q=${encodeURIComponent(placa)}`);
-        if (resp.candidatos.length > 0) {
+        // §4.5-C: guarda explícita — mesma razão do iniciarSaidaDaLista().
+        if (resp.exato && resp.candidatos.length === 1) {
             contexto = {
                 veiculo: resp.candidatos[0].veiculo,
                 ultimoMovimento: resp.candidatos[0].ultimo_movimento,

@@ -54,14 +54,20 @@ EscritaAutorizacao = Annotated[Funcionario, Depends(exige("autorizacao_veicular"
 def buscar_funcionario_portaria(
     usuario: LeituraCadastro,
     db: Annotated[Session, Depends(get_db)],
-    q: str = Query(..., min_length=2, max_length=80),
+    q: str = Query(..., min_length=3, max_length=80),
 ):
-    termo = f"%{q.strip()}%"
+    # §4.5-A (revisão 21/08): min_length=2 + substring em ambos os campos +
+    # limit(20) dava pra varrer nome+RE de todo funcionário ativo digitando
+    # "an", "ar", "os"... num dispositivo que fica logado 24h na portaria.
+    # RE agora é prefixo (é identificador — o uso real é digitar o início
+    # do crachá), nome continua substring (é o que serve pra "Silva").
+    termo_re = f"{q.strip()}%"
+    termo_nome = f"%{q.strip()}%"
     funcionarios = db.execute(
         select(Funcionario)
-        .where(Funcionario.status == "ATIVO", (Funcionario.re.ilike(termo) | Funcionario.nome.ilike(termo)))
+        .where(Funcionario.status == "ATIVO", (Funcionario.re.ilike(termo_re) | Funcionario.nome.ilike(termo_nome)))
         .order_by(Funcionario.nome)
-        .limit(20)
+        .limit(10)
     ).scalars().all()
     return [FuncionarioPortariaBusca(id=f.id, re=f.re, nome=f.nome) for f in funcionarios]
 
