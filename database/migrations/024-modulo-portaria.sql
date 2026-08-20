@@ -45,10 +45,10 @@
 --   D8  VARCHAR + CHECK em todo enum — nunca ENUM nativo do Postgres
 --       (ALTER TYPE ADD VALUE exige COMMIT separado; mesma armadilha que a
 --       migration 022 já documentou).
---   D9  data_referencia = CURRENT_DATE (calendário, 24h). NÃO usa
---       get_data_servico() do Pátio — a regra das 20h é do Pátio, não da
---       Portaria. Divergência proposital, registrada aqui para ninguém
---       "corrigir" depois achando que foi esquecimento.
+--   D9  data_referencia = dia de calendário, 24h. NÃO usa get_data_servico()
+--       do Pátio — a regra das 20h é do Pátio, não da Portaria. Divergência
+--       proposital, registrada aqui para ninguém "corrigir" depois achando
+--       que foi esquecimento.
 --   D10 Placa normalizada (maiúscula, sem hífen/espaço) — responsabilidade
 --       do BACKEND, ao gravar e ao buscar, não desta migration.
 --   D11 Veículo suspenso/baixado pode ser registrado, com observação
@@ -58,6 +58,17 @@
 --   D14 Histórico de mudança de situação em tabela própria, escrito pelo
 --       BACKEND (nunca trigger) — para registrar a intenção de quem clicou,
 --       não o efeito colateral de um UPDATE qualquer.
+--   D16 🔴 Fuso: data_referencia é data que uma PESSOA lê, então segue
+--       FUSO_OPERACAO (America/Sao_Paulo) — NUNCA CURRENT_DATE cru, que
+--       segue o TimeZone do servidor Postgres (normalmente UTC) e devolveria
+--       "amanhã" para movimento depois das 21h em São Paulo. momento
+--       continua TIMESTAMPTZ/NOW()/UTC — só data_referencia muda.
+--
+-- REVISÃO 20/08/2026 (migration ainda não executada — corrigida no lugar,
+-- não em 024b): default de data_referencia trocado de CURRENT_DATE para
+-- (NOW() AT TIME ZONE 'America/Sao_Paulo')::date (D16), e ck_veiculo_dono
+-- apertado para também exigir NULL no campo de dono que NÃO se aplica à
+-- propriedade (antes só exigia o certo preenchido, sem proibir o errado).
 --
 -- ⚠️ DADO PESSOAL
 --   placa + RE + horário revela rotina de vida. Nunca dado pessoal real em
@@ -152,10 +163,14 @@ CREATE TABLE IF NOT EXISTS portaria.veiculo (
     atualizado_em        TIMESTAMPTZ,
     atualizado_por       UUID,
 
+    -- Aperta as duas pontas: garante não só que o dono CERTO está
+    -- preenchido, mas que o dono ERRADO está vazio (revisão de 20/08 — sem
+    -- isso um PARTICULAR podia carregar empresa_terceira_id e vice-versa,
+    -- combinação que não quebra nada hoje mas envenena relatório depois).
     CONSTRAINT ck_veiculo_dono CHECK (
-        (propriedade = 'PARTICULAR' AND funcionario_id      IS NOT NULL) OR
-        (propriedade = 'EMPRESA'    AND funcionario_id      IS NULL)     OR
-        (propriedade = 'TERCEIRO'   AND empresa_terceira_id IS NOT NULL)
+        (propriedade = 'PARTICULAR' AND funcionario_id IS NOT NULL AND empresa_terceira_id IS NULL) OR
+        (propriedade = 'EMPRESA'    AND funcionario_id IS NULL     AND empresa_terceira_id IS NULL) OR
+        (propriedade = 'TERCEIRO'   AND funcionario_id IS NULL     AND empresa_terceira_id IS NOT NULL)
     )
 );
 COMMENT ON TABLE portaria.veiculo IS 'Cadastro de veículo (D1: um discriminador `propriedade`, não três tabelas). Nasce PENDENTE — quem cadastra (controlador) não é quem autoriza (encarregado/gerência); ver D6 e a permissão de CONTROLADOR_ACESSO em funcao_permissao mais abaixo.';
@@ -198,8 +213,21 @@ CREATE TABLE IF NOT EXISTS portaria.movimento (
     local_codigo          VARCHAR(20) NOT NULL DEFAULT 'LEVES'
                           REFERENCES portaria.local(codigo),
     sentido               VARCHAR(8)  NOT NULL CHECK (sentido IN ('ENTRADA','SAIDA')),
+    -- Instante que o SISTEMA carimba — TIMESTAMPTZ guarda o instante
+    -- absoluto e a regra de fuso do projeto (D16) manda UTC aqui. Isto está
+    -- certo como está; não "consertar" por simetria com a linha de baixo.
     momento               TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    data_referencia       DATE        NOT NULL DEFAULT CURRENT_DATE,
+    -- D16: dia que uma PESSOA lê ("quantos entraram hoje"), não instante do
+    -- sistema — nunca CURRENT_DATE cru. CURRENT_DATE segue o TimeZone do
+    -- servidor Postgres (UTC na maioria dos VPS); um movimento às 21h30 em
+    -- São Paulo é 00h30 UTC do dia seguinte, e CURRENT_DATE devolveria
+    -- "amanhã" — perdendo do relatório exatamente a janela de troca de
+    -- turno, que é quando a portaria mais movimenta. O literal abaixo é
+    -- rede de segurança para INSERT direto por SQL; o backend SEMPRE
+    -- preenche data_referencia explicitamente a partir de FUSO_OPERACAO
+    -- (app/core/config.py, a autoridade única desta constante — se o fuso
+    -- da operação mudar, os dois lugares mudam juntos).
+    data_referencia       DATE        NOT NULL DEFAULT (NOW() AT TIME ZONE 'America/Sao_Paulo')::date,
 
     veiculo_id            UUID REFERENCES portaria.veiculo(id),
     funcionario_id        UUID REFERENCES public.funcionario(id),
@@ -229,7 +257,7 @@ COMMENT ON COLUMN portaria.movimento.re_registrado IS 'Snapshot (D4) — ver com
 COMMENT ON COLUMN portaria.movimento.nome_registrado IS 'Snapshot (D4) — ver comentário de placa_registrada.';
 COMMENT ON COLUMN portaria.movimento.funcionario_id IS 'CONDUTOR desta passagem específica (D2) — nunca o dono do veículo. Carro da empresa sai com um funcionário e volta com outro; se o condutor morasse no cadastro do veículo, cada saída exigiria editar o cadastro ou mentir no histórico.';
 COMMENT ON COLUMN portaria.movimento.terceiro_nome IS 'Quem dirigia, texto puro, nunca FK (D5) — o condutor de um veículo de terceiro muda a cada visita e não se cadastra, só a empresa e o veículo se cadastram.';
-COMMENT ON COLUMN portaria.movimento.data_referencia IS 'D9: CURRENT_DATE puro — dia de calendário, 24h. NÃO usa get_data_servico() do Pátio: a regra das 20h existe por causa da escala do Pátio, e não se aplica aqui. Um carro que entra 23h e sai 6h aparece em dois dias diferentes no relatório, e isso está certo — foram duas passagens. Divergência proposital, não esquecimento.';
+COMMENT ON COLUMN portaria.movimento.data_referencia IS 'D9+D16: dia de calendário, 24h. NÃO usa get_data_servico() do Pátio — a regra das 20h existe por causa da escala do Pátio, não se aplica aqui; um carro que entra 23h e sai 6h aparece em dois dias diferentes no relatório, e isso está certo. O default usa America/Sao_Paulo explicitamente, de propósito: CURRENT_DATE cru seguiria o TimeZone do servidor Postgres e devolveria o dia seguinte para movimento depois das 21h em São Paulo se o servidor estiver em UTC (padrão de VPS). O literal aqui é duplicação CONSCIENTE de FUSO_OPERACAO (app/core/config.py, a autoridade) só como rede de segurança para INSERT direto por SQL — o backend sempre preenche este campo explicitamente a partir de FUSO_OPERACAO.';
 COMMENT ON COLUMN portaria.movimento.cadastrado IS 'FALSE = passagem de veículo sem cadastro (visitante avulso, entrega única). A regra número um do módulo: o sistema nunca deixa de registrar por falta de cadastro.';
 COMMENT ON COLUMN portaria.movimento.origem IS 'MANUAL = digitado na hora pelo controlador. RETROATIVO = lançado depois a partir do papel, na contingência de queda de internet — exige observação no backend. QR/TAG/LPR reservados para quando a identificação vier de leitura automática (Bloco E usa QR); QR/TAG/LPR são só ACELERAÇÃO da digitação, nunca pré-requisito para o registro acontecer.';
 COMMENT ON COLUMN portaria.movimento.movimento_entrada_id IS 'Opcional (D3) — vínculo de conveniência quando a saída nasce de um toque na lista "dentro agora", usado para calcular permanência. A ausência dele nunca impede a saída de ser registrada.';
