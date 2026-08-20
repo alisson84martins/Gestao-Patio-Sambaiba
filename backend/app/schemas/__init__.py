@@ -23,3 +23,10 @@ from app.schemas.pessoas import (
     MotoristaCreate, MotoristaRead, MotoristaUpdate,
     UsuarioCreate, UsuarioRead, UsuarioUpdate,
 )
+from app.schemas.portaria import (
+    BloquearPorReRequest, BloquearPorReResponse, BuscaVeiculoResponse,
+    EmpresaTerceiraCreate, EmpresaTerceiraRead, MovimentoCreate,
+    MovimentoCreateResponse, MovimentoRead, PortariaDentroResponse,
+    VeiculoCreate, VeiculoDivergenciaRead, VeiculoRead,
+    VeiculoSituacaoHistRead, VeiculoSituacaoUpdate, VeiculoUpdate,
+)

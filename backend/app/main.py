@@ -11,7 +11,8 @@ from app.core.exception_handlers import register_exception_handlers
 from app.routers import (
     alertas, alocacoes, auth, escalas, filas, funcoes, funcionarios,
     health, importacao, linhas, manutencao, motoristas, ocorrencias, onibus,
-    patio, permissoes, pre_ocorrencias, pre_ocorrencias_publico, tipos_defeito, usuarios,
+    patio, permissoes, portaria, portaria_veiculos, pre_ocorrencias,
+    pre_ocorrencias_publico, tipos_defeito, usuarios,
 )
 
 settings = get_settings()
@@ -52,6 +53,7 @@ tags_metadata = [
     {"name": "pátio (visão consolidada)", "description": "Estado completo + remanejamento + busca por frota"},
     {"name": "importação Excel", "description": "Upload de planilha .xlsx para criar escalas em massa"},
     {"name": "ocorrências", "description": "Suite Coordenadoria — relatório de ocorrências, mensagem do sinistro e anexos"},
+    {"name": "portaria", "description": "Controle de acesso veicular — entrada, saída, cadastro e autorização de veículos"},
 ]
 
 app = FastAPI(
@@ -136,3 +138,10 @@ app.include_router(ocorrencias.router)
 # /autopreencher vem antes de /{ocorrencia_id} em ocorrencias.py.
 app.include_router(pre_ocorrencias_publico.router)
 app.include_router(pre_ocorrencias.router)
+# Portaria — controle de acesso veicular. Dois routers, mesmo prefix
+# /portaria: portaria.py (movimento, recurso acesso_veicular) e
+# portaria_veiculos.py (cadastro/autorização, recursos veiculo_portaria e
+# autorizacao_veicular — D6). Sem ambiguidade de rota entre eles: nenhum
+# path+método colide (ver comentário no topo de portaria_veiculos.py).
+app.include_router(portaria.router)
+app.include_router(portaria_veiculos.router)
