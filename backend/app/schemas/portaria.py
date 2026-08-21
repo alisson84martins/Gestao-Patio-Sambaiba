@@ -316,3 +316,37 @@ class PortariaDentroResponse(BaseModel):
     dentro: list[MovimentoRead]
     sem_saida: list[MovimentoRead]
     horas: int
+
+
+# ============================================================================
+# CREDENCIAL (Bloco E) — QR do veículo. `codigo` é token opaco; nunca carrega
+# placa/RE/nome (ver migration 025). O card de confirmação da leitura por QR
+# reusa BuscaVeiculoResponse acima (D15) — não tem schema próprio.
+# ============================================================================
+
+TipoCredencial = Literal["QR", "TAG", "CARTAO"]
+
+
+class CredencialRead(ORMBase):
+    id: UUID
+    veiculo_id: UUID
+    tipo: TipoCredencial
+    codigo: str
+    emitida_em: datetime
+    emitida_por: Optional[UUID] = None
+    revogada_em: Optional[datetime] = None
+    revogada_por: Optional[UUID] = None
+    motivo_revogacao: Optional[str] = None
+    ativa: bool
+
+
+class CredencialEmitirRequest(BaseModel):
+    """POST /portaria/veiculos/{id}/credencial. `motivo` só é obrigatório
+    quando já existe credencial ativa (reemissão) — o router valida isso
+    olhando o estado atual, não dá pra expressar como regra estática aqui."""
+
+    motivo: Optional[str] = None
+
+
+class CredencialRevogarRequest(BaseModel):
+    motivo: str = Field(..., min_length=1)

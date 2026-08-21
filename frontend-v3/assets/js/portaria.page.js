@@ -722,6 +722,94 @@ async function registrarTerceiro() {
     }
 }
 
+// ─── Leitor de QR (Bloco E) — aceleração, nunca pré-requisito ──────────
+// D15: a leitura cai no MESMO card de confirmação da busca por placa —
+// mesmo semáforo, e quem decide é o controlador olhando pro carro (o QR é
+// identificador, não credencial de segurança).
+//
+// ⚠️ `getUserMedia` só funciona em HTTPS ou localhost — não funciona em
+// http://192.168.x.x. Numa rede local sem HTTPS o botão "Ler QR" pode
+// aparecer (BarcodeDetector existe) e a câmera falhar ao abrir; o erro cai
+// no card #qr-erro e a busca por placa continua funcionando normal.
+let qrStream = null;
+let qrDetectHandle = null;
+
+function initLeitorQr() {
+    // Sem suporte nativo -> botão continua com o display:none do HTML,
+    // sem polyfill, sem CDN, sem lib vendorizada (§1.5).
+    if (!('BarcodeDetector' in window)) return;
+    const btn = document.getElementById('btn-ler-qr');
+    btn.style.display = '';
+    btn.addEventListener('click', abrirLeitorQr);
+    document.getElementById('fechar-qr').addEventListener('click', fecharLeitorQr);
+    document.getElementById('btn-cancelar-qr').addEventListener('click', fecharLeitorQr);
+}
+
+async function abrirLeitorQr() {
+    document.getElementById('qr-erro').style.display = 'none';
+    abrirModal('modal-qr');
+    try {
+        qrStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+        const video = document.getElementById('qr-video');
+        video.srcObject = qrStream;
+        await video.play();
+
+        const detector = new BarcodeDetector({ formats: ['qr_code'] });
+        qrDetectHandle = setInterval(async () => {
+            let codigos = [];
+            try {
+                codigos = await detector.detect(video);
+            } catch (err) {
+                console.error('[portaria] erro na detecção do QR:', err);
+                return;
+            }
+            if (codigos.length === 0) return;
+            const valorLido = codigos[0].rawValue;
+            // Fecha a câmera IMEDIATAMENTE — senão a luz fica acesa e a
+            // bateria vai embora numa noite de plantão.
+            pararCameraQr();
+            fecharModal('modal-qr');
+            await processarCodigoLido(valorLido);
+        }, 400);
+    } catch (err) {
+        pararCameraQr();
+        document.getElementById('qr-erro').textContent = 'Não foi possível abrir a câmera: ' + err.message;
+        document.getElementById('qr-erro').style.display = 'block';
+    }
+}
+
+function pararCameraQr() {
+    if (qrDetectHandle) {
+        clearInterval(qrDetectHandle);
+        qrDetectHandle = null;
+    }
+    if (qrStream) {
+        qrStream.getTracks().forEach((track) => track.stop());
+        qrStream = null;
+    }
+}
+
+function fecharLeitorQr() {
+    pararCameraQr();
+    fecharModal('modal-qr');
+}
+
+async function processarCodigoLido(codigo) {
+    try {
+        const resp = await apiGet(`/portaria/buscar-credencial?codigo=${encodeURIComponent(codigo)}`);
+        if (resp.exato && resp.candidatos.length === 1) {
+            abrirConfirmacaoParaCandidato(resp.candidatos[0]);
+        } else {
+            // Código inexistente/revogado — regra número um vale pra busca
+            // também: nunca trava a tela, só avisa e devolve pro fluxo normal.
+            mostrarErroTopo('QR não reconhecido — use a busca por placa.');
+        }
+    } catch (err) {
+        if (err instanceof ApiError && err.status === 401) return;
+        mostrarErroTopo('Erro ao ler QR: ' + err.message);
+    }
+}
+
 // ─── Polling da lista "dentro agora" ────────────────────────────────────
 function startPolling() {
     if (pollHandle) return;
@@ -740,5 +828,6 @@ initConfirmacao();
 initEntradaAvulsa();
 initCadastroRapido();
 initTerceiro();
+initLeitorQr();
 carregarDentro();
 startPolling();

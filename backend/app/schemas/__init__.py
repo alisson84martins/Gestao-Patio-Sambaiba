@@ -25,6 +25,7 @@ from app.schemas.pessoas import (
 )
 from app.schemas.portaria import (
     BloquearPorReRequest, BloquearPorReResponse, BuscaVeiculoResponse,
+    CredencialEmitirRequest, CredencialRead, CredencialRevogarRequest,
     EmpresaTerceiraCreate, EmpresaTerceiraRead, MovimentoCreate,
     MovimentoCreateResponse, MovimentoRead, PortariaDentroResponse,
     VeiculoCreate, VeiculoDivergenciaRead, VeiculoRead,

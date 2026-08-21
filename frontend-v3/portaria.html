@@ -231,6 +231,25 @@
     </div>
 </div>
 
+<!-- ========================================================= -->
+<!-- Modal leitor de QR (Bloco E) — só abre se o navegador tiver -->
+<!-- BarcodeDetector nativo (o botão que chama isto nasce        -->
+<!-- escondido no HTML e só aparece via JS quando há suporte).   -->
+<!-- Detecção cai no MESMO card de confirmação da busca por      -->
+<!-- placa (D15) — o QR é aceleração, nunca pré-requisito.        -->
+<!-- ========================================================= -->
+<div class="modal-overlay" id="modal-qr">
+    <div class="modal">
+        <button type="button" class="modal-close" id="fechar-qr">✕</button>
+        <div class="modal-title">Ler QR do veículo</div>
+        <div class="portaria-qr-video-wrap">
+            <video id="qr-video" playsinline muted></video>
+        </div>
+        <div id="qr-erro" style="display:none;color:var(--accent);font-size:0.85rem;margin:10px 0"></div>
+        <button type="button" class="btn btn-ghost btn-full btn-modal-stack" id="btn-cancelar-qr">Cancelar</button>
+    </div>
+</div>
+
 <script type="module" src="./assets/js/portaria.page.js"></script>
 </body>
 </html>

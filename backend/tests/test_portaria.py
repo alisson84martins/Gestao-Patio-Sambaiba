@@ -36,8 +36,8 @@ from app.core.database import Base, get_db
 from app.main import app
 from app.models.cadastro import Funcionario
 from app.models.portaria import (
-    EmpresaTerceira, MovimentoPortaria, PortariaLocal, VeiculoPortaria,
-    VeiculoSituacaoHist,
+    Credencial, EmpresaTerceira, MovimentoPortaria, PortariaLocal,
+    VeiculoPortaria, VeiculoSituacaoHist,
 )
 from app.routers import portaria as portaria_router_mod
 from app.routers import portaria_veiculos as portaria_veiculos_router_mod
@@ -64,6 +64,7 @@ _DONO_B = Funcionario(id=uuid4(), re="60011", nome="Dono B")
 _TABELAS = [
     Funcionario.__table__, PortariaLocal.__table__, EmpresaTerceira.__table__,
     VeiculoPortaria.__table__, VeiculoSituacaoHist.__table__, MovimentoPortaria.__table__,
+    Credencial.__table__,
 ]
 
 # Pacote de permissões da migration 024 (§2.5) — CONTROLADOR_ACESSO escreve
@@ -448,3 +449,160 @@ def test_busca_por_prefixo_com_duas_placas_retorna_candidatos(ambiente):
     corpo = resp.json()
     assert corpo["exato"] is False
     assert len(corpo["candidatos"]) == 2
+
+
+# ============================================================================
+# BLOCO E — QR do veículo (§1.7 do prompt)
+# ============================================================================
+
+# ─── 1 — emitir credencial: código gerado, ativa, sem placa/RE dentro ──
+
+def test_emitir_credencial_gera_codigo_sem_placa_nem_re(ambiente):
+    _como(ambiente, "CONTROLADOR")
+    veiculo_id = _criar_veiculo(ambiente, placa="ABC1D23", funcionario_id=_DONO_A.id)
+
+    resp = ambiente["http"].post(f"/portaria/veiculos/{veiculo_id}/credencial", json={})
+    assert resp.status_code == 201, resp.text
+    corpo = resp.json()
+    assert corpo["ativa"] is True
+    assert corpo["veiculo_id"] == str(veiculo_id)
+    codigo = corpo["codigo"]
+    assert codigo
+    # 🔴 o QR é IDENTIFICADOR, não credencial de segurança (§1.0) — o token é
+    # opaco, nunca carrega a placa nem o RE do dono.
+    assert "ABC1D23" not in codigo
+    assert _DONO_A.re not in codigo
+
+
+# ─── 2 — reemitir revoga a anterior e gera código diferente ────────────
+
+def test_reemitir_credencial_revoga_anterior(ambiente):
+    _como(ambiente, "CONTROLADOR")
+    veiculo_id = _criar_veiculo(ambiente, placa="ABC1D23", funcionario_id=_DONO_A.id)
+
+    primeira = ambiente["http"].post(f"/portaria/veiculos/{veiculo_id}/credencial", json={})
+    assert primeira.status_code == 201, primeira.text
+    codigo_antigo = primeira.json()["codigo"]
+
+    # Sem motivo -> 422, já existe credencial ativa.
+    sem_motivo = ambiente["http"].post(f"/portaria/veiculos/{veiculo_id}/credencial", json={})
+    assert sem_motivo.status_code == 422, sem_motivo.text
+
+    segunda = ambiente["http"].post(
+        f"/portaria/veiculos/{veiculo_id}/credencial", json={"motivo": "Adesivo descolou"}
+    )
+    assert segunda.status_code == 201, segunda.text
+    corpo = segunda.json()
+    assert corpo["codigo"] != codigo_antigo
+    assert corpo["ativa"] is True
+
+    with Session(ambiente["engine"]) as db:
+        credenciais = db.execute(select(Credencial).where(Credencial.veiculo_id == veiculo_id)).scalars().all()
+    assert len(credenciais) == 2
+    antiga = next(c for c in credenciais if c.codigo == codigo_antigo)
+    assert antiga.ativa is False
+    assert antiga.revogada_em is not None
+    assert antiga.motivo_revogacao == "Adesivo descolou"
+
+
+# ─── 3 — buscar-credencial devolve o mesmo payload da busca por placa ──
+
+def test_buscar_credencial_devolve_mesmo_payload_da_busca(ambiente):
+    _como(ambiente, "CONTROLADOR")
+    veiculo_id = _criar_veiculo(ambiente, placa="ABC1D23", funcionario_id=_DONO_A.id, situacao="AUTORIZADO")
+    emissao = ambiente["http"].post(f"/portaria/veiculos/{veiculo_id}/credencial", json={})
+    codigo = emissao.json()["codigo"]
+
+    por_qr = ambiente["http"].get("/portaria/buscar-credencial", params={"codigo": codigo})
+    por_placa = ambiente["http"].get("/portaria/buscar", params={"q": "ABC1D23"})
+    assert por_qr.status_code == 200, por_qr.text
+    assert por_qr.json() == por_placa.json()
+
+
+# ─── 4 — código inexistente: 200 com lista vazia, nunca 404/403 ────────
+
+def test_buscar_credencial_codigo_inexistente_devolve_200_vazio(ambiente):
+    _como(ambiente, "CONTROLADOR")
+    resp = ambiente["http"].get("/portaria/buscar-credencial", params={"codigo": "codigo-que-nao-existe"})
+    assert resp.status_code == 200, resp.text
+    corpo = resp.json()
+    assert corpo["candidatos"] == []
+    assert corpo["exato"] is False
+
+
+# ─── 5 — credencial revogada: 200 vazio, veículo continua registrável ──
+
+def test_buscar_credencial_revogada_devolve_200_vazio_e_veiculo_segue_registravel(ambiente):
+    _como(ambiente, "CONTROLADOR")
+    veiculo_id = _criar_veiculo(ambiente, placa="ABC1D23", funcionario_id=_DONO_A.id, situacao="AUTORIZADO")
+    emissao = ambiente["http"].post(f"/portaria/veiculos/{veiculo_id}/credencial", json={})
+    codigo = emissao.json()["codigo"]
+
+    # TestClient.delete() desta versão de httpx não aceita `json=` (DELETE
+    # com corpo é incomum, mas o endpoint exige `motivo` — usa .request()).
+    revoga = ambiente["http"].request(
+        "DELETE", f"/portaria/veiculos/{veiculo_id}/credencial",
+        json={"motivo": "Carro vendido, adesivo removido"},
+    )
+    assert revoga.status_code == 200, revoga.text
+
+    por_qr = ambiente["http"].get("/portaria/buscar-credencial", params={"codigo": codigo})
+    assert por_qr.status_code == 200, por_qr.text
+    assert por_qr.json()["candidatos"] == []
+
+    # ⚠️ credencial.ativa=FALSE não é proibição — o veículo continua
+    # registrável pela placa igual sempre foi (§1.3).
+    registro = ambiente["http"].post("/portaria/movimentos", json={"sentido": "ENTRADA", "placa": "ABC1D23"})
+    assert registro.status_code == 201, registro.text
+
+
+# ─── 6 — movimento identificado por QR grava origem = 'QR' ─────────────
+
+def test_movimento_via_qr_grava_origem_qr(ambiente):
+    _como(ambiente, "CONTROLADOR")
+    _criar_veiculo(ambiente, placa="ABC1D23", funcionario_id=_DONO_A.id, situacao="AUTORIZADO")
+
+    resp = ambiente["http"].post(
+        "/portaria/movimentos", json={"sentido": "ENTRADA", "placa": "ABC1D23", "origem": "QR"}
+    )
+    assert resp.status_code == 201, resp.text
+    assert resp.json()["origem"] == "QR"
+
+
+# ─── 7 — GET credencial ativa: null antes de emitir, objeto depois ─────
+# (endpoint além dos 4 do prompt — sustenta o botão "Gerar QR" × "Reemitir"
+# na ficha, ver §1.6)
+
+def test_obter_credencial_ativa_null_antes_e_objeto_depois(ambiente):
+    _como(ambiente, "CONTROLADOR")
+    veiculo_id = _criar_veiculo(ambiente, placa="ABC1D23", funcionario_id=_DONO_A.id)
+
+    antes = ambiente["http"].get(f"/portaria/veiculos/{veiculo_id}/credencial")
+    assert antes.status_code == 200, antes.text
+    assert antes.json() is None
+
+    ambiente["http"].post(f"/portaria/veiculos/{veiculo_id}/credencial", json={})
+    depois = ambiente["http"].get(f"/portaria/veiculos/{veiculo_id}/credencial")
+    assert depois.status_code == 200, depois.text
+    assert depois.json()["ativa"] is True
+
+
+# ─── 8 — SVG do QR e página de etiquetas respondem image/svg+xml e HTML ─
+
+def test_credencial_svg_e_etiquetas_respondem_conteudo_esperado(ambiente):
+    _como(ambiente, "CONTROLADOR")
+    veiculo_id = _criar_veiculo(ambiente, placa="ABC1D23", funcionario_id=_DONO_A.id)
+    ambiente["http"].post(f"/portaria/veiculos/{veiculo_id}/credencial", json={})
+
+    svg = ambiente["http"].get(f"/portaria/veiculos/{veiculo_id}/credencial.svg")
+    assert svg.status_code == 200, svg.text
+    assert "image/svg+xml" in svg.headers["content-type"]
+    assert "<svg" in svg.text
+
+    etiquetas = ambiente["http"].get(f"/portaria/credenciais/etiquetas?ids={veiculo_id}")
+    assert etiquetas.status_code == 200, etiquetas.text
+    assert "text/html" in etiquetas.headers["content-type"]
+    assert "ABC1D23" in etiquetas.text
+    # ⛔ Nada de RE, nome ou CPF impresso na etiqueta (§1.4).
+    assert _DONO_A.re not in etiquetas.text
+    assert _DONO_A.nome not in etiquetas.text

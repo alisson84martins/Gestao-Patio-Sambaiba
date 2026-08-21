@@ -175,3 +175,37 @@ class MovimentoPortaria(Base):
     criado_em: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
+
+
+class Credencial(Base):
+    """QR/TAG/cartão do veículo (Bloco E). Espelha
+    database/migrations/025-portaria-credencial.sql. Tabela, não coluna em
+    VeiculoPortaria — reemissão é rotina (adesivo descola/desbota/carro é
+    vendido) e o código antigo precisa parar de valer sem apagar o registro
+    de que existiu."""
+
+    __tablename__ = "credencial"
+    __table_args__ = {"schema": SCHEMA}
+
+    id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True, default=uuid4)
+    veiculo_id: Mapped[UUID] = mapped_column(
+        PG_UUID(as_uuid=True), ForeignKey(f"{SCHEMA}.veiculo.id", ondelete="CASCADE"), nullable=False
+    )
+    tipo: Mapped[str] = mapped_column(String(10), nullable=False, default="QR")
+    # Token opaco (secrets.token_urlsafe(16)) — NUNCA placa/RE/nome/URL. Ver
+    # comentário da migration 025 sobre por quê.
+    codigo: Mapped[str] = mapped_column(String(64), nullable=False, unique=True)
+    emitida_em: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    emitida_por: Mapped[Optional[UUID]] = mapped_column(
+        PG_UUID(as_uuid=True), ForeignKey("funcionario.id"), nullable=True
+    )
+    revogada_em: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    revogada_por: Mapped[Optional[UUID]] = mapped_column(
+        PG_UUID(as_uuid=True), ForeignKey("funcionario.id"), nullable=True
+    )
+    motivo_revogacao: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    # FALSE = revogada. ⚠️ Nunca impede o veículo de entrar — proibição é
+    # VeiculoPortaria.situacao, não isto.
+    ativa: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)

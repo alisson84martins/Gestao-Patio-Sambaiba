@@ -13,21 +13,26 @@ from datetime import datetime, timezone
 from typing import Annotated, Optional
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from fastapi.responses import HTMLResponse
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.core.deps import exige
 from app.models.cadastro import Funcionario
-from app.models.portaria import EmpresaTerceira, VeiculoPortaria, VeiculoSituacaoHist
+from app.models.portaria import Credencial, EmpresaTerceira, VeiculoPortaria, VeiculoSituacaoHist
 from app.schemas.portaria import (
-    BloquearPorReRequest, BloquearPorReResponse, EmpresaTerceiraCreate,
+    BloquearPorReRequest, BloquearPorReResponse, CredencialEmitirRequest,
+    CredencialRead, CredencialRevogarRequest, EmpresaTerceiraCreate,
     EmpresaTerceiraRead, FuncionarioPortariaBusca, Propriedade, SituacaoVeiculo,
     VeiculoCreate, VeiculoDivergenciaRead, VeiculoRead, VeiculoSituacaoHistRead,
     VeiculoSituacaoUpdate, VeiculoUpdate,
 )
 from app.services.portaria import veiculo_read
+from app.services.portaria_credencial import (
+    gerar_codigo, gerar_svg_documento, montar_html_etiquetas,
+)
 
 router = APIRouter(prefix="/portaria", tags=["portaria"])
 
@@ -185,6 +190,152 @@ def cadastrar_empresa(
     db.commit()
     db.refresh(nova)
     return nova
+
+
+# ============================================================================
+# CREDENCIAL (Bloco E) — QR do veículo. exige("veiculo_portaria", ...), mesmo
+# recurso do cadastro: emitir/revogar QR é ato de quem cuida do cadastro do
+# veículo, não de autorização. A LEITURA do QR pela portaria (buscar por
+# código) mora em routers/portaria.py, exige("acesso_veicular") — devolve o
+# mesmo BuscaVeiculoResponse da busca por placa (D15).
+#
+# 🔴 Rotas de path fixo (/credenciais/etiquetas) não colidem com
+# /veiculos/{veiculo_id}/... — primeiro segmento diferente ("credenciais" vs
+# "veiculos"). As de /veiculos/{veiculo_id}/credencial[.svg] têm dois
+# segmentos depois de /veiculos/, então também não colidem com
+# /veiculos/{veiculo_id} (ficha, um segmento) nem com /veiculos/pendentes ou
+# /veiculos/divergencias (idem) — ordem de registro não importa aqui.
+# ============================================================================
+
+@router.post(
+    "/veiculos/{veiculo_id}/credencial",
+    response_model=CredencialRead,
+    status_code=status.HTTP_201_CREATED,
+    summary="Emite QR do veículo — se já houver ativa, revoga a anterior (motivo obrigatório) e emite nova",
+)
+def emitir_credencial(
+    veiculo_id: UUID,
+    payload: CredencialEmitirRequest,
+    usuario: EscritaCadastro,
+    db: Annotated[Session, Depends(get_db)],
+):
+    veiculo = db.get(VeiculoPortaria, veiculo_id)
+    if veiculo is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Veículo não encontrado")
+
+    anterior = db.execute(
+        select(Credencial).where(Credencial.veiculo_id == veiculo_id, Credencial.ativa.is_(True))
+    ).scalar_one_or_none()
+
+    agora = datetime.now(timezone.utc)
+    if anterior is not None:
+        if not (payload.motivo or "").strip():
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Já existe credencial ativa — motivo é obrigatório para reemitir (o adesivo antigo deixa de ser reconhecido).",
+            )
+        anterior.ativa = False
+        anterior.revogada_em = agora
+        anterior.revogada_por = usuario.id
+        anterior.motivo_revogacao = payload.motivo
+        db.flush()
+
+    nova = Credencial(veiculo_id=veiculo_id, codigo=gerar_codigo(), emitida_por=usuario.id)
+    db.add(nova)
+    db.commit()
+    db.refresh(nova)
+    return nova
+
+
+@router.get(
+    "/veiculos/{veiculo_id}/credencial",
+    response_model=Optional[CredencialRead],
+    summary="Credencial ativa do veículo, se houver — usado pela ficha pra decidir 'Gerar QR' × 'Reemitir'",
+)
+def obter_credencial_ativa(
+    veiculo_id: UUID, usuario: LeituraCadastro, db: Annotated[Session, Depends(get_db)]
+):
+    if db.get(VeiculoPortaria, veiculo_id) is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Veículo não encontrado")
+    return db.execute(
+        select(Credencial).where(Credencial.veiculo_id == veiculo_id, Credencial.ativa.is_(True))
+    ).scalar_one_or_none()
+
+
+@router.get(
+    "/veiculos/{veiculo_id}/credencial.svg",
+    summary="SVG do QR ativo do veículo — correção de erro nível H (aguenta sol e sujeira)",
+)
+def credencial_svg(
+    veiculo_id: UUID, usuario: LeituraCadastro, db: Annotated[Session, Depends(get_db)]
+):
+    credencial = db.execute(
+        select(Credencial).where(Credencial.veiculo_id == veiculo_id, Credencial.ativa.is_(True))
+    ).scalar_one_or_none()
+    if credencial is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Nenhuma credencial ativa para este veículo")
+    return Response(content=gerar_svg_documento(credencial.codigo), media_type="image/svg+xml")
+
+
+@router.delete(
+    "/veiculos/{veiculo_id}/credencial",
+    response_model=CredencialRead,
+    summary="Revoga a credencial ativa sem emitir nova (motivo obrigatório)",
+)
+def revogar_credencial(
+    veiculo_id: UUID,
+    payload: CredencialRevogarRequest,
+    usuario: EscritaCadastro,
+    db: Annotated[Session, Depends(get_db)],
+):
+    credencial = db.execute(
+        select(Credencial).where(Credencial.veiculo_id == veiculo_id, Credencial.ativa.is_(True))
+    ).scalar_one_or_none()
+    if credencial is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Nenhuma credencial ativa para este veículo")
+
+    credencial.ativa = False
+    credencial.revogada_em = datetime.now(timezone.utc)
+    credencial.revogada_por = usuario.id
+    credencial.motivo_revogacao = payload.motivo
+    db.commit()
+    db.refresh(credencial)
+    return credencial
+
+
+@router.get(
+    "/credenciais/etiquetas",
+    response_class=HTMLResponse,
+    summary="HTML de impressão das etiquetas selecionadas — grade A4, só a placa embaixo do QR",
+)
+def etiquetas_credenciais(
+    usuario: LeituraCadastro,
+    db: Annotated[Session, Depends(get_db)],
+    ids: str = Query(..., description="UUIDs de veículo separados por vírgula"),
+):
+    veiculo_ids: list[UUID] = []
+    for parte in ids.split(","):
+        parte = parte.strip()
+        if not parte:
+            continue
+        try:
+            veiculo_ids.append(UUID(parte))
+        except ValueError:
+            continue
+
+    itens: list[tuple[VeiculoPortaria, Credencial]] = []
+    for veiculo_id in veiculo_ids:
+        veiculo = db.get(VeiculoPortaria, veiculo_id)
+        if veiculo is None:
+            continue
+        credencial = db.execute(
+            select(Credencial).where(Credencial.veiculo_id == veiculo_id, Credencial.ativa.is_(True))
+        ).scalar_one_or_none()
+        if credencial is None:
+            continue
+        itens.append((veiculo, credencial))
+
+    return HTMLResponse(content=montar_html_etiquetas(itens))
 
 
 # ============================================================================

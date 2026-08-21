@@ -73,6 +73,11 @@
             </select>
             <input type="text" class="form-input" id="filtro-texto" placeholder="Placa ou nome" style="max-width:200px" autocomplete="off">
         </div>
+        <!-- Seleção múltipla pra imprimir etiquetas de QR (Bloco E) — só na  -->
+        <!-- aba Todos. Cada item da lista ganha uma caixa de marcação. -->
+        <div id="barra-imprimir-etiquetas" style="display:none;margin-bottom:12px">
+            <button type="button" class="btn btn-primary" id="btn-imprimir-etiquetas">Imprimir etiquetas selecionadas (<span id="qtd-selecionados">0</span>)</button>
+        </div>
         <div id="lista-todos"><div class="patio-loading">Carregando…</div></div>
     </section>
 
@@ -113,6 +118,27 @@
         </div>
 
         <div id="ficha-erro" style="display:none;color:var(--accent);font-size:0.85rem;margin-top:10px"></div>
+
+        <!-- QR do veículo (Bloco E) — aceleração da busca por placa, nunca -->
+        <!-- credencial de segurança. "Gerar QR"/"Reemitir" usam o mesmo    -->
+        <!-- recurso do cadastro (veiculo_portaria), não autorizacao_veicular. -->
+        <div id="ficha-qr-wrap" style="display:none;margin-top:18px;border-top:1px solid var(--border);padding-top:14px">
+            <div class="portaria-secao-titulo" style="margin-bottom:8px">QR do veículo</div>
+            <div id="ficha-qr-status" class="portaria-ficha-linha">Carregando…</div>
+            <img id="ficha-qr-img" class="portaria-qr-preview" style="display:none" alt="QR do veículo">
+            <div style="display:flex;gap:8px;margin-top:10px">
+                <button type="button" class="btn btn-primary" id="btn-gerar-qr" style="display:none;flex:1">Gerar QR</button>
+                <button type="button" class="btn btn-ghost" id="btn-reemitir-qr" style="display:none;flex:1">Reemitir</button>
+            </div>
+            <div id="ficha-qr-motivo-wrap" style="display:none;margin-top:10px">
+                <div class="portaria-ficha-linha" style="color:var(--accent);margin-bottom:6px">O adesivo antigo deixa de ser reconhecido.</div>
+                <label class="form-label" for="ficha-qr-motivo">Motivo (obrigatório)</label>
+                <textarea class="form-input form-textarea" id="ficha-qr-motivo" rows="2"></textarea>
+                <button type="button" class="btn btn-primary btn-full" id="btn-confirmar-qr-motivo">Confirmar reemissão</button>
+                <button type="button" class="btn btn-ghost btn-full btn-modal-stack" id="btn-cancelar-qr-motivo">Cancelar</button>
+            </div>
+            <div id="ficha-qr-erro" style="display:none;color:var(--accent);font-size:0.85rem;margin-top:10px"></div>
+        </div>
 
         <div class="portaria-secao-titulo" style="margin-top:18px">Histórico</div>
         <div id="ficha-historico"><div class="oc-vazio">Carregando…</div></div>

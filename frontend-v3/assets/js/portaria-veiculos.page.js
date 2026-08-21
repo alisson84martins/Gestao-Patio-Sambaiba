@@ -15,6 +15,7 @@ import { requireAuth, getCurrentUser, logout } from './auth.js';
 import { apiGet, apiPatch, apiPost, ApiError } from './api.js';
 import { podeEscrever } from './sessao.js';
 import { escapeHtml } from './escape.js';
+import { API_BASE_URL, TOKEN_KEY } from './config.js';
 
 if (!requireAuth()) {
     throw new Error('Sessão não autenticada — interrompendo carga da página');
@@ -23,6 +24,11 @@ if (!requireAuth()) {
 let empresasCache = null;
 let fichaVeiculoAtual = null; // VeiculoRead do modal de ficha aberto no momento
 let situacaoAlvo = null;      // 'AUTORIZADO' | 'SUSPENSO' | 'BAIXADO' — ação pendente de motivo
+
+// Bloco E — QR do veículo
+const selecionados = new Set();  // ids marcados na aba Todos, pra imprimir etiquetas
+let credencialAtual = null;      // CredencialRead ativa da ficha aberta, ou null
+let credencialImgUrl = null;     // blob: URL da última imagem de QR — revogar antes de trocar
 
 // ─── Header ─────────────────────────────────────────────────────────────
 function initHeader() {
@@ -105,6 +111,11 @@ function initTabs() {
             document.querySelectorAll('.oc-tab-section').forEach(s => s.classList.remove('active'));
             const alvo = document.getElementById(`tab-${btn.dataset.tab}`);
             alvo.classList.add('active');
+            if (btn.dataset.tab !== 'todos') {
+                // Seleção de etiquetas (Bloco E) só faz sentido na aba Todos.
+                selecionados.clear();
+                atualizarBarraImpressao();
+            }
             if (btn.dataset.tab === 'pendentes') carregarPendentes();
             if (btn.dataset.tab === 'todos') carregarTodos();
             if (btn.dataset.tab === 'divergencias') carregarDivergencias();
@@ -113,7 +124,9 @@ function initTabs() {
 }
 
 // ─── Renderização de listas ─────────────────────────────────────────────
-function renderLista(containerId, veiculos, { vazio, extra } = {}) {
+// `selecionavel` liga a caixa de marcação usada só na aba Todos, pra juntar
+// veículos e imprimir as etiquetas de QR deles de uma vez (Bloco E).
+function renderLista(containerId, veiculos, { vazio, extra, selecionavel } = {}) {
     const el = document.getElementById(containerId);
     if (veiculos.length === 0) {
         el.innerHTML = `<div class="oc-vazio">${escapeHtml(vazio || 'Nenhum veículo.')}</div>`;
@@ -126,14 +139,29 @@ function renderLista(containerId, veiculos, { vazio, extra } = {}) {
         btn.className = 'portaria-item';
         btn.style.marginBottom = '8px';
         const linhaExtra = extra ? extra(v) : '';
+        const checkboxHtml = selecionavel
+            ? `<input type="checkbox" class="portaria-item-check" ${selecionados.has(v.id) ? 'checked' : ''}>`
+            : '';
         btn.innerHTML = `
+            ${checkboxHtml}
             <div>
                 <div class="portaria-item-placa">${escapeHtml(v.placa)}</div>
                 <div class="portaria-item-sub">${escapeHtml(donoTexto(v))}${linhaExtra}</div>
             </div>
             <div class="portaria-item-hora">${badgeSituacao(v.situacao)}</div>
         `;
-        btn.addEventListener('click', () => abrirFicha(v.id));
+        btn.addEventListener('click', (e) => {
+            if (e.target.classList.contains('portaria-item-check')) return;
+            abrirFicha(v.id);
+        });
+        if (selecionavel) {
+            const check = btn.querySelector('.portaria-item-check');
+            check.addEventListener('click', (e) => e.stopPropagation());
+            check.addEventListener('change', (e) => {
+                if (e.target.checked) selecionados.add(v.id); else selecionados.delete(v.id);
+                atualizarBarraImpressao();
+            });
+        }
         el.appendChild(btn);
     }
 }
@@ -179,7 +207,7 @@ function renderTodosFiltrado() {
     const filtrados = texto
         ? todosCache.filter(v => `${v.placa} ${donoTexto(v)}`.toLowerCase().includes(texto))
         : todosCache;
-    renderLista('lista-todos', filtrados, { vazio: 'Nenhum veículo encontrado.' });
+    renderLista('lista-todos', filtrados, { vazio: 'Nenhum veículo encontrado.', selecionavel: true });
 }
 
 function initFiltrosTodos() {
@@ -224,6 +252,7 @@ async function abrirFicha(veiculoId) {
         fichaVeiculoAtual = veiculo;
         renderFicha(veiculo);
         renderHistorico(historico);
+        await carregarCredencial(veiculoId);
     } catch (err) {
         if (err instanceof ApiError && err.status === 401) return;
         document.getElementById('ficha-erro').textContent = 'Erro ao carregar ficha: ' + err.message;
@@ -332,6 +361,143 @@ function atualizarAbaAtiva() {
     if (ativa === 'pendentes') carregarPendentes();
     if (ativa === 'todos') carregarTodos();
     if (ativa === 'divergencias') carregarDivergencias();
+}
+
+// ─── QR do veículo (Bloco E) ─────────────────────────────────────────────
+// "Gerar QR"/"Reemitir" usam o recurso `veiculo_portaria` (mesmo do
+// cadastro) — emitir/revogar credencial é ato de quem cuida do cadastro,
+// não de autorização.
+
+// Rota protegida por Bearer — <img src> puro não manda o header, então
+// busca o SVG via fetch autenticado e converte pra blob: URL (mesmo padrão
+// de ocorrencia.form.js/baixarAnexo).
+async function buscarImagemQr(veiculoId) {
+    const token = localStorage.getItem(TOKEN_KEY);
+    try {
+        const resp = await fetch(`${API_BASE_URL}/portaria/veiculos/${veiculoId}/credencial.svg`, {
+            headers: token ? { Authorization: `Bearer ${token}` } : {},
+        });
+        if (!resp.ok) return null;
+        const blob = await resp.blob();
+        return URL.createObjectURL(blob);
+    } catch (err) {
+        console.error('[portaria-veiculos] erro ao buscar imagem do QR:', err);
+        return null;
+    }
+}
+
+async function carregarCredencial(veiculoId) {
+    try {
+        credencialAtual = await apiGet(`/portaria/veiculos/${veiculoId}/credencial`);
+    } catch (err) {
+        if (err instanceof ApiError && err.status === 401) return;
+        console.error('[portaria-veiculos] erro ao carregar credencial:', err);
+        credencialAtual = null;
+    }
+    await renderCredencial();
+}
+
+async function renderCredencial() {
+    const wrap = document.getElementById('ficha-qr-wrap');
+    const podeCadastrar = podeEscrever('veiculo_portaria');
+    wrap.style.display = podeCadastrar ? 'block' : 'none';
+    if (!podeCadastrar) return;
+
+    document.getElementById('ficha-qr-motivo-wrap').style.display = 'none';
+    document.getElementById('ficha-qr-erro').style.display = 'none';
+
+    const status = document.getElementById('ficha-qr-status');
+    const img = document.getElementById('ficha-qr-img');
+    const btnGerar = document.getElementById('btn-gerar-qr');
+    const btnReemitir = document.getElementById('btn-reemitir-qr');
+
+    if (credencialImgUrl) {
+        URL.revokeObjectURL(credencialImgUrl);
+        credencialImgUrl = null;
+    }
+
+    if (!credencialAtual) {
+        status.textContent = 'Nenhum QR emitido.';
+        img.style.display = 'none';
+        btnGerar.style.display = 'block';
+        btnReemitir.style.display = 'none';
+        return;
+    }
+
+    status.textContent = `QR ativo — emitido em ${fmtDataHora(credencialAtual.emitida_em)}.`;
+    btnGerar.style.display = 'none';
+    btnReemitir.style.display = 'block';
+
+    credencialImgUrl = await buscarImagemQr(fichaVeiculoAtual.id);
+    if (credencialImgUrl) {
+        img.src = credencialImgUrl;
+        img.style.display = 'block';
+    } else {
+        img.style.display = 'none';
+    }
+}
+
+function initFichaQr() {
+    document.getElementById('btn-gerar-qr').addEventListener('click', () => emitirCredencial(null));
+    document.getElementById('btn-reemitir-qr').addEventListener('click', () => {
+        document.getElementById('ficha-qr-motivo').value = '';
+        document.getElementById('ficha-qr-erro').style.display = 'none';
+        document.getElementById('ficha-qr-motivo-wrap').style.display = 'block';
+    });
+    document.getElementById('btn-cancelar-qr-motivo').addEventListener('click', () => {
+        document.getElementById('ficha-qr-motivo-wrap').style.display = 'none';
+    });
+    document.getElementById('btn-confirmar-qr-motivo').addEventListener('click', () => {
+        const motivo = document.getElementById('ficha-qr-motivo').value.trim();
+        if (!motivo) {
+            document.getElementById('ficha-qr-erro').textContent = 'Motivo é obrigatório para reemitir.';
+            document.getElementById('ficha-qr-erro').style.display = 'block';
+            return;
+        }
+        emitirCredencial(motivo);
+    });
+}
+
+async function emitirCredencial(motivo) {
+    if (!fichaVeiculoAtual) return;
+    const erro = document.getElementById('ficha-qr-erro');
+    erro.style.display = 'none';
+    try {
+        credencialAtual = await apiPost(`/portaria/veiculos/${fichaVeiculoAtual.id}/credencial`, { motivo: motivo || null });
+        document.getElementById('ficha-qr-motivo-wrap').style.display = 'none';
+        await renderCredencial();
+    } catch (err) {
+        if (err instanceof ApiError && err.status === 401) return;
+        erro.textContent = err.message;
+        erro.style.display = 'block';
+    }
+}
+
+// ─── Seleção múltipla + impressão de etiquetas (Bloco E) ────────────────
+function atualizarBarraImpressao() {
+    const barra = document.getElementById('barra-imprimir-etiquetas');
+    document.getElementById('qtd-selecionados').textContent = String(selecionados.size);
+    barra.style.display = selecionados.size > 0 ? 'block' : 'none';
+}
+
+function initImprimirEtiquetas() {
+    document.getElementById('btn-imprimir-etiquetas').addEventListener('click', async () => {
+        if (selecionados.size === 0) return;
+        const token = localStorage.getItem(TOKEN_KEY);
+        const ids = Array.from(selecionados).join(',');
+        try {
+            const resp = await fetch(`${API_BASE_URL}/portaria/credenciais/etiquetas?ids=${encodeURIComponent(ids)}`, {
+                headers: token ? { Authorization: `Bearer ${token}` } : {},
+            });
+            if (!resp.ok) throw new Error('Falha ao gerar etiquetas');
+            const blob = await resp.blob();
+            const url = URL.createObjectURL(blob);
+            window.open(url, '_blank');
+            setTimeout(() => URL.revokeObjectURL(url), 60000);
+        } catch (err) {
+            alert('Não foi possível abrir as etiquetas: ' + err.message);
+        }
+    });
 }
 
 // ─── Bloquear por RE (D12) — mostra a lista ANTES de confirmar ─────────
@@ -562,6 +728,8 @@ aplicarPermissoes();
 initTabs();
 initFiltrosTodos();
 initFicha();
+initFichaQr();
+initImprimirEtiquetas();
 initBloquearPorRe();
 initNovoVeiculo();
 initNovaEmpresa();

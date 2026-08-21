@@ -32,6 +32,7 @@ dependencies = [
     "python-multipart>=0.0.20",  # upload de arquivos
     "openpyxl>=3.1.5",            # leitura de Excel
     "httpx>=0.27.0",              # webhook n8n (pré-ocorrência)
+    "qrcode>=8.0",                 # QR do veículo (Portaria)
 ]
 
 [project.optional-dependencies]

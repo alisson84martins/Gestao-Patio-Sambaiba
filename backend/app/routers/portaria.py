@@ -18,7 +18,7 @@ from app.core.config import FUSO_OPERACAO
 from app.core.database import get_db
 from app.core.deps import exige
 from app.models.cadastro import Funcionario
-from app.models.portaria import MovimentoPortaria, VeiculoPortaria
+from app.models.portaria import Credencial, MovimentoPortaria, VeiculoPortaria
 from app.schemas.portaria import (
     BuscaVeiculoResponse, MovimentoCreate, MovimentoCreateResponse, MovimentoRead,
     PortariaDentroResponse, Propriedade, Sentido, VeiculoCandidato, normalizar_placa,
@@ -190,6 +190,38 @@ def buscar(
     # busca também: sem candidato, o controlador segue pro fluxo de
     # "não encontrado" (cadastrar agora / registrar avulso).
     return BuscaVeiculoResponse(candidatos=[_candidato(v, db) for v in candidatos], exato=False)
+
+
+@router.get(
+    "/buscar-credencial",
+    response_model=BuscaVeiculoResponse,
+    summary="Resolve o código lido do QR pro mesmo card de confirmação da busca por placa (Bloco E, D15)",
+)
+def buscar_credencial(
+    usuario: LeituraAcesso,
+    db: Annotated[Session, Depends(get_db)],
+    codigo: str = Query(..., min_length=1, max_length=64),
+):
+    # Código inexistente ou credencial revogada -> 200 com lista vazia, igual
+    # a placa não encontrada (regra número um vale pra busca também — ⛔
+    # nunca 404/403 aqui). ⚠️ credencial.ativa=FALSE não é proibição: é só
+    # "adesivo velho" — o veículo continua registrável pela placa igual
+    # sempre foi, só o atalho do QR é que para de funcionar.
+    credencial = db.execute(
+        select(Credencial).where(Credencial.codigo == codigo, Credencial.ativa.is_(True))
+    ).scalar_one_or_none()
+    if credencial is None:
+        return BuscaVeiculoResponse(candidatos=[], exato=False)
+
+    veiculo = db.execute(
+        select(VeiculoPortaria).where(
+            VeiculoPortaria.id == credencial.veiculo_id, VeiculoPortaria.ativo.is_(True)
+        )
+    ).scalar_one_or_none()
+    if veiculo is None:
+        return BuscaVeiculoResponse(candidatos=[], exato=False)
+
+    return BuscaVeiculoResponse(candidatos=[_candidato(veiculo, db)], exato=True)
 
 
 # ============================================================================
