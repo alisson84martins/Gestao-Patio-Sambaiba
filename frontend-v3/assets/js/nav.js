@@ -34,6 +34,13 @@ const LINKS = [
     { href: 'portaria.html', texto: 'Portaria', recurso: 'acesso_veicular' },
     { href: 'portaria-veiculos.html', texto: 'Veículos', recurso: 'veiculo_portaria' },
     { href: 'portaria-consulta.html', texto: 'Histórico', recurso: 'acesso_veicular' },
+    // Bloco F (migration 026) — os dois usam o mesmo recurso mas servem
+    // gente diferente: Recolhida é o registro do controlador, Fila é a
+    // avaliação da manutenção (+ análise gerencial, se a pessoa tiver
+    // recolhida_gerencial). Rótulos registrados como pergunta em aberto no
+    // handoff — ver §4.2 do prompt.
+    { href: 'portaria-recolhida.html', texto: 'Recolhida', recurso: 'recolhida_anormal' },
+    { href: 'manutencao-recolhidas.html', texto: 'Fila de Recolhidas', recurso: 'recolhida_anormal' },
 ];
 
 export function initNav() {

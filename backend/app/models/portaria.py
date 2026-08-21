@@ -209,3 +209,75 @@ class Credencial(Base):
     # FALSE = revogada. ⚠️ Nunca impede o veículo de entrar — proibição é
     # VeiculoPortaria.situacao, não isto.
     ativa: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+
+
+class RecolhidaAnormal(Base):
+    """Ônibus que recolhe fora de hora, com defeito (Bloco F). Espelha
+    database/migrations/026-recolhida-anormal.sql. Evento de OPERAÇÃO, não
+    de manutenção — existe pra melhoria de processo e de frota, nunca pra
+    avaliar pessoa.
+
+    🔴 motorista_re/motorista_nome/cobrador_re/cobrador_nome são GERENCIAL
+    — nunca saem de um endpoint que não exige recolhida_gerencial. A tela
+    da portaria não vê, não pede e não devolve nada disso.
+
+    ⚠️ ficha_id é a ÚNICA FK deste módulo pra fora do schema portaria (além
+    de funcionario/local) — ver services/manutencao_recolhida.py."""
+
+    __tablename__ = "recolhida_anormal"
+    __table_args__ = {"schema": SCHEMA}
+
+    id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True, default=uuid4)
+
+    local_codigo: Mapped[str] = mapped_column(
+        String(20), ForeignKey(f"{SCHEMA}.local.codigo"), nullable=False, default="LEVES"
+    )
+    momento: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    data_referencia: Mapped[date] = mapped_column(Date, nullable=False)
+
+    # ── o que a PORTARIA informa ────────────────────────────────────────
+    prefixo: Mapped[str] = mapped_column(String(10), nullable=False)
+    # ⛔ Sem FK (regra de fronteira) — resolvido pelo backend quando existe
+    # ônibus cadastrado com aquele número de frota.
+    onibus_id: Mapped[Optional[UUID]] = mapped_column(PG_UUID(as_uuid=True), nullable=True)
+    linha_codigo: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
+    tipo_defeito_codigo: Mapped[str] = mapped_column(String(20), nullable=False)
+    relato: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+
+    # ── 🔴 GERENCIAL — nunca exposto na tela da portaria ────────────────
+    motorista_re: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
+    motorista_nome: Mapped[Optional[str]] = mapped_column(String(120), nullable=True)
+    # Sempre NULL na prática — a tabela escala não tem campo de cobrador,
+    # não há de onde resolver por join (decisão de 21/08/2026). Colunas
+    # existem pra quando houver uma fonte de dado real.
+    cobrador_re: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
+    cobrador_nome: Mapped[Optional[str]] = mapped_column(String(120), nullable=True)
+    origem_identificacao: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="NAO_IDENTIFICADO"
+    )
+
+    # ── ligação com a manutenção — ÚNICA exceção à regra de fronteira ───
+    ficha_id: Mapped[Optional[UUID]] = mapped_column(
+        PG_UUID(as_uuid=True), ForeignKey("ficha_manutencao.id"), nullable=True
+    )
+    ficha_falhou_motivo: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+
+    # ── resposta da MANUTENÇÃO ──────────────────────────────────────────
+    avaliacao: Mapped[Optional[str]] = mapped_column(String(12), nullable=True)
+    prazo_minutos: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    avaliacao_relato: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    avaliado_por: Mapped[Optional[UUID]] = mapped_column(
+        PG_UUID(as_uuid=True), ForeignKey("funcionario.id"), nullable=True
+    )
+    avaliado_em: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    status: Mapped[str] = mapped_column(String(12), nullable=False, default="AGUARDANDO")
+
+    registrado_por: Mapped[UUID] = mapped_column(
+        PG_UUID(as_uuid=True), ForeignKey("funcionario.id"), nullable=False
+    )
+    criado_em: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )

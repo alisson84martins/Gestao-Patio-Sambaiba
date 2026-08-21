@@ -27,7 +27,7 @@ from app.models.operacoes import Alerta, Escala, FichaManutencao, ImportacaoEsca
 from app.models.pessoas import Motorista, Usuario
 from app.models.portaria import (
     Credencial, EmpresaTerceira, MovimentoPortaria, PortariaLocal,
-    VeiculoPortaria, VeiculoSituacaoHist,
+    RecolhidaAnormal, VeiculoPortaria, VeiculoSituacaoHist,
 )
 from app.models.pre_ocorrencia import PreOcorrencia, PreOcorrenciaAnexo, PreOcorrenciaAutorizacao
 
@@ -52,5 +52,5 @@ __all__ = [
     "PreOcorrenciaAutorizacao", "PreOcorrencia", "PreOcorrenciaAnexo",
     # Portaria — controle de acesso veicular
     "PortariaLocal", "EmpresaTerceira", "VeiculoPortaria",
-    "VeiculoSituacaoHist", "MovimentoPortaria", "Credencial",
+    "VeiculoSituacaoHist", "MovimentoPortaria", "Credencial", "RecolhidaAnormal",
 ]

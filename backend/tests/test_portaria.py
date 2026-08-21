@@ -21,13 +21,13 @@ migration 024 criou.
 import sqlite3
 import typing
 import uuid as _uuid_mod
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, time, timedelta, timezone
 from uuid import UUID, uuid4
 
 import pytest
 from fastapi import HTTPException, status
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine, event, select
+from sqlalchemy import create_engine, event, select, text
 from sqlalchemy.orm import Session
 from sqlalchemy.pool import StaticPool
 
@@ -35,11 +35,16 @@ from app.core.config import FUSO_OPERACAO
 from app.core.database import Base, get_db
 from app.main import app
 from app.models.cadastro import Funcionario
+from app.models.catalogos import Linha, TipoDefeito
+from app.models.enums import OrigemEscalaEnum, SetorEnum, StatusFichaEnum, TipoEscalaEnum
+from app.models.operacoes import Escala, FichaManutencao, ImportacaoEscala
+from app.models.pessoas import Motorista, Usuario
 from app.models.portaria import (
     Credencial, EmpresaTerceira, MovimentoPortaria, PortariaLocal,
-    VeiculoPortaria, VeiculoSituacaoHist,
+    RecolhidaAnormal, VeiculoPortaria, VeiculoSituacaoHist,
 )
 from app.routers import portaria as portaria_router_mod
+from app.routers import portaria_recolhidas as portaria_recolhidas_router_mod
 from app.routers import portaria_veiculos as portaria_veiculos_router_mod
 
 # Mesmo ajuste de test_pre_ocorrencia.py/test_ocorrencias_visibilidade.py:
@@ -58,34 +63,73 @@ def _dependency_de(annotated_type):
 _CONTROLADOR = Funcionario(id=uuid4(), re="60001", nome="Controlador Teste")
 _ENCARREGADO = Funcionario(id=uuid4(), re="60002", nome="Encarregado Teste")
 _ADMIN = Funcionario(id=uuid4(), re="60003", nome="Admin Teste")
+_MECANICO = Funcionario(id=uuid4(), re="60004", nome="Mecânico Teste")
 _DONO_A = Funcionario(id=uuid4(), re="60010", nome="Dono A")
 _DONO_B = Funcionario(id=uuid4(), re="60011", nome="Dono B")
 
 _TABELAS = [
     Funcionario.__table__, PortariaLocal.__table__, EmpresaTerceira.__table__,
     VeiculoPortaria.__table__, VeiculoSituacaoHist.__table__, MovimentoPortaria.__table__,
-    Credencial.__table__,
+    Credencial.__table__, RecolhidaAnormal.__table__,
+    Motorista.__table__, Linha.__table__, TipoDefeito.__table__,
+    ImportacaoEscala.__table__, Escala.__table__, Usuario.__table__, FichaManutencao.__table__,
 ]
 
-# Pacote de permissões da migration 024 (§2.5) — CONTROLADOR_ACESSO escreve
-# cadastro mas só lê autorização (D6); ENCARREGADO é o espelho.
+# Onibus tem coluna GERADA com sintaxe específica do Postgres (CASE ...
+# ::setor_enum) que o SQLite não entende — mesmo ajuste de
+# test_ocorrencias_autopreencher.py/test_renumerar_fila.py: DDL bruto, sem
+# GENERATED, "setor" como valor comum. Não muda o que o SELECT via ORM lê.
+_DDL_ONIBUS = """
+CREATE TABLE onibus (
+    id CHAR(36) PRIMARY KEY,
+    numero_frota INTEGER NOT NULL UNIQUE,
+    placa VARCHAR(10),
+    setor VARCHAR(10),
+    status VARCHAR(20) NOT NULL DEFAULT 'ATIVO',
+    codigo_externo VARCHAR(50),
+    criado_em DATETIME,
+    criado_por CHAR(36),
+    atualizado_em DATETIME,
+    atualizado_por CHAR(36)
+)
+"""
+
+# Pacote de permissões — migration 024 (§2.5, D6) + migration 026 (Bloco F,
+# §2.4): CONTROLADOR_ACESSO escreve recolhida_anormal mas NUNCA tem
+# recolhida_gerencial; MECANICO escreve recolhida_anormal e `manutencao`
+# (recurso já existente — a avaliação usa esse, não um recurso novo).
 _PERMISSOES = {
     "CONTROLADOR": {
         "leitura_acesso": True, "escrita_acesso": True,
         "leitura_cadastro": True, "escrita_cadastro": True,
         "leitura_autorizacao": True, "escrita_autorizacao": False,
+        "leitura_recolhida": True, "escrita_recolhida": True,
+        "leitura_gerencial": False, "escrita_manutencao": False,
     },
     "ENCARREGADO": {
         "leitura_acesso": True, "escrita_acesso": False,
         "leitura_cadastro": True, "escrita_cadastro": True,
         "leitura_autorizacao": True, "escrita_autorizacao": True,
+        "leitura_recolhida": True, "escrita_recolhida": False,
+        "leitura_gerencial": True, "escrita_manutencao": False,
+    },
+    "MECANICO": {
+        "leitura_acesso": False, "escrita_acesso": False,
+        "leitura_cadastro": False, "escrita_cadastro": False,
+        "leitura_autorizacao": False, "escrita_autorizacao": False,
+        "leitura_recolhida": True, "escrita_recolhida": True,
+        "leitura_gerencial": False, "escrita_manutencao": True,
     },
     "ADMIN": {chave: True for chave in (
         "leitura_acesso", "escrita_acesso", "leitura_cadastro",
         "escrita_cadastro", "leitura_autorizacao", "escrita_autorizacao",
+        "leitura_recolhida", "escrita_recolhida", "leitura_gerencial", "escrita_manutencao",
     )},
 }
-_USUARIOS = {"CONTROLADOR": _CONTROLADOR, "ENCARREGADO": _ENCARREGADO, "ADMIN": _ADMIN}
+_USUARIOS = {
+    "CONTROLADOR": _CONTROLADOR, "ENCARREGADO": _ENCARREGADO,
+    "ADMIN": _ADMIN, "MECANICO": _MECANICO,
+}
 
 
 @pytest.fixture
@@ -102,9 +146,11 @@ def ambiente():
         dbapi_conn.execute("PRAGMA foreign_keys=ON")
 
     Base.metadata.create_all(engine, tables=_TABELAS)
+    with engine.begin() as conn:
+        conn.exec_driver_sql(_DDL_ONIBUS)
 
     with Session(engine) as setup:
-        for f in (_CONTROLADOR, _ENCARREGADO, _ADMIN, _DONO_A, _DONO_B):
+        for f in (_CONTROLADOR, _ENCARREGADO, _ADMIN, _MECANICO, _DONO_A, _DONO_B):
             setup.add(Funcionario(id=f.id, re=f.re, nome=f.nome, status="ATIVO"))
         setup.add(PortariaLocal(codigo="LEVES", nome="Portaria de leves", ordem=1, ativo=True))
         setup.commit()
@@ -123,6 +169,10 @@ def ambiente():
         "escrita_cadastro": _dependency_de(portaria_veiculos_router_mod.EscritaCadastro),
         "leitura_autorizacao": _dependency_de(portaria_veiculos_router_mod.LeituraAutorizacao),
         "escrita_autorizacao": _dependency_de(portaria_veiculos_router_mod.EscritaAutorizacao),
+        "leitura_recolhida": _dependency_de(portaria_recolhidas_router_mod.LeituraRecolhida),
+        "escrita_recolhida": _dependency_de(portaria_recolhidas_router_mod.EscritaRecolhida),
+        "leitura_gerencial": _dependency_de(portaria_recolhidas_router_mod.LeituraGerencial),
+        "escrita_manutencao": _dependency_de(portaria_recolhidas_router_mod.EscritaManutencao),
     }
 
     app.dependency_overrides[get_db] = _get_db_teste
@@ -156,6 +206,55 @@ def _como(ambiente, papel):
         dep = ambiente[chave]
         ambiente["http"].app.dependency_overrides[dep] = _permitir(usuario) if permitido else _negar()
     return usuario
+
+
+def _criar_onibus(engine, numero_frota: int) -> UUID:
+    """Mesmo padrão de test_ocorrencias_autopreencher.py::_criar_onibus —
+    INSERT bruto, nunca a classe ORM (Computed() faria o SQLAlchemy excluir
+    `setor` do INSERT e a tabela de teste não tem a cláusula GENERATED)."""
+    onibus_id = uuid4()
+    with engine.begin() as conn:
+        # .hex (sem hífen), não str() — mesmo formato que o adapter sqlite3
+        # registrado no topo do arquivo grava pra UUID vindo do lado ORM;
+        # com formatos diferentes o FK de escala.onibus_id não bate (string
+        # crua, sem normalização de UUID pelo SQLite).
+        conn.execute(
+            text("INSERT INTO onibus (id, numero_frota, status) VALUES (:id, :numero_frota, 'ATIVO')"),
+            {"id": onibus_id.hex, "numero_frota": numero_frota},
+        )
+    return onibus_id
+
+
+def _criar_linha(db, codigo="101") -> Linha:
+    linha = Linha(id=uuid4(), codigo=codigo, nome=f"Linha {codigo}", setor=SetorEnum.E2, ativa=True)
+    db.add(linha)
+    db.flush()
+    return linha
+
+
+def _criar_tipo_defeito(db, codigo="MEC_MOTOR") -> TipoDefeito:
+    tipo = TipoDefeito(id=uuid4(), codigo=codigo, nome="Motor", categoria="mecanica", ativo=True)
+    db.add(tipo)
+    db.flush()
+    return tipo
+
+
+def _criar_motorista(db, re="50001", nome="Motorista Teste") -> Motorista:
+    motorista = Motorista(id=uuid4(), re=re, nome=nome, status="ATIVO")
+    db.add(motorista)
+    db.flush()
+    return motorista
+
+
+def _criar_escala(db, *, onibus_id, motorista_id, linha_id, data, horario_saida) -> Escala:
+    escala = Escala(
+        id=uuid4(), data=data, onibus_id=onibus_id, motorista_id=motorista_id,
+        linha_id=linha_id, horario_saida=horario_saida,
+        tipo=TipoEscalaEnum.MANOBRA, origem=OrigemEscalaEnum.MANUAL,
+    )
+    db.add(escala)
+    db.flush()
+    return escala
 
 
 def _criar_veiculo(ambiente, **campos) -> UUID:
@@ -606,3 +705,231 @@ def test_credencial_svg_e_etiquetas_respondem_conteudo_esperado(ambiente):
     # ⛔ Nada de RE, nome ou CPF impresso na etiqueta (§1.4).
     assert _DONO_A.re not in etiquetas.text
     assert _DONO_A.nome not in etiquetas.text
+
+
+# ============================================================================
+# BLOCO F — Recolhida anormal (§2.8 do prompt)
+# ============================================================================
+
+# ─── 7 — controlador registra recolhida -> 201, AGUARDANDO ─────────────
+
+def test_controlador_registra_recolhida_201_aguardando(ambiente):
+    _como(ambiente, "CONTROLADOR")
+    resp = ambiente["http"].post("/portaria/recolhidas", json={
+        "prefixo": "9999", "tipo_defeito_codigo": "MEC_MOTOR", "relato": "Fumaça no motor",
+    })
+    assert resp.status_code == 201, resp.text
+    assert resp.json()["status"] == "AGUARDANDO"
+
+
+# ─── 8 — 🔴 o teste mais importante: sem motorista/cobrador na resposta ─
+
+def test_resposta_da_recolhida_nao_contem_motorista_nem_cobrador(ambiente):
+    with Session(ambiente["engine"]) as db:
+        onibus_id = _criar_onibus(ambiente["engine"], numero_frota=1721)
+        linha = _criar_linha(db)
+        motorista = _criar_motorista(db, re="50001", nome="Fulano da Silva")
+        _criar_tipo_defeito(db, codigo="MEC_MOTOR")
+        agora_sp = datetime.now(FUSO_OPERACAO)
+        _criar_escala(
+            db, onibus_id=onibus_id, motorista_id=motorista.id, linha_id=linha.id,
+            data=agora_sp.date(), horario_saida=time(0, 0),
+        )
+        db.commit()
+
+    _como(ambiente, "CONTROLADOR")
+    resp = ambiente["http"].post("/portaria/recolhidas", json={
+        "prefixo": "1721", "tipo_defeito_codigo": "MEC_MOTOR",
+    })
+    assert resp.status_code == 201, resp.text
+    corpo = resp.json()
+    assert "motorista_re" not in corpo
+    assert "motorista_nome" not in corpo
+    assert "cobrador_re" not in corpo
+    assert "cobrador_nome" not in corpo
+    # Confere na base que a escala RESOLVEU (a prova de que o teste não
+    # está passando "por acidente", sem motorista nenhum pra esconder).
+    with Session(ambiente["engine"]) as db:
+        salva = db.get(RecolhidaAnormal, UUID(corpo["id"]))
+    assert salva.motorista_re == "50001"
+    assert salva.motorista_nome == "Fulano da Silva"
+    assert salva.origem_identificacao == "ESCALA"
+    assert salva.cobrador_re is None  # ⚠️ estrutural — ver §2.3/migration 026
+
+    listagem = ambiente["http"].get("/portaria/recolhidas")
+    assert listagem.status_code == 200, listagem.text
+    for item in listagem.json():
+        assert "motorista_re" not in item
+        assert "motorista_nome" not in item
+
+
+# ─── 9 — 🔴 quem só tem recolhida_anormal não acessa /gerencial ────────
+
+def test_gerencial_nega_403_para_quem_so_tem_recolhida_anormal(ambiente):
+    _como(ambiente, "CONTROLADOR")
+    resp = ambiente["http"].get("/portaria/recolhidas/gerencial")
+    assert resp.status_code == 403, resp.text
+
+
+# ─── 10 — prefixo inexistente registra 201 mesmo assim, onibus_id nulo ─
+
+def test_prefixo_inexistente_registra_201_onibus_id_nulo(ambiente):
+    _como(ambiente, "CONTROLADOR")
+    resp = ambiente["http"].post("/portaria/recolhidas", json={
+        "prefixo": "8888", "tipo_defeito_codigo": "MEC_MOTOR",
+    })
+    assert resp.status_code == 201, resp.text
+    assert resp.json()["onibus_id"] is None
+
+
+# ─── 11 — ônibus existe mas escala não resolve -> NAO_IDENTIFICADO ─────
+
+def test_escala_nao_resolve_grava_nao_identificado(ambiente):
+    onibus_id = _criar_onibus(ambiente["engine"], numero_frota=1722)
+    with Session(ambiente["engine"]) as db:
+        _criar_tipo_defeito(db, codigo="MEC_MOTOR")
+        db.commit()
+
+    _como(ambiente, "CONTROLADOR")
+    resp = ambiente["http"].post("/portaria/recolhidas", json={
+        "prefixo": "1722", "tipo_defeito_codigo": "MEC_MOTOR",
+    })
+    assert resp.status_code == 201, resp.text
+    assert resp.json()["onibus_id"] == str(onibus_id)
+
+    with Session(ambiente["engine"]) as db:
+        salva = db.get(RecolhidaAnormal, UUID(resp.json()["id"]))
+    assert salva.origem_identificacao == "NAO_IDENTIFICADO"
+    assert salva.motorista_re is None
+
+
+# ─── 12 — 🔴 ficha não pôde nascer: registra assim mesmo, motivo preenchido ─
+
+def test_ficha_nao_nasce_por_tipo_defeito_inexistente_registra_assim_mesmo(ambiente):
+    _criar_onibus(ambiente["engine"], numero_frota=1723)
+    # Propositalmente SEM cadastrar TipoDefeito nenhum — abrir_ficha_de_recolhida
+    # não acha 'COD_INEXISTENTE' no catálogo.
+    _como(ambiente, "CONTROLADOR")
+    resp = ambiente["http"].post("/portaria/recolhidas", json={
+        "prefixo": "1723", "tipo_defeito_codigo": "COD_INEXISTENTE",
+    })
+    assert resp.status_code == 201, resp.text
+    corpo = resp.json()
+    assert corpo["ficha_id"] is None
+    assert corpo["ficha_falhou_motivo"]
+
+
+# ─── 13 — recolhida com prefixo válido cria ficha ABERTA ────────────────
+
+def test_recolhida_com_prefixo_valido_cria_ficha_aberta(ambiente):
+    onibus_id = _criar_onibus(ambiente["engine"], numero_frota=1724)
+    with Session(ambiente["engine"]) as db:
+        _criar_tipo_defeito(db, codigo="MEC_FREIO")
+        db.commit()
+
+    _como(ambiente, "CONTROLADOR")
+    resp = ambiente["http"].post("/portaria/recolhidas", json={
+        "prefixo": "1724", "tipo_defeito_codigo": "MEC_FREIO", "relato": "Freio duro",
+    })
+    assert resp.status_code == 201, resp.text
+    corpo = resp.json()
+    assert corpo["ficha_id"] is not None
+    assert corpo["ficha_falhou_motivo"] is None
+
+    with Session(ambiente["engine"]) as db:
+        ficha = db.get(FichaManutencao, UUID(corpo["ficha_id"]))
+    assert ficha is not None
+    assert ficha.onibus_id == onibus_id
+    assert ficha.status == StatusFichaEnum.ABERTA
+    assert "[Recolhida anormal]" in ficha.descricao
+
+
+# ─── 14 — controlador tentando avaliar -> 403 (sem manutencao escrever) ─
+
+def test_controlador_avaliar_recolhida_nega_403(ambiente):
+    _como(ambiente, "CONTROLADOR")
+    recolhida_id = ambiente["http"].post("/portaria/recolhidas", json={
+        "prefixo": "9998", "tipo_defeito_codigo": "MEC_MOTOR",
+    }).json()["id"]
+
+    resp = ambiente["http"].patch(
+        f"/portaria/recolhidas/{recolhida_id}/avaliacao", json={"avaliacao": "RETIDO"}
+    )
+    assert resp.status_code == 403, resp.text
+
+
+# ─── 15 — mecânico: LIBERADO sem prazo rejeitado; com prazo -> AVALIADA ─
+
+def test_mecanico_avalia_liberado_exige_prazo(ambiente):
+    _como(ambiente, "CONTROLADOR")
+    recolhida_id = ambiente["http"].post("/portaria/recolhidas", json={
+        "prefixo": "9997", "tipo_defeito_codigo": "MEC_MOTOR",
+    }).json()["id"]
+
+    _como(ambiente, "MECANICO")
+    sem_prazo = ambiente["http"].patch(
+        f"/portaria/recolhidas/{recolhida_id}/avaliacao", json={"avaliacao": "LIBERADO"}
+    )
+    assert sem_prazo.status_code == 422, sem_prazo.text
+
+    com_prazo = ambiente["http"].patch(
+        f"/portaria/recolhidas/{recolhida_id}/avaliacao",
+        json={"avaliacao": "LIBERADO", "prazo_minutos": 30},
+    )
+    assert com_prazo.status_code == 200, com_prazo.text
+    corpo = com_prazo.json()
+    assert corpo["status"] == "AVALIADA"
+    assert corpo["prazo_minutos"] == 30
+
+    retido = ambiente["http"].patch(
+        f"/portaria/recolhidas/{recolhida_id}/avaliacao", json={"avaliacao": "RETIDO"}
+    )
+    assert retido.status_code == 200, retido.text
+    assert retido.json()["status"] == "AVALIADA"
+
+
+# ─── 16 — 🔴 data_referencia às 21h em São Paulo é HOJE, não amanhã ────
+
+def test_recolhida_data_referencia_21h_sao_paulo_nao_vira_amanha(ambiente, monkeypatch):
+    momento_sp = datetime(2026, 8, 20, 21, 30, tzinfo=FUSO_OPERACAO)
+    momento_utc = momento_sp.astimezone(timezone.utc)
+
+    class _DatetimeFixo(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            if tz is None:
+                return momento_utc.replace(tzinfo=None)
+            return momento_utc.astimezone(tz)
+
+    monkeypatch.setattr(portaria_recolhidas_router_mod, "datetime", _DatetimeFixo)
+
+    _como(ambiente, "CONTROLADOR")
+    resp = ambiente["http"].post("/portaria/recolhidas", json={
+        "prefixo": "9996", "tipo_defeito_codigo": "MEC_MOTOR",
+    })
+    assert resp.status_code == 201, resp.text
+    assert resp.json()["data_referencia"] == "2026-08-20"
+
+
+# ─── 17 — fila/contagem/análise respondem (endpoints além dos 4 do prompt) ─
+
+def test_pendentes_contagem_e_analise_respondem(ambiente):
+    _como(ambiente, "CONTROLADOR")
+    ambiente["http"].post("/portaria/recolhidas", json={
+        "prefixo": "9995", "tipo_defeito_codigo": "MEC_MOTOR",
+    })
+
+    _como(ambiente, "MECANICO")
+    pendentes = ambiente["http"].get("/portaria/recolhidas/pendentes")
+    assert pendentes.status_code == 200, pendentes.text
+    assert len(pendentes.json()) == 1
+
+    contagem = ambiente["http"].get("/portaria/recolhidas/contagem-pendentes")
+    assert contagem.status_code == 200, contagem.text
+    assert contagem.json()["total"] == 1
+
+    _como(ambiente, "ENCARREGADO")
+    analise = ambiente["http"].get("/portaria/recolhidas/analise")
+    assert analise.status_code == 200, analise.text
+    corpo = analise.json()
+    assert any(item["chave"] == "9995" for item in corpo["por_prefixo"])

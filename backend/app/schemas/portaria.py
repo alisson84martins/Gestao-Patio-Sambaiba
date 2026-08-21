@@ -350,3 +350,114 @@ class CredencialEmitirRequest(BaseModel):
 
 class CredencialRevogarRequest(BaseModel):
     motivo: str = Field(..., min_length=1)
+
+
+# ============================================================================
+# RECOLHIDA ANORMAL (Bloco F) — ônibus que recolhe fora de hora, com defeito.
+# Evento de OPERAÇÃO, não de manutenção. Existe pra melhoria de processo e
+# de frota — a associação motorista↔defeito é do VEÍCULO, não da pessoa.
+#
+# 🔴 Dois schemas de leitura, e isso é a trava de verdade: RecolhidaRead
+# nunca carrega motorista/cobrador; RecolhidaGerencialRead acrescenta esses
+# campos e só sai de endpoint que exige recolhida_gerencial.
+# ============================================================================
+
+StatusRecolhida = Literal["AGUARDANDO", "AVALIADA", "DESCARTADA"]
+AvaliacaoRecolhida = Literal["LIBERADO", "RETIDO"]
+OrigemIdentificacaoRecolhida = Literal["ESCALA", "MANUAL", "NAO_IDENTIFICADO"]
+
+
+class RecolhidaCreate(BaseModel):
+    """POST /portaria/recolhidas — só o que a PORTARIA informa. ⛔ Sem
+    motorista/cobrador de propósito: o backend resolve pela escala."""
+
+    local_codigo: str = "LEVES"
+    prefixo: str = Field(..., min_length=1, max_length=10)
+    linha_codigo: Optional[str] = Field(None, max_length=20)
+    tipo_defeito_codigo: str = Field(..., max_length=20)
+    relato: Optional[str] = None
+
+
+class RecolhidaRead(ORMBase):
+    """SEM motorista/cobrador. É o que a portaria e a manutenção recebem."""
+
+    id: UUID
+    local_codigo: str
+    momento: datetime
+    data_referencia: date
+    prefixo: str
+    onibus_id: Optional[UUID] = None
+    linha_codigo: Optional[str] = None
+    tipo_defeito_codigo: str
+    relato: Optional[str] = None
+    ficha_id: Optional[UUID] = None
+    ficha_falhou_motivo: Optional[str] = None
+    avaliacao: Optional[AvaliacaoRecolhida] = None
+    prazo_minutos: Optional[int] = None
+    avaliacao_relato: Optional[str] = None
+    avaliado_por: Optional[UUID] = None
+    avaliado_em: Optional[datetime] = None
+    status: StatusRecolhida
+    registrado_por: UUID
+    criado_em: datetime
+
+
+class RecolhidaGerencialRead(RecolhidaRead):
+    """Acrescenta motorista/cobrador/origem — só de endpoint que exige
+    recolhida_gerencial (§2.5). ⛔ Nunca devolvido de endpoint sem essa
+    exigência — esconder no frontend não é proteção, o dado não pode nem
+    sair da API."""
+
+    motorista_re: Optional[str] = None
+    motorista_nome: Optional[str] = None
+    cobrador_re: Optional[str] = None
+    cobrador_nome: Optional[str] = None
+    origem_identificacao: OrigemIdentificacaoRecolhida
+
+
+class RecolhidaAvaliacaoRequest(BaseModel):
+    """PATCH /portaria/recolhidas/{id}/avaliacao — recurso `manutencao`
+    escrever (já existente, nenhum recurso novo pra isso)."""
+
+    avaliacao: AvaliacaoRecolhida
+    prazo_minutos: Optional[int] = Field(None, ge=0)
+    avaliacao_relato: Optional[str] = None
+
+    @model_validator(mode="after")
+    def _prazo_obrigatorio_quando_liberado(self) -> "RecolhidaAvaliacaoRequest":
+        if self.avaliacao == "LIBERADO" and self.prazo_minutos is None:
+            raise ValueError("prazo_minutos é obrigatório quando avaliacao=LIBERADO.")
+        return self
+
+
+class ContagemPendentesResponse(BaseModel):
+    total: int
+
+
+class ResolverPrefixoResponse(BaseModel):
+    """🔧 Adição fora do desenho original do prompt (§2.6): a tela da
+    portaria precisa mostrar 'prefixo cadastrado' ou 'não cadastrado' ao
+    sair do campo, antes de enviar — sem isso não tem como a UI saber."""
+
+    encontrado: bool
+    placa: Optional[str] = None
+
+
+class RecolhidaAnaliseItem(BaseModel):
+    chave: str
+    total: int
+
+
+class RecolhidaAnaliseResponse(BaseModel):
+    """§2.7 — agregados por período, ordenados por contagem decrescente.
+    ⛔ Sem gráfico nesta fase — tabela resolve e alimenta o Pareto fora do
+    sistema. Finalidade: melhoria de processo e de frota, nunca avaliação
+    de pessoa."""
+
+    por_prefixo: list[RecolhidaAnaliseItem] = Field(default_factory=list)
+    por_linha: list[RecolhidaAnaliseItem] = Field(default_factory=list)
+    por_motorista: list[RecolhidaAnaliseItem] = Field(default_factory=list)
+    por_tipo_defeito: list[RecolhidaAnaliseItem] = Field(default_factory=list)
+    por_faixa_horario: list[RecolhidaAnaliseItem] = Field(default_factory=list)
+    tempo_medio_avaliacao_minutos: Optional[float] = None
+
