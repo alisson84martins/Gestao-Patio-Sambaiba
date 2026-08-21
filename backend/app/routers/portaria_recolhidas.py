@@ -1,24 +1,30 @@
-"""Endpoints de recolhida anormal (Bloco F) — ônibus que recolhe fora de
-hora, com defeito.
+"""Endpoints de recolhida anormal (Blocos F + G) — ônibus que recolhe fora
+de hora.
 
 🔴 REGRA NÚMERO UM (mesma do resto do módulo): o sistema NUNCA impede um
 registro. Prefixo não cadastrado, escala não encontrada, ficha que não pôde
 nascer — registra assim mesmo e sinaliza. POST /recolhidas sempre responde
 201 quando o payload é válido.
 
-🔴 A REGRA DO MOTORISTA: esta tela nunca mostra, pede ou devolve motorista
-nem cobrador pra quem só tem `recolhida_anormal` — isso é gerencial
-(`recolhida_gerencial`). O backend resolve o motorista pela escala
-(prefixo + data_referencia + hora); o cobrador fica sempre NULL porque a
-tabela escala não tem esse campo (ver comentário de
-models/portaria.py:RecolhidaAnormal.cobrador_re).
+🔴 A REGRA DO MOTORISTA (corrigida em 21/08 — §2.9-0): o controlador DIGITA
+motorista_re/cobrador_re — ele está com o carro na frente, é a melhor fonte
+do dado. A separação da regra número um não é sobre o campo, é sobre o
+ACUMULADO: esta tela nunca devolve histórico, agregado ou ranking pra quem
+só tem `recolhida_anormal` — isso é gerencial (`recolhida_gerencial`). A
+escala entra só como SUGESTÃO de pré-preenchimento pro RE do motorista
+(nunca cobrador — a tabela escala não tem esse campo) — nunca fonte única,
+nunca trava o registro.
+
+🔧 BLOCO G: motivo é mais amplo que "defeito" — colisão e falta de
+motorista/cobrador também são recolhida anormal. Só motivo=DEFEITO abre
+ficha de manutenção automaticamente.
 
 FINALIDADE DO DADO: melhoria de processo e de frota. A associação
 motorista↔defeito serve pra encontrar padrão de operação e necessidade de
 treinamento — o dado é do VEÍCULO, não da pessoa.
 """
 from collections import Counter
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import Annotated, Optional
 from uuid import UUID
 
@@ -37,7 +43,7 @@ from app.models.portaria import RecolhidaAnormal
 from app.schemas.portaria import (
     ContagemPendentesResponse, RecolhidaAnaliseItem, RecolhidaAnaliseResponse,
     RecolhidaAvaliacaoRequest, RecolhidaCreate, RecolhidaGerencialRead, RecolhidaRead,
-    ResolverPrefixoResponse, StatusRecolhida,
+    ResolverPrefixoResponse, StatusRecolhida, normalizar_re,
 )
 from app.services.manutencao_recolhida import abrir_ficha_de_recolhida
 
@@ -50,12 +56,16 @@ LeituraGerencial = Annotated[Funcionario, Depends(exige("recolhida_gerencial"))]
 # ADMIN têm escrever (conferido em seeds/08). Nenhum recurso novo pra isso.
 EscritaManutencao = Annotated[Funcionario, Depends(exige("manutencao", escrever=True))]
 
+# §2.9-A: teto de sanidade pra sugestão de motorista pela escala — não
+# pescar escala velha de um ônibus que ficou parado.
+_TETO_SUGESTAO_ESCALA = timedelta(hours=20)
+
 
 # ============================================================================
-# Resolução de prefixo -> ônibus e de escala -> motorista. Privadas deste
-# router de propósito — regra de fronteira: portaria não importa lógica de
-# outro router (mesma convenção duplicada, não compartilhada, de
-# routers/ocorrencias.py:normalizar_prefixo).
+# Resolução de prefixo -> ônibus e de escala -> sugestão de motorista.
+# Privadas deste router de propósito — regra de fronteira: portaria não
+# importa lógica de outro router (mesma convenção duplicada, não
+# compartilhada, de routers/ocorrencias.py:normalizar_prefixo).
 # ============================================================================
 
 def _resolver_onibus_por_prefixo(db: Session, prefixo: str) -> Optional[Onibus]:
@@ -73,26 +83,64 @@ def _resolver_onibus_por_prefixo(db: Session, prefixo: str) -> Optional[Onibus]:
     return db.execute(select(Onibus).where(Onibus.numero_frota == numero)).scalar_one_or_none()
 
 
-def _resolver_motorista_pela_escala(
-    db: Session, onibus_id: UUID, data_referencia: date, hora_local
-):
-    """Escala mais recente daquele ônibus, no dia, com horario_saida <= a
-    hora da recolhida — é o turno que já estava em curso quando o carro
-    voltou com defeito. Sem escala compatível -> não resolve (não chuta)."""
+def _sugerir_motorista_pela_escala(
+    db: Session, onibus_id: UUID, momento_local: datetime
+) -> Optional[Motorista]:
+    """Escala em curso no INSTANTE da recolhida — só pra pré-preencher o
+    campo, nunca resolve sozinha (§2.9-0).
+
+    ⚠️ §2.9-A: nunca compara só hora de relógio solta. Ônibus que sai às
+    23:00 e recolhe às 00:30 tem a escala em curso no dia ANTERIOR —
+    comparar `horario_saida <= hora` sem considerar o dia descartava
+    exatamente essa janela (a virada da madrugada, quando mais importa).
+    Busca escalas do dia da recolhida E do dia anterior, monta o instante
+    real de cada partida (Escala.data já é a data real da planilha, não
+    passa pela regra das 20h do Pátio), e escolhe a mais recente que seja
+    <= o momento da recolhida, com teto de 20h. Sem candidato -> não
+    resolve (não chuta). Empate de horário -> mantém a ordenação da query
+    (mais recente primeiro), nunca vira exceção.
+    """
+    data_referencia = momento_local.date()
     escalas = db.execute(
         select(Escala)
         .where(
             Escala.onibus_id == onibus_id,
-            Escala.data == data_referencia,
+            Escala.data.in_([data_referencia, data_referencia - timedelta(days=1)]),
             Escala.deletado_em.is_(None),
         )
-        .order_by(Escala.horario_saida.desc())
+        .order_by(Escala.data.desc(), Escala.horario_saida.desc())
     ).scalars().all()
-    escolhida = next((e for e in escalas if e.horario_saida <= hora_local), None)
-    if escolhida is None or escolhida.motorista_id is None:
+
+    melhor: Optional[Escala] = None
+    melhor_instante: Optional[datetime] = None
+    for escala in escalas:
+        instante = datetime.combine(escala.data, escala.horario_saida, tzinfo=FUSO_OPERACAO)
+        if instante > momento_local:
+            continue
+        if momento_local - instante > _TETO_SUGESTAO_ESCALA:
+            continue
+        if melhor_instante is None or instante > melhor_instante:
+            melhor, melhor_instante = escala, instante
+
+    if melhor is None or melhor.motorista_id is None:
         return None
-    motorista = db.get(Motorista, escolhida.motorista_id)
-    return motorista
+    return db.get(Motorista, melhor.motorista_id)
+
+
+def _decidir_origem_identificacao(
+    motorista_re: Optional[str], cobrador_re: Optional[str], sugestao: Optional[Motorista]
+) -> str:
+    """PORTARIA/ESCALA/NAO_INFORMADO (§2.9-0) — um único campo cobre
+    motorista+cobrador; a leitura documentada é sobre o MOTORISTA (é o que
+    tem sugestão possível). NAO_INFORMADO só quando os dois campos vieram
+    em branco; ESCALA quando o motorista digitado bate com a sugestão da
+    escala (confirmou sem alterar); PORTARIA no resto (digitou por conta
+    própria, ou alterou o que a escala sugeriu)."""
+    if not motorista_re and not cobrador_re:
+        return "NAO_INFORMADO"
+    if motorista_re and sugestao is not None and motorista_re == normalizar_re(sugestao.re):
+        return "ESCALA"
+    return "PORTARIA"
 
 
 # ============================================================================
@@ -103,7 +151,7 @@ def _resolver_motorista_pela_escala(
 @router.get(
     "/recolhidas/resolver-prefixo",
     response_model=ResolverPrefixoResponse,
-    summary="🔧 Adição fora do desenho original (§2.6) — a tela mostra 'cadastrado' ou 'não cadastrado' ao sair do campo",
+    summary="Mostra 'cadastrado'/'não cadastrado' e sugere o RE do motorista pela escala (§2.6, §2.9-0)",
 )
 def resolver_prefixo(
     usuario: LeituraRecolhida,
@@ -113,7 +161,13 @@ def resolver_prefixo(
     onibus = _resolver_onibus_por_prefixo(db, prefixo)
     if onibus is None:
         return ResolverPrefixoResponse(encontrado=False)
-    return ResolverPrefixoResponse(encontrado=True, placa=onibus.placa)
+    sugestao = _sugerir_motorista_pela_escala(db, onibus.id, datetime.now(FUSO_OPERACAO))
+    return ResolverPrefixoResponse(
+        encontrado=True,
+        placa=onibus.placa,
+        motorista_re_sugerido=sugestao.re if sugestao else None,
+        motorista_nome_sugerido=sugestao.nome if sugestao else None,
+    )
 
 
 @router.get(
@@ -144,7 +198,7 @@ def contar_pendentes(usuario: LeituraRecolhida, db: Annotated[Session, Depends(g
 @router.get(
     "/recolhidas/gerencial",
     response_model=list[RecolhidaGerencialRead],
-    summary="Visão gerencial — com motorista/cobrador. exige recolhida_gerencial",
+    summary="Visão gerencial — com motorista/cobrador/histórico. exige recolhida_gerencial",
 )
 def listar_gerencial(
     usuario: LeituraGerencial,
@@ -193,8 +247,11 @@ def analise_recolhidas(
     por_motorista = Counter(
         f"{r.motorista_re} · {r.motorista_nome}" for r in linhas if r.motorista_re
     )
-    por_tipo_defeito = Counter(r.tipo_defeito_codigo for r in linhas)
+    por_tipo_defeito = Counter(r.tipo_defeito_codigo for r in linhas if r.tipo_defeito_codigo)
     por_faixa_horario = Counter(_faixa_horario(r.momento) for r in linhas)
+    # Bloco G — separa problema de frota (DEFEITO/COLISAO) de problema de
+    # escala (FALTA_MOTORISTA/FALTA_COBRADOR).
+    por_motivo = Counter(r.motivo for r in linhas)
 
     avaliadas = [r for r in linhas if r.avaliado_em is not None]
     tempo_medio: Optional[float] = None
@@ -212,6 +269,7 @@ def analise_recolhidas(
         por_motorista=_ordenado(por_motorista),
         por_tipo_defeito=_ordenado(por_tipo_defeito),
         por_faixa_horario=_ordenado(por_faixa_horario),
+        por_motivo=_ordenado(por_motivo),
         tempo_medio_avaliacao_minutos=tempo_medio,
     )
 
@@ -234,26 +292,32 @@ def registrar_recolhida(
 
     onibus = _resolver_onibus_por_prefixo(db, payload.prefixo)
 
-    motorista_re = motorista_nome = None
-    motorista_id: Optional[UUID] = None
-    origem_identificacao = "NAO_IDENTIFICADO"
-    if onibus is not None:
-        motorista = _resolver_motorista_pela_escala(db, onibus.id, data_referencia, agora_local.time())
-        if motorista is not None:
-            motorista_re = motorista.re
-            motorista_nome = motorista.nome
-            motorista_id = motorista.id
-            origem_identificacao = "ESCALA"
-    # ⚠️ cobrador_re/cobrador_nome ficam sempre NULL — a escala não tem
-    # campo de cobrador, não há de onde resolver (ver docstring do módulo).
-
-    ficha_id, ficha_falhou_motivo = abrir_ficha_de_recolhida(
-        db,
-        onibus_id=onibus.id if onibus is not None else None,
-        motorista_id=motorista_id,
-        tipo_defeito_codigo=payload.tipo_defeito_codigo,
-        relato=payload.relato,
+    sugestao = _sugerir_motorista_pela_escala(db, onibus.id, agora_local) if onibus is not None else None
+    origem_identificacao = _decidir_origem_identificacao(
+        payload.motorista_re, payload.cobrador_re, sugestao
     )
+    motorista_nome = payload.motorista_nome
+    if origem_identificacao == "ESCALA" and not motorista_nome:
+        motorista_nome = sugestao.nome
+
+    # Ficha só recebe motorista_id quando a identificação bateu com a
+    # escala — é o único caso em que temos uma linha verificada na tabela
+    # legada `motorista` por trás do RE (Bloco G: só quando motivo=DEFEITO).
+    motorista_id_para_ficha = sugestao.id if origem_identificacao == "ESCALA" else None
+
+    # 🔧 Bloco G: só motivo=DEFEITO abre ficha de manutenção automática —
+    # os demais (colisão, falta de motorista/cobrador, outro) não são
+    # ordem de serviço; isso não é falha, é o comportamento correto.
+    if payload.motivo == "DEFEITO":
+        ficha_id, ficha_falhou_motivo = abrir_ficha_de_recolhida(
+            db,
+            onibus_id=onibus.id if onibus is not None else None,
+            motorista_id=motorista_id_para_ficha,
+            tipo_defeito_codigo=payload.tipo_defeito_codigo,
+            relato=payload.relato,
+        )
+    else:
+        ficha_id, ficha_falhou_motivo = None, f"motivo {payload.motivo} — não gera ordem de serviço."
 
     nova = RecolhidaAnormal(
         local_codigo=payload.local_codigo,
@@ -261,10 +325,13 @@ def registrar_recolhida(
         prefixo=payload.prefixo,
         onibus_id=onibus.id if onibus is not None else None,
         linha_codigo=payload.linha_codigo,
+        motivo=payload.motivo,
         tipo_defeito_codigo=payload.tipo_defeito_codigo,
         relato=payload.relato,
-        motorista_re=motorista_re,
+        motorista_re=payload.motorista_re,
         motorista_nome=motorista_nome,
+        cobrador_re=payload.cobrador_re,
+        cobrador_nome=payload.cobrador_nome,
         origem_identificacao=origem_identificacao,
         ficha_id=ficha_id,
         ficha_falhou_motivo=ficha_falhou_motivo,

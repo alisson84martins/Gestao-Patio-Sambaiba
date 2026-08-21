@@ -16,6 +16,15 @@ import { podeLer } from './sessao.js';
 import { escapeHtml } from './escape.js';
 import { POLLING_INTERVAL_MS } from './config.js';
 
+// Bloco G: rótulos do motivo — só DEFEITO tem tipo_defeito_codigo.
+const MOTIVO_LABEL = {
+    DEFEITO: 'Defeito',
+    COLISAO: 'Colisão',
+    FALTA_MOTORISTA: 'Falta motorista',
+    FALTA_COBRADOR: 'Falta cobrador',
+    OUTRO: 'Outro',
+};
+
 if (!requireAuth()) {
     throw new Error('Sessão não autenticada — interrompendo carga da página');
 }
@@ -75,7 +84,8 @@ function renderPendentes(itens) {
         btn.type = 'button';
         btn.className = 'portaria-item';
         btn.style.marginBottom = '8px';
-        const sub = [r.tipo_defeito_codigo, r.linha_codigo].filter(Boolean).join(' · ');
+        const sub = [MOTIVO_LABEL[r.motivo] || r.motivo, r.tipo_defeito_codigo, r.linha_codigo]
+            .filter(Boolean).join(' · ');
         btn.innerHTML = `
             <div>
                 <div class="portaria-item-placa">${escapeHtml(r.prefixo)}</div>
@@ -96,7 +106,9 @@ function abrirAvaliacao(recolhida) {
 
     document.getElementById('aval-prefixo').textContent = recolhida.prefixo;
     document.getElementById('aval-linha').textContent = recolhida.linha_codigo ? `Linha ${recolhida.linha_codigo}` : '';
-    document.getElementById('aval-defeito').textContent = recolhida.tipo_defeito_codigo;
+    document.getElementById('aval-defeito').textContent = recolhida.tipo_defeito_codigo
+        ? `${MOTIVO_LABEL[recolhida.motivo] || recolhida.motivo} — ${recolhida.tipo_defeito_codigo}`
+        : (MOTIVO_LABEL[recolhida.motivo] || recolhida.motivo);
     document.getElementById('aval-relato').textContent = recolhida.relato || '';
     document.getElementById('aval-ficha').textContent = recolhida.ficha_id
         ? 'Ficha de manutenção aberta.'
@@ -219,6 +231,7 @@ function renderAgregados(analise) {
         ? `<p class="portaria-ficha-linha">Tempo médio até a avaliação: <strong>${analise.tempo_medio_avaliacao_minutos} min</strong></p>`
         : '';
     el.innerHTML = tempo
+        + _tabela('Por motivo', analise.por_motivo)
         + _tabela('Por prefixo', analise.por_prefixo)
         + _tabela('Por linha', analise.por_linha)
         + _tabela('Por motorista', analise.por_motorista)

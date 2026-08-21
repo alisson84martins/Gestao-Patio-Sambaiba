@@ -21,8 +21,10 @@ from app.models.cadastro import Funcionario
 from app.models.portaria import Credencial, MovimentoPortaria, VeiculoPortaria
 from app.schemas.portaria import (
     BuscaVeiculoResponse, MovimentoCreate, MovimentoCreateResponse, MovimentoRead,
-    PortariaDentroResponse, Propriedade, Sentido, VeiculoCandidato, normalizar_placa,
+    PortariaDentroResponse, Propriedade, ResolverReResponse, Sentido, VeiculoCandidato,
+    normalizar_placa,
 )
+from app.services.identidade import resolver_por_re
 from app.services.portaria import veiculo_read
 
 router = APIRouter(prefix="/portaria", tags=["portaria"])
@@ -222,6 +224,27 @@ def buscar_credencial(
         return BuscaVeiculoResponse(candidatos=[], exato=False)
 
     return BuscaVeiculoResponse(candidatos=[_candidato(veiculo, db)], exato=True)
+
+
+@router.get(
+    "/resolver-re",
+    response_model=ResolverReResponse,
+    summary="§5.3 — confirma quem é um RE exato (funcionario ou motorista), sem devolver dado sensível",
+)
+def resolver_re(
+    usuario: LeituraAcesso,
+    db: Annotated[Session, Depends(get_db)],
+    re: str = Query(..., min_length=3, max_length=20),
+):
+    # Mesmo cuidado do /funcionarios/busca (§4.5-A da revisão anterior):
+    # RE exato, não busca por prefixo — nunca listagem aberta. ⛔ Nunca
+    # 404 — RE inexistente é resultado válido (regra número um).
+    pessoa = resolver_por_re(db, re)
+    if pessoa is None:
+        return ResolverReResponse(encontrado=False)
+    return ResolverReResponse(
+        encontrado=True, nome=pessoa.nome, origem=pessoa.origem, ativo=pessoa.ativo
+    )
 
 
 # ============================================================================

@@ -212,14 +212,19 @@ class Credencial(Base):
 
 
 class RecolhidaAnormal(Base):
-    """Ônibus que recolhe fora de hora, com defeito (Bloco F). Espelha
+    """Ônibus que recolhe fora de hora (Bloco F + Bloco G). Espelha
     database/migrations/026-recolhida-anormal.sql. Evento de OPERAÇÃO, não
     de manutenção — existe pra melhoria de processo e de frota, nunca pra
     avaliar pessoa.
 
-    🔴 motorista_re/motorista_nome/cobrador_re/cobrador_nome são GERENCIAL
-    — nunca saem de um endpoint que não exige recolhida_gerencial. A tela
-    da portaria não vê, não pede e não devolve nada disso.
+    🔴 motorista_re/motorista_nome/cobrador_re/cobrador_nome: o controlador
+    DIGITA os dois REs (§2.9-0 — ele está com o carro na frente, é a melhor
+    fonte do dado). O que a tela da portaria nunca recebe é o ACUMULADO —
+    esses campos nunca saem de um endpoint que não exige recolhida_gerencial.
+
+    🔧 motivo (Bloco G): recolhida nem sempre é defeito — pode ser colisão
+    ou falta de motorista/cobrador. Só motivo=DEFEITO abre ficha de
+    manutenção automaticamente; tipo_defeito_codigo só é exigido nesse caso.
 
     ⚠️ ficha_id é a ÚNICA FK deste módulo pra fora do schema portaria (além
     de funcionario/local) — ver services/manutencao_recolhida.py."""
@@ -243,19 +248,23 @@ class RecolhidaAnormal(Base):
     # ônibus cadastrado com aquele número de frota.
     onibus_id: Mapped[Optional[UUID]] = mapped_column(PG_UUID(as_uuid=True), nullable=True)
     linha_codigo: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
-    tipo_defeito_codigo: Mapped[str] = mapped_column(String(20), nullable=False)
+    # Bloco G: DEFEITO/COLISAO/FALTA_MOTORISTA/FALTA_COBRADOR/OUTRO.
+    motivo: Mapped[str] = mapped_column(String(20), nullable=False, default="DEFEITO")
+    # Só obrigatório (CHECK no banco) quando motivo=DEFEITO.
+    tipo_defeito_codigo: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
     relato: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
-    # ── 🔴 GERENCIAL — nunca exposto na tela da portaria ────────────────
+    # ── digitado pelo CONTROLADOR (§2.9-0) — 🔴 GERENCIAL só na LEITURA:
+    # nunca exposto por endpoint que não exige recolhida_gerencial ────────
     motorista_re: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
     motorista_nome: Mapped[Optional[str]] = mapped_column(String(120), nullable=True)
-    # Sempre NULL na prática — a tabela escala não tem campo de cobrador,
-    # não há de onde resolver por join (decisão de 21/08/2026). Colunas
-    # existem pra quando houver uma fonte de dado real.
+    # ⚠️ Nunca sugerido automaticamente — a tabela escala não tem campo de
+    # cobrador (decisão de 21/08/2026) — mas o controlador digita mesmo assim.
     cobrador_re: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
     cobrador_nome: Mapped[Optional[str]] = mapped_column(String(120), nullable=True)
+    # PORTARIA (digitado) | ESCALA (sugestão confirmada sem alterar) | NAO_INFORMADO.
     origem_identificacao: Mapped[str] = mapped_column(
-        String(16), nullable=False, default="NAO_IDENTIFICADO"
+        String(16), nullable=False, default="NAO_INFORMADO"
     )
 
     # ── ligação com a manutenção — ÚNICA exceção à regra de fronteira ───

@@ -39,6 +39,18 @@ def normalizar_placa(v: Optional[str]) -> Optional[str]:
 PlacaNormalizada = Annotated[str, BeforeValidator(normalizar_placa)]
 
 
+def normalizar_re(v: Optional[str]) -> Optional[str]:
+    """Trim + maiúsculas, mesmo cuidado da placa. String vazia vira None —
+    campo em branco é 'não informado', não um RE literal ''."""
+    if v is None:
+        return v
+    limpo = v.strip().upper()
+    return limpo or None
+
+
+ReNormalizado = Annotated[Optional[str], BeforeValidator(normalizar_re)]
+
+
 # ============================================================================
 # EMPRESA_TERCEIRA (D5)
 # ============================================================================
@@ -353,29 +365,61 @@ class CredencialRevogarRequest(BaseModel):
 
 
 # ============================================================================
-# RECOLHIDA ANORMAL (Bloco F) — ônibus que recolhe fora de hora, com defeito.
-# Evento de OPERAÇÃO, não de manutenção. Existe pra melhoria de processo e
-# de frota — a associação motorista↔defeito é do VEÍCULO, não da pessoa.
+# RECOLHIDA ANORMAL (Bloco F + G) — ônibus que recolhe fora de hora. Evento
+# de OPERAÇÃO, não de manutenção. Existe pra melhoria de processo e de
+# frota — a associação motorista↔defeito é do VEÍCULO, não da pessoa.
 #
 # 🔴 Dois schemas de leitura, e isso é a trava de verdade: RecolhidaRead
 # nunca carrega motorista/cobrador; RecolhidaGerencialRead acrescenta esses
-# campos e só sai de endpoint que exige recolhida_gerencial.
+# campos e só sai de endpoint que exige recolhida_gerencial. A correção de
+# escopo do §2.9 NÃO muda essa trava — muda só quem digita o RE (o
+# controlador, não mais uma resolução automática pela escala).
+#
+# 🔧 Bloco G: motivo é mais amplo que "defeito" — colisão e falta de
+# motorista/cobrador também são recolhida anormal, e não abrem ficha.
 # ============================================================================
 
 StatusRecolhida = Literal["AGUARDANDO", "AVALIADA", "DESCARTADA"]
 AvaliacaoRecolhida = Literal["LIBERADO", "RETIDO"]
-OrigemIdentificacaoRecolhida = Literal["ESCALA", "MANUAL", "NAO_IDENTIFICADO"]
+# PORTARIA = controlador digitou. ESCALA = sugestão da escala confirmada
+# sem alterar (só pro motorista — cobrador nunca tem sugestão). ⛔ Sem
+# valor MANUAL — §2.9-0 fechou o buraco que esse valor tentava cobrir.
+OrigemIdentificacaoRecolhida = Literal["PORTARIA", "ESCALA", "NAO_INFORMADO"]
+MotivoRecolhida = Literal["DEFEITO", "COLISAO", "FALTA_MOTORISTA", "FALTA_COBRADOR", "OUTRO"]
 
 
 class RecolhidaCreate(BaseModel):
-    """POST /portaria/recolhidas — só o que a PORTARIA informa. ⛔ Sem
-    motorista/cobrador de propósito: o backend resolve pela escala."""
+    """POST /portaria/recolhidas.
+
+    🔴 §2.9-0: motorista_re/cobrador_re SÃO digitados aqui pelo
+    controlador — a separação da regra número um não é sobre o campo, é
+    sobre o acumulado (histórico/análise, que exige recolhida_gerencial).
+    Ambos opcionais: em branco é NAO_INFORMADO, nunca bloqueia o registro.
+
+    motorista_nome/cobrador_nome só fazem sentido quando o RE digitado não
+    resolveu em GET /portaria/resolver-re (§5.3) — alimentam o pré-cadastro
+    do Bloco H; se o RE resolveu, o nome vem do cadastro, não do payload.
+
+    tipo_defeito_codigo só é obrigatório quando motivo=DEFEITO (Bloco G).
+    """
 
     local_codigo: str = "LEVES"
     prefixo: str = Field(..., min_length=1, max_length=10)
     linha_codigo: Optional[str] = Field(None, max_length=20)
-    tipo_defeito_codigo: str = Field(..., max_length=20)
+    motivo: MotivoRecolhida = "DEFEITO"
+    tipo_defeito_codigo: Optional[str] = Field(None, max_length=20)
     relato: Optional[str] = None
+
+    motorista_re: ReNormalizado = Field(None, max_length=20)
+    motorista_nome: Optional[str] = Field(None, max_length=120)
+    cobrador_re: ReNormalizado = Field(None, max_length=20)
+    cobrador_nome: Optional[str] = Field(None, max_length=120)
+
+    @model_validator(mode="after")
+    def _tipo_defeito_obrigatorio_quando_defeito(self) -> "RecolhidaCreate":
+        if self.motivo == "DEFEITO" and not (self.tipo_defeito_codigo or "").strip():
+            raise ValueError("tipo_defeito_codigo é obrigatório quando motivo=DEFEITO.")
+        return self
 
 
 class RecolhidaRead(ORMBase):
@@ -388,7 +432,8 @@ class RecolhidaRead(ORMBase):
     prefixo: str
     onibus_id: Optional[UUID] = None
     linha_codigo: Optional[str] = None
-    tipo_defeito_codigo: str
+    motivo: MotivoRecolhida
+    tipo_defeito_codigo: Optional[str] = None
     relato: Optional[str] = None
     ficha_id: Optional[UUID] = None
     ficha_falhou_motivo: Optional[str] = None
@@ -437,10 +482,29 @@ class ContagemPendentesResponse(BaseModel):
 class ResolverPrefixoResponse(BaseModel):
     """🔧 Adição fora do desenho original do prompt (§2.6): a tela da
     portaria precisa mostrar 'prefixo cadastrado' ou 'não cadastrado' ao
-    sair do campo, antes de enviar — sem isso não tem como a UI saber."""
+    sair do campo, antes de enviar — sem isso não tem como a UI saber.
+
+    §2.9-0: também devolve a SUGESTÃO de motorista pela escala (pré-
+    preenchimento, nunca fonte única) — só motorista, nunca cobrador (a
+    escala não tem esse campo). ⛔ Nunca cpf/rg/cnh/telefone."""
 
     encontrado: bool
     placa: Optional[str] = None
+    motorista_re_sugerido: Optional[str] = None
+    motorista_nome_sugerido: Optional[str] = None
+
+
+class ResolverReResponse(BaseModel):
+    """GET /portaria/resolver-re (§5.3) — confirma visualmente quem é o RE
+    digitado, sem devolver nada além do necessário. Procura em
+    public.funcionario e public.motorista (são dois cadastros de pessoa
+    distintos — ver services/identidade.py). ⛔ Nunca cpf/rg/cnh/telefone
+    nem histórico. ⛔ Nunca 404 — RE inexistente é resultado válido."""
+
+    encontrado: bool = False
+    nome: Optional[str] = None
+    origem: Optional[Literal["FUNCIONARIO", "MOTORISTA"]] = None
+    ativo: Optional[bool] = None
 
 
 class RecolhidaAnaliseItem(BaseModel):
@@ -459,5 +523,8 @@ class RecolhidaAnaliseResponse(BaseModel):
     por_motorista: list[RecolhidaAnaliseItem] = Field(default_factory=list)
     por_tipo_defeito: list[RecolhidaAnaliseItem] = Field(default_factory=list)
     por_faixa_horario: list[RecolhidaAnaliseItem] = Field(default_factory=list)
+    # Bloco G — o corte mais valioso: separa problema de frota (DEFEITO/
+    # COLISAO) de problema de escala (FALTA_MOTORISTA/FALTA_COBRADOR).
+    por_motivo: list[RecolhidaAnaliseItem] = Field(default_factory=list)
     tempo_medio_avaliacao_minutos: Optional[float] = None
 

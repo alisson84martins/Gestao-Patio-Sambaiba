@@ -723,23 +723,37 @@ def test_controlador_registra_recolhida_201_aguardando(ambiente):
 
 
 # ─── 8 — 🔴 o teste mais importante: sem motorista/cobrador na resposta ─
+# (§2.9-0: o controlador DIGITA o RE — aqui ele digita exatamente o que a
+# escala teria sugerido, o que classifica origem_identificacao='ESCALA'.
+# Relógio fixo pro teste não ficar refém do teto de sanidade de 20h §2.9-A.)
 
-def test_resposta_da_recolhida_nao_contem_motorista_nem_cobrador(ambiente):
+def test_resposta_da_recolhida_nao_contem_motorista_nem_cobrador(ambiente, monkeypatch):
+    momento_sp = datetime(2026, 8, 20, 10, 0, tzinfo=FUSO_OPERACAO)
+    momento_utc = momento_sp.astimezone(timezone.utc)
+
+    class _DatetimeFixo(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            if tz is None:
+                return momento_utc.replace(tzinfo=None)
+            return momento_utc.astimezone(tz)
+
+    monkeypatch.setattr(portaria_recolhidas_router_mod, "datetime", _DatetimeFixo)
+
     with Session(ambiente["engine"]) as db:
         onibus_id = _criar_onibus(ambiente["engine"], numero_frota=1721)
         linha = _criar_linha(db)
         motorista = _criar_motorista(db, re="50001", nome="Fulano da Silva")
         _criar_tipo_defeito(db, codigo="MEC_MOTOR")
-        agora_sp = datetime.now(FUSO_OPERACAO)
         _criar_escala(
             db, onibus_id=onibus_id, motorista_id=motorista.id, linha_id=linha.id,
-            data=agora_sp.date(), horario_saida=time(0, 0),
+            data=momento_sp.date(), horario_saida=time(0, 0),
         )
         db.commit()
 
     _como(ambiente, "CONTROLADOR")
     resp = ambiente["http"].post("/portaria/recolhidas", json={
-        "prefixo": "1721", "tipo_defeito_codigo": "MEC_MOTOR",
+        "prefixo": "1721", "tipo_defeito_codigo": "MEC_MOTOR", "motorista_re": "50001",
     })
     assert resp.status_code == 201, resp.text
     corpo = resp.json()
@@ -747,20 +761,42 @@ def test_resposta_da_recolhida_nao_contem_motorista_nem_cobrador(ambiente):
     assert "motorista_nome" not in corpo
     assert "cobrador_re" not in corpo
     assert "cobrador_nome" not in corpo
-    # Confere na base que a escala RESOLVEU (a prova de que o teste não
-    # está passando "por acidente", sem motorista nenhum pra esconder).
+    # Confere na base que a escala RESOLVEU e o nome foi preenchido (a
+    # prova de que o teste não está passando "por acidente", sem motorista
+    # nenhum pra esconder).
     with Session(ambiente["engine"]) as db:
         salva = db.get(RecolhidaAnormal, UUID(corpo["id"]))
     assert salva.motorista_re == "50001"
     assert salva.motorista_nome == "Fulano da Silva"
     assert salva.origem_identificacao == "ESCALA"
-    assert salva.cobrador_re is None  # ⚠️ estrutural — ver §2.3/migration 026
+    assert salva.cobrador_re is None  # ⚠️ ninguém digitou cobrador neste teste
 
     listagem = ambiente["http"].get("/portaria/recolhidas")
     assert listagem.status_code == 200, listagem.text
     for item in listagem.json():
         assert "motorista_re" not in item
         assert "motorista_nome" not in item
+
+
+# ─── 8b — 🔴 controlador digita RE que NÃO bate com a escala -> PORTARIA ─
+
+def test_motorista_digitado_diferente_da_escala_grava_origem_portaria(ambiente):
+    _criar_onibus(ambiente["engine"], numero_frota=1725)
+    with Session(ambiente["engine"]) as db:
+        _criar_tipo_defeito(db, codigo="MEC_MOTOR")
+        db.commit()
+
+    _como(ambiente, "CONTROLADOR")
+    resp = ambiente["http"].post("/portaria/recolhidas", json={
+        "prefixo": "1725", "tipo_defeito_codigo": "MEC_MOTOR",
+        "motorista_re": "70009", "cobrador_re": "70010",
+    })
+    assert resp.status_code == 201, resp.text
+    with Session(ambiente["engine"]) as db:
+        salva = db.get(RecolhidaAnormal, UUID(resp.json()["id"]))
+    assert salva.motorista_re == "70009"
+    assert salva.cobrador_re == "70010"
+    assert salva.origem_identificacao == "PORTARIA"
 
 
 # ─── 9 — 🔴 quem só tem recolhida_anormal não acessa /gerencial ────────
@@ -782,9 +818,9 @@ def test_prefixo_inexistente_registra_201_onibus_id_nulo(ambiente):
     assert resp.json()["onibus_id"] is None
 
 
-# ─── 11 — ônibus existe mas escala não resolve -> NAO_IDENTIFICADO ─────
+# ─── 11 — sem RE digitado e sem sugestão de escala -> NAO_INFORMADO ─────
 
-def test_escala_nao_resolve_grava_nao_identificado(ambiente):
+def test_escala_nao_resolve_grava_nao_informado(ambiente):
     onibus_id = _criar_onibus(ambiente["engine"], numero_frota=1722)
     with Session(ambiente["engine"]) as db:
         _criar_tipo_defeito(db, codigo="MEC_MOTOR")
@@ -799,7 +835,7 @@ def test_escala_nao_resolve_grava_nao_identificado(ambiente):
 
     with Session(ambiente["engine"]) as db:
         salva = db.get(RecolhidaAnormal, UUID(resp.json()["id"]))
-    assert salva.origem_identificacao == "NAO_IDENTIFICADO"
+    assert salva.origem_identificacao == "NAO_INFORMADO"
     assert salva.motorista_re is None
 
 
@@ -933,3 +969,181 @@ def test_pendentes_contagem_e_analise_respondem(ambiente):
     assert analise.status_code == 200, analise.text
     corpo = analise.json()
     assert any(item["chave"] == "9995" for item in corpo["por_prefixo"])
+
+
+# ============================================================================
+# §2.9-A — a escala não pode se perder na virada da madrugada
+# ============================================================================
+
+# ─── A — recolhida 00:30 de quinta, escala de quarta 23:00 -> resolve ────
+
+def test_sugestao_de_escala_atravessa_meia_noite(ambiente, monkeypatch):
+    quinta_00h30_sp = datetime(2026, 8, 20, 0, 30, tzinfo=FUSO_OPERACAO)  # quinta
+    quarta = quinta_00h30_sp.date() - timedelta(days=1)
+    momento_utc = quinta_00h30_sp.astimezone(timezone.utc)
+
+    class _DatetimeFixo(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            if tz is None:
+                return momento_utc.replace(tzinfo=None)
+            return momento_utc.astimezone(tz)
+
+    monkeypatch.setattr(portaria_recolhidas_router_mod, "datetime", _DatetimeFixo)
+
+    with Session(ambiente["engine"]) as db:
+        onibus_id = _criar_onibus(ambiente["engine"], numero_frota=1726)
+        linha = _criar_linha(db)
+        motorista = _criar_motorista(db, re="50002", nome="Ciclana Souza")
+        _criar_escala(
+            db, onibus_id=onibus_id, motorista_id=motorista.id, linha_id=linha.id,
+            data=quarta, horario_saida=time(23, 0),
+        )
+        db.commit()
+
+    _como(ambiente, "CONTROLADOR")
+    sugestao = ambiente["http"].get("/portaria/recolhidas/resolver-prefixo?prefixo=1726")
+    assert sugestao.status_code == 200, sugestao.text
+    corpo = sugestao.json()
+    assert corpo["motorista_re_sugerido"] == "50002"
+    assert corpo["motorista_nome_sugerido"] == "Ciclana Souza"
+
+    with Session(ambiente["engine"]) as db:
+        _criar_tipo_defeito(db, codigo="MEC_MOTOR")
+        db.commit()
+    resp = ambiente["http"].post("/portaria/recolhidas", json={
+        "prefixo": "1726", "tipo_defeito_codigo": "MEC_MOTOR", "motorista_re": "50002",
+    })
+    assert resp.status_code == 201, resp.text
+    with Session(ambiente["engine"]) as db:
+        salva = db.get(RecolhidaAnormal, UUID(resp.json()["id"]))
+    assert salva.origem_identificacao == "ESCALA"
+
+
+# ============================================================================
+# BLOCO G — motivo da recolhida (§5.1 do prompt; numeração própria do §5.1
+# — 17 a 20 — reaproveita os mesmos números do §2.8, prefixados "G" aqui
+# pra não colidir com o teste de fila/contagem/análise acima).
+# ============================================================================
+
+# ─── G17 — motivo=FALTA_MOTORISTA não gera ficha ────────────────────────
+
+def test_motivo_falta_motorista_nao_gera_ficha(ambiente):
+    _criar_onibus(ambiente["engine"], numero_frota=1727)
+    _como(ambiente, "CONTROLADOR")
+    resp = ambiente["http"].post("/portaria/recolhidas", json={
+        "prefixo": "1727", "motivo": "FALTA_MOTORISTA",
+    })
+    assert resp.status_code == 201, resp.text
+    corpo = resp.json()
+    assert corpo["ficha_id"] is None
+    assert corpo["ficha_falhou_motivo"]
+    assert "FALTA_MOTORISTA" in corpo["ficha_falhou_motivo"]
+
+
+# ─── G18 — motivo=DEFEITO com prefixo válido cria ficha ─────────────────
+
+def test_motivo_defeito_com_prefixo_valido_cria_ficha(ambiente):
+    _criar_onibus(ambiente["engine"], numero_frota=1728)
+    with Session(ambiente["engine"]) as db:
+        _criar_tipo_defeito(db, codigo="MEC_MOTOR")
+        db.commit()
+
+    _como(ambiente, "CONTROLADOR")
+    resp = ambiente["http"].post("/portaria/recolhidas", json={
+        "prefixo": "1728", "motivo": "DEFEITO", "tipo_defeito_codigo": "MEC_MOTOR",
+    })
+    assert resp.status_code == 201, resp.text
+    assert resp.json()["ficha_id"] is not None
+
+
+# ─── G19 — motivo=DEFEITO sem tipo_defeito_codigo -> 422 ────────────────
+
+def test_motivo_defeito_sem_tipo_defeito_e_rejeitado(ambiente):
+    _como(ambiente, "CONTROLADOR")
+    resp = ambiente["http"].post("/portaria/recolhidas", json={
+        "prefixo": "1729", "motivo": "DEFEITO",
+    })
+    assert resp.status_code == 422, resp.text
+
+
+# ─── G20 — motivo=COLISAO sem tipo_defeito_codigo -> aceito, sem ficha ──
+
+def test_motivo_colisao_sem_tipo_defeito_e_aceito(ambiente):
+    _criar_onibus(ambiente["engine"], numero_frota=1730)
+    _como(ambiente, "CONTROLADOR")
+    resp = ambiente["http"].post("/portaria/recolhidas", json={
+        "prefixo": "1730", "motivo": "COLISAO",
+    })
+    assert resp.status_code == 201, resp.text
+    corpo = resp.json()
+    assert corpo["ficha_id"] is None
+    assert "COLISAO" in corpo["ficha_falhou_motivo"]
+
+
+# ============================================================================
+# §5.3 — Resolvedor de RE (funcionario/motorista)
+# ============================================================================
+
+# ─── 29 — RE que existe só em funcionario -> resolve FUNCIONARIO ────────
+
+def test_resolver_re_encontra_em_funcionario(ambiente):
+    _como(ambiente, "CONTROLADOR")
+    resp = ambiente["http"].get(f"/portaria/resolver-re?re={_ENCARREGADO.re}")
+    assert resp.status_code == 200, resp.text
+    corpo = resp.json()
+    assert corpo["encontrado"] is True
+    assert corpo["origem"] == "FUNCIONARIO"
+    assert corpo["nome"] == _ENCARREGADO.nome
+    assert corpo["ativo"] is True
+
+
+# ─── 30 — 🔴 RE que existe só em motorista -> resolve MOTORISTA ─────────
+
+def test_resolver_re_encontra_em_motorista(ambiente):
+    with Session(ambiente["engine"]) as db:
+        _criar_motorista(db, re="50005", nome="Beltrano Lima")
+        db.commit()
+
+    _como(ambiente, "CONTROLADOR")
+    resp = ambiente["http"].get("/portaria/resolver-re?re=50005")
+    assert resp.status_code == 200, resp.text
+    corpo = resp.json()
+    assert corpo["encontrado"] is True
+    assert corpo["origem"] == "MOTORISTA"
+    assert corpo["nome"] == "Beltrano Lima"
+
+
+# ─── 31 — RE inexistente -> 200, encontrado=false, nunca 404 ────────────
+
+def test_resolver_re_inexistente_devolve_200_vazio(ambiente):
+    _como(ambiente, "CONTROLADOR")
+    resp = ambiente["http"].get("/portaria/resolver-re?re=999999")
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["encontrado"] is False
+
+
+# ─── 32 — RE de motorista desligado -> resolve com ativo=false ──────────
+
+def test_resolver_re_pessoa_desligada_resolve_com_ativo_false(ambiente):
+    with Session(ambiente["engine"]) as db:
+        db.add(Motorista(id=uuid4(), re="50006", nome="Desligado Teste", status="DESLIGADO"))
+        db.commit()
+
+    _como(ambiente, "CONTROLADOR")
+    resp = ambiente["http"].get("/portaria/resolver-re?re=50006")
+    assert resp.status_code == 200, resp.text
+    corpo = resp.json()
+    assert corpo["encontrado"] is True
+    assert corpo["ativo"] is False
+
+
+# ─── 33 — 🔴 resposta nunca contém CPF/RG/CNH/telefone ──────────────────
+
+def test_resolver_re_nao_devolve_dado_sensivel(ambiente):
+    _como(ambiente, "CONTROLADOR")
+    resp = ambiente["http"].get(f"/portaria/resolver-re?re={_ENCARREGADO.re}")
+    assert resp.status_code == 200, resp.text
+    corpo = resp.json()
+    for campo in ("cpf", "rg", "cnh", "telefone"):
+        assert campo not in corpo

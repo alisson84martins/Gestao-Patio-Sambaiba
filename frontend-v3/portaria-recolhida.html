@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!--
   Sistema de Gestão Operacional Sambaíba — V3
-  Suite Portaria — Recolhida anormal (Bloco F)
+  Suite Portaria — Recolhida anormal (Blocos F + G)
   Desenvolvido por Alisson Martins
   © 2026 — Todos os direitos reservados
 -->
@@ -39,8 +39,9 @@
 <script type="module" src="./assets/js/nav.js"></script>
 
 <!-- ========================================================= -->
-<!-- ⛔ Nada de motorista/cobrador nesta tela — o backend resolve -->
-<!-- pela escala (§2.3). Quatro campos, poucos toques.           -->
+<!-- §2.9-0: o controlador DIGITA RE motorista/cobrador — é a   -->
+<!-- melhor fonte do dado. O que ele NUNCA vê é o acumulado      -->
+<!-- (histórico/análise — isso é recolhida_gerencial).            -->
 <!-- ========================================================= -->
 <main class="patio-main">
 
@@ -59,6 +60,25 @@
     </div>
 
     <div class="recolhida-campo">
+        <label class="form-label" for="rec-motorista-re">RE motorista</label>
+        <input type="text" class="form-input" id="rec-motorista-re" inputmode="numeric" autocomplete="off">
+        <div id="rec-motorista-status" class="portaria-ficha-linha"></div>
+        <input type="text" class="form-input" id="rec-motorista-nome" placeholder="Nome (RE não encontrado)" style="display:none;margin-top:6px">
+    </div>
+
+    <div class="recolhida-campo">
+        <label class="form-label" for="rec-cobrador-re">RE cobrador</label>
+        <input type="text" class="form-input" id="rec-cobrador-re" inputmode="numeric" autocomplete="off">
+        <div id="rec-cobrador-status" class="portaria-ficha-linha"></div>
+        <input type="text" class="form-input" id="rec-cobrador-nome" placeholder="Nome (RE não encontrado)" style="display:none;margin-top:6px">
+    </div>
+
+    <div class="recolhida-campo">
+        <label class="form-label">Motivo</label>
+        <div id="rec-motivos" class="recolhida-chips"></div>
+    </div>
+
+    <div class="recolhida-campo" id="rec-defeito-campo">
         <label class="form-label">Defeito</label>
         <div id="rec-categorias" class="recolhida-chips"></div>
         <div id="rec-tipos" class="recolhida-chips"></div>
