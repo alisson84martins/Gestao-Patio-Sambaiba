@@ -9,7 +9,7 @@ from app import __version__
 from app.core.config import get_settings
 from app.core.exception_handlers import register_exception_handlers
 from app.routers import (
-    alertas, alocacoes, auth, escalas, filas, funcoes, funcionarios,
+    alertas, alocacoes, auth, escalas, filas, fiscalizacao, funcoes, funcionarios,
     health, importacao, linhas, manutencao, motoristas, ocorrencias, onibus,
     patio, permissoes, portaria, portaria_recolhidas, portaria_veiculos,
     pre_cadastro, pre_ocorrencias, pre_ocorrencias_publico, tipos_defeito, usuarios,
@@ -55,6 +55,7 @@ tags_metadata = [
     {"name": "ocorrências", "description": "Suite Coordenadoria — relatório de ocorrências, mensagem do sinistro e anexos"},
     {"name": "portaria", "description": "Controle de acesso veicular — entrada, saída, cadastro e autorização de veículos; QR do veículo e recolhida anormal"},
     {"name": "pré-cadastro", "description": "Cadastro preliminar de pessoas alimentado pela operação (portaria, pré-ocorrência) — nunca cria acesso ao sistema"},
+    {"name": "fiscalização", "description": "Turnos do fiscal, registro de partidas, contadores e fechamento — o app que escreve sozinho a mensagem de WhatsApp de fim de turno"},
 ]
 
 app = FastAPI(
@@ -149,3 +150,9 @@ app.include_router(portaria_veiculos.router)
 app.include_router(portaria_recolhidas.router)
 # Bloco H — identidade compartilhada da Suite (public), não portaria.
 app.include_router(pre_cadastro.router)
+# Fiscalização — turnos, partidas, eventos e fechamento. ⛔ Dentro do próprio
+# router, /turnos/ativo é declarada antes de /turnos/{turno_id} (ver
+# comentário no topo de fiscalizacao.py) — mesma classe de bug já corrigida
+# entre /autopreencher e /{ocorrencia_id}, e entre /pre-ocorrencias/publico
+# e /pre-ocorrencias/{id}.
+app.include_router(fiscalizacao.router)
