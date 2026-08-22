@@ -719,3 +719,16 @@ def test_upload_escala_fiscal_sem_permissao_nega_403(ambiente):
             files={"file": ("Pasta1.xlsx", arquivo, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
         )
     assert resp.status_code == 403, resp.text
+
+
+# ─── upload de 50 MB → 413, sem carregar tudo em memória (mesmo padrão de
+# test_pre_ocorrencia.py::test_upload_publico_50mb_retorna_413) ────────────────
+
+def test_upload_escala_50mb_retorna_413(ambiente):
+    _como(ambiente, "COORDENADOR")  # escrita_escala liberada
+    conteudo_grande = b"x" * (50 * 1024 * 1024)
+    resp = ambiente["http"].post(
+        "/fiscalizacao/escalas/upload",
+        files={"file": ("escala.xlsx", conteudo_grande, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
+    )
+    assert resp.status_code == 413, resp.text

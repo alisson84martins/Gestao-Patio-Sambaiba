@@ -12,13 +12,17 @@ from datetime import date, datetime, time, timedelta
 from typing import Annotated, Optional
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, File, HTTPException, Query, Response, UploadFile, status
+from fastapi import (
+    APIRouter, Depends, File, HTTPException, Query, Request, Response,
+    UploadFile, status,
+)
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.core.config import FUSO_OPERACAO
 from app.core.database import get_db
 from app.core.deps import exige
+from app.core.uploads import ler_upload_limitado
 from app.models.cadastro import Funcionario
 from app.models.fiscalizacao import (
     Baita, EventoTurno, ObservacaoTurno, PartidaProgramada, Ponto, PontoLinha,
@@ -47,6 +51,8 @@ DbSession = Annotated[Session, Depends(get_db)]
 # marcada PERDIDA. VIAGEM_EXTRA só existe como evento avulso (não é motivo de
 # partida perdida); OUTRO nunca cria evento (não existe contador para ele).
 _MOTIVOS_COM_EVENTO = {"FALTA_OPERADORES", "RA", "SOS", "ATRASO_GARAGEM", "TROCA_OPERACIONAL"}
+
+TAMANHO_MAXIMO_ESCALA = 10 * 1024 * 1024  # 10 MB, mesmo limite de importacao.py
 
 # Janela de correlação com a recolhida (D17) — mesma constante da view
 # fiscalizacao.vw_partida_recolhida (JANELA_RECOLHIDA), duplicada aqui
@@ -547,13 +553,14 @@ def fechamento_turno(turno_id: UUID, usuario: LeituraFiscalizacao, db: DbSession
 async def upload_escala(
     usuario: EscritaEscala,
     db: DbSession,
+    request: Request,
     file: UploadFile = File(...),
     tipo_dia: TipoDia = "UTIL",
     vigencia: Optional[date] = None,
 ):
     if not file.filename or not file.filename.lower().endswith((".xlsx", ".xlsm")):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="Apenas arquivos .xlsx são aceitos")
-    conteudo = await file.read()
+    conteudo = await ler_upload_limitado(file, TAMANHO_MAXIMO_ESCALA, request)
     resultado = importar_escala(
         db, conteudo, tipo_dia=tipo_dia, vigencia=vigencia or datetime.now(FUSO_OPERACAO).date()
     )
