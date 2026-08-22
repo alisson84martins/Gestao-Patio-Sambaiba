@@ -1,0 +1,34 @@
+-- ============================================================================
+-- SEED 09 (EXEMPLO) — Pontos de fiscalização e suas linhas (D9, D11)
+-- ----------------------------------------------------------------------------
+-- ⚠️ ESTE ARQUIVO NÃO RODA SOZINHO — extensão .sql.exemplo de propósito.
+--   A migration 029 deixa fiscalizacao.ponto e fiscalizacao.ponto_linha
+--   VAZIAS: o Alisson ainda vai levantar quais pontos têm quais linhas na
+--   G3 e quantas saem juntas no pior deles (lição de casa nº 2 do desenho,
+--   §11 item 2 de DESENHO-modulo-fiscalizacao.md).
+--
+--   Quando o levantamento estiver pronto: copie este arquivo para
+--   09-fiscalizacao-pontos.sql (sem o .exemplo), preencha com os pontos e
+--   linhas reais, e rode normalmente (idempotente — ON CONFLICT DO NOTHING).
+--
+-- O EXEMPLO ABAIXO É FICTÍCIO — não corresponde a nenhum ponto real da G3.
+-- ============================================================================
+
+INSERT INTO fiscalizacao.ponto (codigo, nome, terminal, ativo) VALUES
+    ('PQ_EDU_CHAVES', 'Parque Edu Chaves', 'TP', TRUE)
+ON CONFLICT (codigo) DO NOTHING;
+
+-- Um ponto pode ter mais de uma linha saindo dele (D9) — por isso é tabela
+-- própria, não uma coluna em ponto.
+INSERT INTO fiscalizacao.ponto_linha (ponto_codigo, linha_codigo, ativo) VALUES
+    ('PQ_EDU_CHAVES', '1726-10', TRUE)
+ON CONFLICT (ponto_codigo, linha_codigo) DO NOTHING;
+
+-- ============================================================================
+-- CONFERÊNCIA
+-- ============================================================================
+--   SELECT p.codigo, p.terminal, string_agg(pl.linha_codigo, ', ' ORDER BY pl.linha_codigo) AS linhas
+--     FROM fiscalizacao.ponto p
+--     LEFT JOIN fiscalizacao.ponto_linha pl ON pl.ponto_codigo = p.codigo AND pl.ativo
+--    GROUP BY p.codigo, p.terminal ORDER BY p.codigo;
+-- ============================================================================
