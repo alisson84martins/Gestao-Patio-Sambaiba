@@ -12,7 +12,7 @@ from app.routers import (
     alertas, alocacoes, auth, escalas, filas, funcoes, funcionarios,
     health, importacao, linhas, manutencao, motoristas, ocorrencias, onibus,
     patio, permissoes, portaria, portaria_recolhidas, portaria_veiculos,
-    pre_ocorrencias, pre_ocorrencias_publico, tipos_defeito, usuarios,
+    pre_cadastro, pre_ocorrencias, pre_ocorrencias_publico, tipos_defeito, usuarios,
 )
 
 settings = get_settings()
@@ -54,6 +54,7 @@ tags_metadata = [
     {"name": "importação Excel", "description": "Upload de planilha .xlsx para criar escalas em massa"},
     {"name": "ocorrências", "description": "Suite Coordenadoria — relatório de ocorrências, mensagem do sinistro e anexos"},
     {"name": "portaria", "description": "Controle de acesso veicular — entrada, saída, cadastro e autorização de veículos; QR do veículo e recolhida anormal"},
+    {"name": "pré-cadastro", "description": "Cadastro preliminar de pessoas alimentado pela operação (portaria, pré-ocorrência) — nunca cria acesso ao sistema"},
 ]
 
 app = FastAPI(
@@ -146,3 +147,5 @@ app.include_router(pre_ocorrencias.router)
 app.include_router(portaria.router)
 app.include_router(portaria_veiculos.router)
 app.include_router(portaria_recolhidas.router)
+# Bloco H — identidade compartilhada da Suite (public), não portaria.
+app.include_router(pre_cadastro.router)

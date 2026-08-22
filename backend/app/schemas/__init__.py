@@ -30,6 +30,10 @@ from app.schemas.portaria import (
     MovimentoCreate, MovimentoCreateResponse, MovimentoRead,
     PortariaDentroResponse, RecolhidaAnaliseResponse, RecolhidaAvaliacaoRequest,
     RecolhidaCreate, RecolhidaGerencialRead, RecolhidaRead, ResolverPrefixoResponse,
-    VeiculoCreate, VeiculoDivergenciaRead, VeiculoRead, VeiculoSituacaoHistRead,
-    VeiculoSituacaoUpdate, VeiculoUpdate,
+    ResolverReResponse, VeiculoCreate, VeiculoDivergenciaRead, VeiculoRead,
+    VeiculoSituacaoHistRead, VeiculoSituacaoUpdate, VeiculoUpdate,
+)
+from app.schemas.pre_cadastro import (
+    PreCadastroDescartarRequest, PreCadastroPromoverResponse, PreCadastroRead,
+    PreCadastroUpdate,
 )

@@ -1,5 +1,5 @@
-"""Endpoints de recolhida anormal (Blocos F + G) — ônibus que recolhe fora
-de hora.
+"""Endpoints de recolhida anormal (Blocos F + G + H) — ônibus que recolhe
+fora de hora.
 
 🔴 REGRA NÚMERO UM (mesma do resto do módulo): o sistema NUNCA impede um
 registro. Prefixo não cadastrado, escala não encontrada, ficha que não pôde
@@ -22,6 +22,10 @@ ficha de manutenção automaticamente.
 FINALIDADE DO DADO: melhoria de processo e de frota. A associação
 motorista↔defeito serve pra encontrar padrão de operação e necessidade de
 treinamento — o dado é do VEÍCULO, não da pessoa.
+
+🔧 BLOCO H: todo RE motorista/cobrador digitado alimenta o pré-cadastro
+de pessoas (services/pre_cadastro.py) — nunca cria acesso ao sistema,
+nunca bloqueia o registro da recolhida.
 """
 from collections import Counter
 from datetime import date, datetime, timedelta, timezone
@@ -46,6 +50,7 @@ from app.schemas.portaria import (
     ResolverPrefixoResponse, StatusRecolhida, normalizar_re,
 )
 from app.services.manutencao_recolhida import abrir_ficha_de_recolhida
+from app.services.pre_cadastro import registrar_pessoa_vista
 
 router = APIRouter(prefix="/portaria", tags=["portaria"])
 
@@ -337,6 +342,19 @@ def registrar_recolhida(
         registrado_por=usuario.id,
     )
     db.add(nova)
+
+    # Bloco H (§5.2): todo RE digitado alimenta o pré-cadastro — nunca
+    # bloqueia (registrar_pessoa_vista nunca propaga exceção). RE em
+    # branco é ignorado silenciosamente dentro do próprio serviço.
+    registrar_pessoa_vista(
+        db, re=payload.motorista_re, papel="MOTORISTA", origem="PORTARIA_RECOLHIDA",
+        nome=payload.motorista_nome,
+    )
+    registrar_pessoa_vista(
+        db, re=payload.cobrador_re, papel="COBRADOR", origem="PORTARIA_RECOLHIDA",
+        nome=payload.cobrador_nome,
+    )
+
     db.commit()
     db.refresh(nova)
     return nova

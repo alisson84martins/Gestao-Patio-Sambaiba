@@ -25,6 +25,8 @@ from app.core.database import Base, get_db
 from app.main import app
 from app.models.cadastro import Funcao, Funcionario, FuncionarioFuncao
 from app.models.ocorrencia import Ocorrencia, OcorrenciaVeiculoTerceiro, TipoOcorrencia
+from app.models.pessoas import Motorista
+from app.models.pre_cadastro import PessoaPreCadastro
 from app.models.pre_ocorrencia import PreOcorrencia, PreOcorrenciaAnexo, PreOcorrenciaAutorizacao
 from app.routers import pre_ocorrencias as router_mod
 from app.services.pre_ocorrencia_token import gerar_token
@@ -57,6 +59,8 @@ _TABELAS = [
     Funcionario.__table__, Funcao.__table__, FuncionarioFuncao.__table__,
     TipoOcorrencia.__table__, Ocorrencia.__table__, OcorrenciaVeiculoTerceiro.__table__,
     PreOcorrenciaAutorizacao.__table__, PreOcorrencia.__table__, PreOcorrenciaAnexo.__table__,
+    # Bloco H — a conversão alimenta o pré-cadastro (services/pre_cadastro.py).
+    Motorista.__table__, PessoaPreCadastro.__table__,
 ]
 
 _COORD_A = Funcionario(id=uuid4(), re="50001", nome="Coordenador A")
@@ -413,6 +417,59 @@ def test_conversao_registrado_por_e_o_coordenador_nunca_o_motorista(ambiente):
         # motorista" é registrado_por apontar pro coordenador autenticado,
         # não pra um id derivado de motorista_re.
         assert oc.condutor_nome == "Motorista Fictício"  # dado copiado, mas não é o autor
+
+
+# ─── Bloco H — a conversão alimenta o pré-cadastro (§5.2 do prompt) ────
+
+def test_conversao_alimenta_pre_cadastro_de_motorista_e_cobrador(ambiente):
+    engine = ambiente["engine"]
+    auth_a, _ = _criar_autorizacao(engine, coordenador=_COORD_A)
+    pre_oc_id = _criar_pre_ocorrencia(
+        engine, auth_a,
+        motorista_re="60010", motorista_nome="Motorista Fictício",
+        motorista_cpf="11122233344", motorista_cnh="98765432100",
+        cobrador_re="60011", cobrador_nome="Cobrador Fictício",
+        prefixo="1721", relato="Colisão leve, sem feridos.",
+    )
+
+    _autenticar(ambiente, _COORD_A)
+    resp = ambiente["http"].post(f"/pre-ocorrencias/{pre_oc_id}/converter", json={})
+    assert resp.status_code == 200, resp.text
+
+    with Session(engine) as db:
+        motorista_pc = db.execute(
+            select(PessoaPreCadastro).where(PessoaPreCadastro.re == "60010")
+        ).scalar_one()
+        cobrador_pc = db.execute(
+            select(PessoaPreCadastro).where(PessoaPreCadastro.re == "60011")
+        ).scalar_one()
+    assert motorista_pc.papel_sugerido == "MOTORISTA"
+    assert motorista_pc.nome == "Motorista Fictício"
+    assert motorista_pc.cpf == "11122233344"
+    assert motorista_pc.ultima_origem == "PRE_OCORRENCIA"
+    assert cobrador_pc.papel_sugerido == "COBRADOR"
+    assert cobrador_pc.nome == "Cobrador Fictício"
+
+
+# ─── 24 — 🔴 terceiro da pré-ocorrência jamais vira pré-cadastro ────────
+
+def test_conversao_com_terceiro_nao_cria_pre_cadastro_de_terceiro(ambiente):
+    engine = ambiente["engine"]
+    auth_a, _ = _criar_autorizacao(engine, coordenador=_COORD_A)
+    pre_oc_id = _criar_pre_ocorrencia(
+        engine, auth_a,
+        prefixo="1722", relato="Colisão com terceiro.",
+        terceiro_nome="Terceiro Fictício", terceiro_placa="ZZZ9Z99",
+        terceiro_telefone="11988887777", terceiro_seguradora="Seguradora Fictícia",
+    )
+
+    _autenticar(ambiente, _COORD_A)
+    resp = ambiente["http"].post(f"/pre-ocorrencias/{pre_oc_id}/converter", json={})
+    assert resp.status_code == 200, resp.text
+
+    with Session(engine) as db:
+        total = db.execute(select(PessoaPreCadastro)).scalars().all()
+    assert total == []
 
 
 def test_cco_nao_converte_mesmo_tendo_escrita_no_recurso(ambiente):

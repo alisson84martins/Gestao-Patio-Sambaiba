@@ -43,9 +43,11 @@ from app.models.portaria import (
     Credencial, EmpresaTerceira, MovimentoPortaria, PortariaLocal,
     RecolhidaAnormal, VeiculoPortaria, VeiculoSituacaoHist,
 )
+from app.models.pre_cadastro import PessoaPreCadastro
 from app.routers import portaria as portaria_router_mod
 from app.routers import portaria_recolhidas as portaria_recolhidas_router_mod
 from app.routers import portaria_veiculos as portaria_veiculos_router_mod
+from app.services import pre_cadastro as pre_cadastro_service_mod
 
 # Mesmo ajuste de test_pre_ocorrencia.py/test_ocorrencias_visibilidade.py:
 # o driver sqlite3 puro não serializa uuid.UUID sozinho.
@@ -73,6 +75,8 @@ _TABELAS = [
     Credencial.__table__, RecolhidaAnormal.__table__,
     Motorista.__table__, Linha.__table__, TipoDefeito.__table__,
     ImportacaoEscala.__table__, Escala.__table__, Usuario.__table__, FichaManutencao.__table__,
+    # Bloco H — a recolhida alimenta o pré-cadastro (services/pre_cadastro.py).
+    PessoaPreCadastro.__table__,
 ]
 
 # Onibus tem coluna GERADA com sintaxe específica do Postgres (CASE ...
@@ -1147,3 +1151,49 @@ def test_resolver_re_nao_devolve_dado_sensivel(ambiente):
     corpo = resp.json()
     for campo in ("cpf", "rg", "cnh", "telefone"):
         assert campo not in corpo
+
+
+# ============================================================================
+# BLOCO H — a recolhida alimenta o pré-cadastro (§5.2 do prompt)
+# ============================================================================
+
+# ─── recolhida com RE digitado alimenta o pré-cadastro de motorista/cobrador ─
+
+def test_recolhida_com_re_digitado_alimenta_pre_cadastro(ambiente):
+    _criar_onibus(ambiente["engine"], numero_frota=1731)
+    _como(ambiente, "CONTROLADOR")
+    resp = ambiente["http"].post("/portaria/recolhidas", json={
+        "prefixo": "1731", "motivo": "FALTA_MOTORISTA",
+        "motorista_re": "90001", "cobrador_re": "90002",
+    })
+    assert resp.status_code == 201, resp.text
+
+    with Session(ambiente["engine"]) as db:
+        motorista_pc = db.execute(
+            select(PessoaPreCadastro).where(PessoaPreCadastro.re == "90001")
+        ).scalar_one()
+        cobrador_pc = db.execute(
+            select(PessoaPreCadastro).where(PessoaPreCadastro.re == "90002")
+        ).scalar_one()
+    assert motorista_pc.papel_sugerido == "MOTORISTA"
+    assert motorista_pc.ultima_origem == "PORTARIA_RECOLHIDA"
+    assert cobrador_pc.papel_sugerido == "COBRADOR"
+
+
+# ─── 25 — 🔴 falha forçada no pré-cadastro não impede a recolhida ───────
+# ⚠️ Patch em pre_cadastro_service_mod._registrar, não em
+# registrar_pessoa_vista — é o try/except de DENTRO de registrar_pessoa_vista
+# que prova a regra número um; substituir a função inteira pularia a
+# própria proteção que o teste quer verificar.
+
+def test_falha_no_pre_cadastro_nao_impede_registro_da_recolhida(ambiente, monkeypatch):
+    def _explode(*args, **kwargs):
+        raise RuntimeError("falha simulada — não deveria propagar")
+
+    monkeypatch.setattr(pre_cadastro_service_mod, "_registrar", _explode)
+
+    _como(ambiente, "CONTROLADOR")
+    resp = ambiente["http"].post("/portaria/recolhidas", json={
+        "prefixo": "9994", "motivo": "OUTRO", "motorista_re": "90003",
+    })
+    assert resp.status_code == 201, resp.text

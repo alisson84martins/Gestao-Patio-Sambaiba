@@ -29,6 +29,7 @@ from app.schemas.pre_ocorrencia import (
     ConverterResponse, PreOcorrenciaDetalhe, PreOcorrenciaFilaItem,
 )
 from app.services.n8n import notificar_autorizacao_aberta
+from app.services.pre_cadastro import registrar_pessoa_vista
 from app.services.pre_ocorrencia_token import EXPIRACAO_HORAS, gerar_token
 
 # Mesma base de app/routers/ocorrencias.py e
@@ -701,6 +702,25 @@ def converter(
         ))
 
     _copiar_anexos_para_ocorrencia(db, pre_oc, nova, usuario.id)
+
+    # Bloco H (§5.2 do prompt de Portaria): a conversão é o momento em que
+    # um coordenador confirma que os dados da pré-ocorrência são reais —
+    # por isso o pré-cadastro é alimentado aqui, não no envio público (que
+    # pode ficar rascunho, ser descartado, ou nunca ser revisado). ⛔
+    # Nunca terceiro (terceiro_nome/placa/telefone/seguradora) — é gente
+    # de fora da empresa, capturada num acidente; só motorista e cobrador
+    # da Sambaíba alimentam o pré-cadastro. Nunca propaga exceção nem
+    # bloqueia a conversão (ver services/pre_cadastro.py).
+    registrar_pessoa_vista(
+        db, re=pre_oc.motorista_re, papel="MOTORISTA", origem="PRE_OCORRENCIA",
+        nome=pre_oc.motorista_nome, cpf=pre_oc.motorista_cpf,
+        rg=pre_oc.motorista_rg, cnh=pre_oc.motorista_cnh,
+        telefone=pre_oc.motorista_telefone,
+    )
+    registrar_pessoa_vista(
+        db, re=pre_oc.cobrador_re, papel="COBRADOR", origem="PRE_OCORRENCIA",
+        nome=pre_oc.cobrador_nome, telefone=pre_oc.cobrador_telefone,
+    )
 
     pre_oc.status = "CONVERTIDA"
     pre_oc.convertida_em = datetime.now(timezone.utc)

@@ -29,6 +29,7 @@ from app.models.portaria import (
     Credencial, EmpresaTerceira, MovimentoPortaria, PortariaLocal,
     RecolhidaAnormal, VeiculoPortaria, VeiculoSituacaoHist,
 )
+from app.models.pre_cadastro import PessoaPreCadastro
 from app.models.pre_ocorrencia import PreOcorrencia, PreOcorrenciaAnexo, PreOcorrenciaAutorizacao
 
 __all__ = [
@@ -53,4 +54,6 @@ __all__ = [
     # Portaria — controle de acesso veicular
     "PortariaLocal", "EmpresaTerceira", "VeiculoPortaria",
     "VeiculoSituacaoHist", "MovimentoPortaria", "Credencial", "RecolhidaAnormal",
+    # Pré-cadastro de pessoas (Bloco H)
+    "PessoaPreCadastro",
 ]
