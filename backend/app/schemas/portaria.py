@@ -401,9 +401,12 @@ class RecolhidaCreate(BaseModel):
     do Bloco H; se o RE resolveu, o nome vem do cadastro, não do payload.
 
     tipo_defeito_codigo só é obrigatório quando motivo=DEFEITO (Bloco G).
+
+    🔑 §5.2b: SEM local_codigo — recolhida anormal é sempre de coletivo
+    (prefixo/frota), e coletivo sempre entra pelo mesmo portão. O portão é
+    consequência de o veículo ser coletivo, não uma classificação própria.
     """
 
-    local_codigo: str = "LEVES"
     prefixo: str = Field(..., min_length=1, max_length=10)
     linha_codigo: Optional[str] = Field(None, max_length=20)
     motivo: MotivoRecolhida = "DEFEITO"
@@ -426,7 +429,6 @@ class RecolhidaRead(ORMBase):
     """SEM motorista/cobrador. É o que a portaria e a manutenção recebem."""
 
     id: UUID
-    local_codigo: str
     momento: datetime
     data_referencia: date
     prefixo: str

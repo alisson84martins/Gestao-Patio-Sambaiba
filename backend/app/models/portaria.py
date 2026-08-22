@@ -227,16 +227,21 @@ class RecolhidaAnormal(Base):
     manutenção automaticamente; tipo_defeito_codigo só é exigido nesse caso.
 
     ⚠️ ficha_id é a ÚNICA FK deste módulo pra fora do schema portaria (além
-    de funcionario/local) — ver services/manutencao_recolhida.py."""
+    de funcionario) — ver services/manutencao_recolhida.py.
+
+    🔑 §5.2b: SEM local_codigo de propósito. Recolhida anormal é sempre de
+    COLETIVO (identificado por prefixo/número de frota, nunca placa) — o
+    discriminador é a natureza do veículo, não o portão por onde ele passa.
+    O portão é consequência (todo coletivo entra pelos mesmos pesados), não
+    classificação. `portaria.local` continua servindo só o movimento de
+    veículo de passeio (portaria.veiculo/MovimentoPortaria), onde local
+    (LEVES/PESADOS) é informação real."""
 
     __tablename__ = "recolhida_anormal"
     __table_args__ = {"schema": SCHEMA}
 
     id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True, default=uuid4)
 
-    local_codigo: Mapped[str] = mapped_column(
-        String(20), ForeignKey(f"{SCHEMA}.local.codigo"), nullable=False, default="LEVES"
-    )
     momento: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )

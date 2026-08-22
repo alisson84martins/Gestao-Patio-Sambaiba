@@ -5,7 +5,7 @@
 -- SCHEMA: portaria  (existente — migration 024)
 -- DATA:   2026-08-21
 -- AUTOR:  Claude Code
--- DEPENDE DE: 024-modulo-portaria.sql (portaria.local, RBAC),
+-- DEPENDE DE: 024-modulo-portaria.sql (RBAC),
 --             011-rbac-cadastro-central.sql (public.funcionario/recurso/
 --             funcao/funcao_permissao), tabelas legadas public.onibus,
 --             public.ficha_manutencao
@@ -97,7 +97,14 @@
 CREATE TABLE IF NOT EXISTS portaria.recolhida_anormal (
     id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
 
-    local_codigo        VARCHAR(20) NOT NULL REFERENCES portaria.local(codigo),
+    -- 🔑 §5.2b: SEM local_codigo de propósito — recolhida anormal é sempre
+    -- de COLETIVO (identificado por prefixo/frota, nunca placa), e coletivo
+    -- sempre entra pelo mesmo portão. O portão é consequência de o veículo
+    -- ser coletivo, não uma classificação própria — gravar o local não
+    -- acrescentaria informação, só um campo que parece corte de análise e
+    -- não é (e hoje o frontend mandaria 'LEVES' fixo, informação falsa).
+    -- portaria.local continua servindo só o movimento de veículo de
+    -- passeio (portaria.movimento), onde local é verdade.
     momento             TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     data_referencia     DATE NOT NULL DEFAULT (NOW() AT TIME ZONE 'America/Sao_Paulo')::date,
 
@@ -144,7 +151,7 @@ CREATE TABLE IF NOT EXISTS portaria.recolhida_anormal (
         CHECK (motivo <> 'DEFEITO' OR tipo_defeito_codigo IS NOT NULL)
 );
 
-COMMENT ON TABLE portaria.recolhida_anormal IS 'Ônibus que recolhe fora de hora — evento de OPERAÇÃO, não de manutenção (a pergunta urgente é "esse carro volta? em quanto tempo?"). Existe para melhoria de processo e de frota: a associação motorista↔defeito serve pra encontrar padrão de operação e necessidade de treinamento — o dado é do VEÍCULO, não da pessoa. O controlador digita motorista_re/cobrador_re (é quem está com o carro na frente), mas nunca vê histórico, agregado ou ranking — isso exige recolhida_gerencial.';
+COMMENT ON TABLE portaria.recolhida_anormal IS 'Ônibus que recolhe fora de hora — evento de OPERAÇÃO, não de manutenção (a pergunta urgente é "esse carro volta? em quanto tempo?"). Existe para melhoria de processo e de frota: a associação motorista↔defeito serve pra encontrar padrão de operação e necessidade de treinamento — o dado é do VEÍCULO, não da pessoa. O controlador digita motorista_re/cobrador_re (é quem está com o carro na frente), mas nunca vê histórico, agregado ou ranking — isso exige recolhida_gerencial. §5.2b: SEM local_codigo, de propósito — recolhida anormal é sempre de COLETIVO (prefixo/frota), e coletivo sempre entra pelo mesmo portão; o portão é consequência da natureza do veículo, não uma classificação própria desta tabela.';
 COMMENT ON COLUMN portaria.recolhida_anormal.motivo IS 'Bloco G (§5.1): recolhida anormal nem sempre é defeito — pode ser colisão ou falta de motorista/cobrador. Só motivo=DEFEITO abre ficha de manutenção automaticamente (ver ficha_id/ficha_falhou_motivo).';
 COMMENT ON COLUMN portaria.recolhida_anormal.tipo_defeito_codigo IS 'Código do catálogo tipo_defeito, TEXTO — não FK. Obrigatório só quando motivo=DEFEITO (CHECK ck_recolhida_motivo_defeito). O catálogo pode mudar e o histórico precisa continuar verdadeiro (mesmo princípio dos snapshots do resto do módulo).';
 COMMENT ON COLUMN portaria.recolhida_anormal.ficha_id IS '⚠️ ÚNICA exceção à regra de fronteira deste módulo — FK para public.ficha_manutencao(id), deliberada porque a ligação recolhida↔ficha é o produto da feature. Só nasce quando motivo=DEFEITO. A escrita do lado da ficha é sempre um INSERT de linha nova (nunca UPDATE/DELETE em dado do Pátio).';
@@ -210,7 +217,8 @@ SELECT fn.id, v.recurso, v.pode_ler, v.pode_escrever
 --    WHERE fn.codigo = 'MECANICO' AND fp.recurso = 'manutencao';
 --
 -- Prova da fronteira — só ficha_manutencao é FK pra fora do schema, além de
--- funcionario/local (esperado: só ficha_manutencao, funcionario e local):
+-- funcionario (esperado: só ficha_manutencao e funcionario — ⛔ sem local,
+-- ver §5.2b):
 --   SELECT ccu.table_schema || '.' || ccu.table_name AS aponta_para
 --     FROM information_schema.table_constraints tc
 --     JOIN information_schema.constraint_column_usage ccu

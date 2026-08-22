@@ -320,7 +320,6 @@ def registrar_recolhida(
         ficha_id, ficha_falhou_motivo = None, f"motivo {payload.motivo} — não gera ordem de serviço."
 
     nova = RecolhidaAnormal(
-        local_codigo=payload.local_codigo,
         data_referencia=data_referencia,
         prefixo=payload.prefixo,
         onibus_id=onibus.id if onibus is not None else None,
