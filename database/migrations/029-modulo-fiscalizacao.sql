@@ -96,10 +96,14 @@
 -- ⚠️ Sem SET search_path — todo objeto qualificado explicitamente com o
 --   schema (fiscalizacao./public./portaria.), mesmo padrão da 026.
 --
--- NATUREZA: aditiva e idempotente A PARTIR do DROP SCHEMA acima — depois do
---   DROP, tudo é CREATE SCHEMA/TABLE/INDEX IF NOT EXISTS e INSERT ... ON
---   CONFLICT DO NOTHING, então rodar esta migration uma segunda vez não
---   apaga nem duplica nada (o schema já vai existir, IF NOT EXISTS resolve).
+-- NATUREZA: NÃO idempotente — o DROP SCHEMA CASCADE (abaixo) roda em toda
+--   execução deste arquivo, incondicional. Rodar esta migration uma segunda
+--   vez APAGA TUDO que tiver sido coletado no schema fiscalizacao desde a
+--   primeira execução (turnos, partidas, eventos, BAITA — qualquer linha
+--   gravada pelo app), antes de recriar do zero. O bloco DO $guard$ logo
+--   antes do DROP SCHEMA é a proteção: aborta com RAISE EXCEPTION se encontrar
+--   qualquer registro nas tabelas do schema, e só deixa a segunda execução
+--   prosseguir depois que alguém confirmar a perda e comentar esse bloco.
 --
 -- ⚠️ DADO PESSOAL: zero dado pessoal real em seed, fixture ou comentário.
 --
@@ -118,6 +122,44 @@
 -- ⚠️ Ver cabeçalho "ÚNICA MIGRATION NÃO-ADITIVA" acima — confirmado com o
 -- Alisson em 22/08/2026, as tabelas do sistema de julho não guardam nada
 -- que precise sobreviver.
+--
+-- 🛑 GUARDA — sem isto, rodar esta migration uma segunda vez apaga em
+-- silêncio qualquer dado gravado no schema fiscalizacao desde a primeira
+-- execução (ver "NATUREZA" no cabeçalho). Conta as linhas de cada tabela
+-- do schema, se ele já existir, e recusa o DROP se houver qualquer
+-- registro. Para prosseguir mesmo assim, confirme que a perda é aceitável
+-- e COMENTE este bloco de guarda inteiro (do DO $guard$ ao END $guard$;
+-- logo abaixo) antes de rodar.
+--
+-- ⚠️ Tag $guard$, não $$: a mensagem do RAISE EXCEPTION cita "DO/END" e,
+-- se o bloco usasse o tag vazio $$, o primeiro "$$" dentro da própria
+-- mensagem fecharia a dollar-quoted string cedo demais e quebraria a
+-- migration — dollar-quoting não sabe que está dentro de uma string
+-- aninhada, só procura a primeira repetição literal do tag.
+DO $guard$
+DECLARE
+    tabelas TEXT[] := ARRAY[
+        'ponto', 'ponto_linha', 'turno', 'turno_linha', 'partida_programada',
+        'registro_partida', 'evento_turno', 'observacao_turno', 'baita'
+    ];
+    tabela TEXT;
+    linhas BIGINT;
+    total_linhas BIGINT := 0;
+BEGIN
+    IF EXISTS (SELECT 1 FROM pg_namespace WHERE nspname = 'fiscalizacao') THEN
+        FOREACH tabela IN ARRAY tabelas LOOP
+            IF to_regclass('fiscalizacao.' || tabela) IS NOT NULL THEN
+                EXECUTE format('SELECT count(*) FROM fiscalizacao.%I', tabela) INTO linhas;
+                total_linhas := total_linhas + linhas;
+            END IF;
+        END LOOP;
+
+        IF total_linhas > 0 THEN
+            RAISE EXCEPTION 'fiscalizacao: % linha(s) existente(s) seriam apagadas pelo DROP SCHEMA CASCADE abaixo. Esta migration não é segura para rodar duas vezes. Confirme que a perda desses dados é aceitável e comente o bloco de guarda DO/END acima do DROP SCHEMA para prosseguir.', total_linhas;
+        END IF;
+    END IF;
+END $guard$;
+
 DROP SCHEMA IF EXISTS fiscalizacao CASCADE;
 
 CREATE SCHEMA IF NOT EXISTS fiscalizacao;
