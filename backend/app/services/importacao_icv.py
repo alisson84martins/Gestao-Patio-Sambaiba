@@ -20,9 +20,15 @@ VIAGENS PROG. é recusado inteiro, nunca importado parcialmente.
 Isolado numa função só de detecção de cabeçalho, com os rótulos em
 constantes no topo — o layout já mudou uma vez entre maio e agosto (mesma
 disciplina de importacao_escala_fiscal.py::_localizar_cabecalho).
+
+⛔ Este importador NÃO cria nem altera fiscalizacao.linha_coordenador —
+associação de quem coordena cada linha é cadastro, não efeito colateral
+de import (revisado em PROMPT-fiscalizacao-refatora-coordenador.md). A
+coluna de agrupamento da planilha é gravada como snapshot puro em
+icv_apurado.bacia_texto, só para conferência humana depois.
 """
 import re
-from datetime import date as date_type, timedelta
+from datetime import date as date_type
 from io import BytesIO
 from typing import Optional
 from uuid import UUID, uuid4
@@ -31,12 +37,12 @@ import openpyxl
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.models.fiscalizacao import Bacia, BaciaLinha, IcvApurado
+from app.models.fiscalizacao import IcvApurado
 
 # ─── Rótulos de cabeçalho — isolados aqui porque o layout já mudou uma vez
 # entre maio e agosto (§5 do prompt), e vai mudar de novo. ──────────────────
 _ROTULOS_LINHA = ("AQA", "LINHA")
-_ROTULO_BACIA = "BACIA"
+_ROTULO_BACIA_TEXTO = "BACIA"  # coluna da planilha — grava snapshot puro, não vira entidade
 _ROTULO_LOTE = "LOTE"
 _ROTULO_PROGRAMADAS = "VIAGENS PROG."
 _ROTULO_TP_TS = "VIAGENS REAL TP-TS"
@@ -87,8 +93,8 @@ def _localizar_cabecalho(rows: list[tuple]) -> tuple[Optional[int], Optional[dic
         for idx, rotulo in enumerate(normalizados):
             if rotulo in _ROTULOS_LINHA:
                 indices["linha"] = idx
-            elif rotulo == _ROTULO_BACIA:
-                indices["bacia"] = idx
+            elif rotulo == _ROTULO_BACIA_TEXTO:
+                indices["bacia_texto"] = idx
             elif rotulo == _ROTULO_LOTE:
                 indices["lote"] = idx
             elif rotulo == _ROTULO_PROGRAMADAS:
@@ -148,53 +154,6 @@ def _para_percentual(valor) -> Optional[float]:
     if numero <= 1.5:
         numero *= 100
     return round(numero, 2)
-
-
-def _slug_bacia(nome: str) -> str:
-    slug = re.sub(r"[^A-Z0-9]+", "_", nome.strip().upper()).strip("_")
-    return slug[:20] or "BACIA"
-
-
-def _atualizar_bacia_linha(db: Session, bacia_nome_bruto: str, linha_codigo: str, data_referencia: date_type) -> None:
-    """D21 — a coluna BACIA da planilha alimenta bacia_linha da vigência.
-    Abre uma vigência nova quando a linha muda de bacia; não mexe em nada
-    se ela já está na bacia certa. Best-effort: dado chegando fora de ordem
-    (dia mais antigo importado depois de um mais novo) não reabre nem
-    corrompe a vigência mais recente já aberta."""
-    bacia_nome = bacia_nome_bruto.strip()
-    if not bacia_nome:
-        return
-    bacia_codigo = _slug_bacia(bacia_nome)
-
-    bacia = db.get(Bacia, bacia_codigo)
-    if bacia is None:
-        bacia = Bacia(codigo=bacia_codigo, nome=bacia_nome)
-        db.add(bacia)
-        db.flush()
-
-    atual = db.execute(
-        select(BaciaLinha)
-        .where(BaciaLinha.linha_codigo == linha_codigo, BaciaLinha.vigencia_fim.is_(None))
-        .order_by(BaciaLinha.vigencia_inicio.desc())
-    ).scalars().first()
-
-    if atual is not None and atual.bacia_codigo == bacia_codigo:
-        return  # já está na bacia certa
-
-    if atual is not None:
-        if atual.vigencia_inicio >= data_referencia:
-            return  # dado fora de ordem — não corrompe a vigência aberta mais recente
-        atual.vigencia_fim = data_referencia - timedelta(days=1)
-
-    nova = db.execute(
-        select(BaciaLinha).where(
-            BaciaLinha.linha_codigo == linha_codigo, BaciaLinha.vigencia_inicio == data_referencia
-        )
-    ).scalar_one_or_none()
-    if nova is None:
-        db.add(BaciaLinha(bacia_codigo=bacia_codigo, linha_codigo=linha_codigo, vigencia_inicio=data_referencia))
-    elif nova.bacia_codigo != bacia_codigo:
-        nova.bacia_codigo = bacia_codigo
 
 
 def _verificar_suspeita(
@@ -294,6 +253,12 @@ def importar_icv(db: Session, conteudo: bytes, *, arquivo_nome: str, importado_p
                         "mensagem": f"'{linha_codigo}': lote '{candidato}' fora de E2/AR2 — gravado sem lote.",
                     })
 
+        bacia_texto: Optional[str] = None
+        if "bacia_texto" in indices:
+            bruto_bacia = row[indices["bacia_texto"]]
+            if bruto_bacia is not None and str(bruto_bacia).strip():
+                bacia_texto = str(bruto_bacia).strip()
+
         icv_calculado = round((tp_ts + ts_tp) / programadas * 100, 2) if programadas > 0 else None
 
         if "percentual" in indices and icv_calculado is not None:
@@ -320,7 +285,7 @@ def importar_icv(db: Session, conteudo: bytes, *, arquivo_nome: str, importado_p
                 id=uuid4(), linha_codigo=linha_codigo, data_referencia=data_referencia,
                 programadas=programadas, realizadas_tp_ts=tp_ts, realizadas_ts_tp=ts_tp,
                 lote=lote, origem="PLANILHA", suspeito=suspeito, suspeito_motivo=motivo,
-                arquivo_nome=arquivo_nome, importado_por=importado_por,
+                arquivo_nome=arquivo_nome, importado_por=importado_por, bacia_texto=bacia_texto,
             ))
             linhas_gravadas += 1
         else:
@@ -332,14 +297,10 @@ def importar_icv(db: Session, conteudo: bytes, *, arquivo_nome: str, importado_p
             existente.suspeito_motivo = motivo
             existente.arquivo_nome = arquivo_nome
             existente.importado_por = importado_por
+            existente.bacia_texto = bacia_texto
             linhas_atualizadas += 1
 
         linhas_lidas += 1
-
-        if "bacia" in indices:
-            bacia_bruta = row[indices["bacia"]]
-            if bacia_bruta is not None and str(bacia_bruta).strip():
-                _atualizar_bacia_linha(db, str(bacia_bruta), linha_codigo, data_referencia)
 
         if suspeito:
             suspeitas.append({"linha_codigo": linha_codigo, "motivo": motivo})

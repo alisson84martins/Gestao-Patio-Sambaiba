@@ -1,6 +1,6 @@
-"""Cálculo de ICV, bacia ponderada e prioridade (D20-D23, D28, D30).
+"""Cálculo de ICV, agregado por coordenador e prioridade (D20-D23, D28, D30).
 
-Espelha as views fiscalizacao.vw_icv_linha_dia / vw_icv_bacia_dia /
+Espelha as views fiscalizacao.vw_icv_linha_dia / vw_icv_coordenador_dia /
 vw_prioridade_linha (migration 030) em Python — mesmo precedente já
 registrado em vw_fechamento_turno / calcular_fechamento_linha
 (services/fechamento_fiscal.py, migration 029): os testes rodam em
@@ -13,6 +13,11 @@ divergirem, ver o débito já registrado em FISCALIZACAO-02-onde-paramos.md
 ⛔ Nada aqui grava nada — todo valor (icv, perda_absoluta, divergência) é
 calculado a cada chamada, nunca cacheado nem persistido (mesma disciplina
 do estado ATRASADA, D7).
+
+Não existe entidade "bacia" — o agrupamento é fiscalizacao.linha_coordenador
+(uma linha, um período, um funcionário) e não tem vigência: a composição é
+sempre a de HOJE, porque o histórico do ICV é por linha (icv_apurado), não
+por coordenador. Ver PROMPT-fiscalizacao-refatora-coordenador.md.
 """
 from collections import defaultdict
 from datetime import date, timedelta
@@ -22,7 +27,8 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.models.fiscalizacao import (
-    Bacia, BaciaLinha, EventoTurno, IcvApurado, PartidaProgramada, RegistroPartida, Turno,
+    EventoTurno, IcvApurado, LinhaCoordenador, Parametro, PartidaProgramada,
+    RegistroPartida, Turno,
 )
 
 
@@ -36,6 +42,13 @@ def _tipo_dia(d: date) -> str:
     if dow == 6:
         return "DOMINGO"
     return "UTIL"
+
+
+def _parametros(db: Session) -> dict[str, float]:
+    """D29 — meta e aceitável, sempre lidos daqui. ⛔ Nunca hardcode 98 nem
+    95 em nenhum outro lugar do código."""
+    linhas = db.execute(select(Parametro.chave, Parametro.valor)).all()
+    return {chave: float(valor) for chave, valor in linhas}
 
 
 def _programado_grade(db: Session, linha_codigo: str, data_referencia: date, tipo_dia: str) -> Optional[int]:
@@ -88,7 +101,8 @@ def _realizadas_campo(db: Session, linha_codigo: str, data_referencia: date) -> 
 
 
 def calcular_icv_linha_dia(db: Session, linha_codigo: str, data_referencia: date) -> dict:
-    """Equivalente Python de fiscalizacao.vw_icv_linha_dia.
+    """Equivalente Python de fiscalizacao.vw_icv_linha_dia. NÃO MUDOU com
+    a saída de bacia — já era por linha.
 
     D20 — as duas fontes (oficial da planilha, campo do fiscal) sempre
     lado a lado, NUNCA numa chave combinada. D23 — perda_absoluta usa a
@@ -142,44 +156,36 @@ def calcular_icv_linha_dia(db: Session, linha_codigo: str, data_referencia: date
     }
 
 
-def _linhas_da_bacia(db: Session, bacia_codigo: str, data_referencia: date) -> list[str]:
-    """D21 — resolve a composição da bacia PELA DATA DO DADO, nunca pela
-    composição de hoje."""
-    return list(db.execute(
-        select(BaciaLinha.linha_codigo).where(
-            BaciaLinha.bacia_codigo == bacia_codigo,
-            BaciaLinha.ativo.is_(True),
-            BaciaLinha.vigencia_inicio <= data_referencia,
-            (BaciaLinha.vigencia_fim.is_(None)) | (BaciaLinha.vigencia_fim >= data_referencia),
-        )
-    ).scalars().all())
+def linhas_do_coordenador(db: Session, funcionario_id, periodo: Optional[str] = None) -> list[dict]:
+    """As linhas que este funcionário coordena — em TODOS os períodos por
+    padrão (periodo=None), ou só num período específico. Usado por
+    GET /fiscalizacao/minhas-linhas e pela agregação abaixo."""
+    query = select(LinhaCoordenador.linha_codigo, LinhaCoordenador.periodo).where(
+        LinhaCoordenador.funcionario_id == funcionario_id, LinhaCoordenador.ativo.is_(True)
+    )
+    if periodo is not None:
+        query = query.where(LinhaCoordenador.periodo == periodo)
+    query = query.order_by(LinhaCoordenador.periodo, LinhaCoordenador.linha_codigo)
+    return [{"linha_codigo": l, "periodo": p} for l, p in db.execute(query).all()]
 
 
-def _bacia_da_linha(db: Session, linha_codigo: str, data_referencia: date) -> Optional[BaciaLinha]:
-    return db.execute(
-        select(BaciaLinha).where(
-            BaciaLinha.linha_codigo == linha_codigo,
-            BaciaLinha.ativo.is_(True),
-            BaciaLinha.vigencia_inicio <= data_referencia,
-            (BaciaLinha.vigencia_fim.is_(None)) | (BaciaLinha.vigencia_fim >= data_referencia),
-        )
-    ).scalars().first()
+def calcular_icv_coordenador_dia(db: Session, funcionario_id, data_referencia: date) -> dict:
+    """Equivalente Python de fiscalizacao.vw_icv_coordenador_dia — com uma
+    diferença de forma deliberada: a VIEW SQL agrupa por (funcionario_id,
+    periodo) separadamente (útil para relatório direto no Postgres); esta
+    função combina TODOS os períodos que o funcionário coordena num único
+    resumo — é o que a tela "meu ICV hoje" do coordenador precisa (D22
+    continua valendo: soma numerador e denominador de tudo antes de
+    dividir, nunca média).
 
-
-def calcular_icv_bacia_dia(db: Session, bacia_codigo: str, data_referencia: date) -> Optional[dict]:
-    """Equivalente Python de fiscalizacao.vw_icv_bacia_dia.
-
-    🔴 D22 — soma numerador e denominador de TODAS as linhas da bacia
-    (composição vigente na data, D21) antes de dividir. ⛔ Nunca faça
-    média de percentuais aqui — é exatamente o erro que este módulo existe
-    para não repetir."""
-    bacia = db.get(Bacia, bacia_codigo)
-    if bacia is None:
-        return None
+    🔁 SEM RESOLUÇÃO POR DATA de propósito: linha_coordenador não tem
+    vigência — a composição usada é sempre a de HOJE. O histórico do ICV é
+    por LINHA (icv_apurado), nunca por coordenador."""
+    linhas = [item["linha_codigo"] for item in linhas_do_coordenador(db, funcionario_id)]
 
     soma_programadas = 0
     soma_realizadas = 0
-    for linha_codigo in _linhas_da_bacia(db, bacia_codigo, data_referencia):
+    for linha_codigo in linhas:
         item = calcular_icv_linha_dia(db, linha_codigo, data_referencia)
         if item["programadas_oficial"] is not None:
             programadas, realizadas = item["programadas_oficial"], item["realizadas_oficial"]
@@ -190,20 +196,20 @@ def calcular_icv_bacia_dia(db: Session, bacia_codigo: str, data_referencia: date
             soma_realizadas += (realizadas or 0)
 
     icv_ponderado = round(soma_realizadas / soma_programadas * 100, 2) if soma_programadas else None
+    parametros = _parametros(db)
     return {
-        "bacia_codigo": bacia_codigo,
-        "bacia_nome": bacia.nome,
-        "meta_icv": float(bacia.meta_icv),
+        "funcionario_id": funcionario_id,
         "data_referencia": data_referencia,
         "programadas": soma_programadas,
         "realizadas": soma_realizadas,
         "icv_ponderado": icv_ponderado,
+        "icv_meta": parametros.get("icv_meta"),
+        "icv_aceitavel": parametros.get("icv_aceitavel"),
+        "linhas": linhas,
     }
 
 
-def _linhas_com_dado_no_dia(db: Session, data_referencia: date, bacia_codigo: Optional[str]) -> list[str]:
-    if bacia_codigo is not None:
-        return _linhas_da_bacia(db, bacia_codigo, data_referencia)
+def _linhas_com_dado_no_dia(db: Session, data_referencia: date) -> list[str]:
     linhas_oficial = db.execute(
         select(IcvApurado.linha_codigo).where(IcvApurado.data_referencia == data_referencia)
     ).scalars().all()
@@ -215,17 +221,25 @@ def _linhas_com_dado_no_dia(db: Session, data_referencia: date, bacia_codigo: Op
     return sorted(set(linhas_oficial) | set(linhas_campo))
 
 
-def ranking_prioridade(db: Session, data_referencia: date, bacia_codigo: Optional[str] = None) -> list[dict]:
-    """Equivalente Python de fiscalizacao.vw_prioridade_linha.
+def ranking_prioridade(db: Session, data_referencia: date, linhas: Optional[list[str]] = None) -> list[dict]:
+    """Equivalente Python de fiscalizacao.vw_prioridade_linha — NÃO MUDOU
+    com a saída de bacia (D23): mesma ordenação, mesmo cálculo de
+    divergência. Só o agrupamento que enfeitava cada item (bacia_codigo/
+    bacia_nome) saiu, porque não existe mais.
 
     D23 — ordenado por perda_absoluta DESC, NUNCA por percentual: uma
     linha "verde" a 95,22% que programa 212 perde mais viagem absoluta que
     uma a 91,53% que programa 13. D28 — 🔴 divergencia_denominador compara
     icv_apurado.programadas contra o total da grade importada (mesma
     linha/tipo de dia), sem escolher um dos dois nem converter — só
-    reporta a diferença."""
+    reporta a diferença.
+
+    `linhas`: quando informado, restringe o ranking a essas linhas (ex.:
+    as do coordenador logado); None = todas as linhas com dado no dia.
+    """
+    codigos = linhas if linhas is not None else _linhas_com_dado_no_dia(db, data_referencia)
     resultado = []
-    for linha_codigo in _linhas_com_dado_no_dia(db, data_referencia, bacia_codigo):
+    for linha_codigo in codigos:
         item = calcular_icv_linha_dia(db, linha_codigo, data_referencia)
 
         divergencia = None
@@ -234,11 +248,6 @@ def ranking_prioridade(db: Session, data_referencia: date, bacia_codigo: Optiona
             if escala is not None and escala != item["programadas_oficial"]:
                 divergencia = item["programadas_oficial"] - escala
         item["divergencia_denominador"] = divergencia
-
-        vinculo = _bacia_da_linha(db, linha_codigo, data_referencia)
-        item["bacia_codigo"] = vinculo.bacia_codigo if vinculo is not None else None
-        bacia_obj = db.get(Bacia, vinculo.bacia_codigo) if vinculo is not None else None
-        item["bacia_nome"] = bacia_obj.nome if bacia_obj is not None else None
 
         resultado.append(item)
 
@@ -309,9 +318,12 @@ def _icv_do_dia(item: dict) -> tuple[Optional[float], Optional[str]]:
 def montar_placar_linha(db: Session, linha_codigo: str, data_referencia: date) -> dict:
     """§7 — dado para o placar impresso por linha: código, ICV da semana
     anterior, meta ao lado, e a evolução dos últimos 7 dias (data_referencia
-    incluída). ⛔ Nenhum dado pessoal — nada aqui identifica fiscal,
-    coordenador ou dupla; é responsabilidade de quem monta a tela (D
-    impresso) não acrescentar nenhum."""
+    incluída). A meta é a mesma para toda a operação (fiscalizacao.parametro,
+    D29) — não depende de a linha ter coordenador cadastrado ou não.
+
+    ⛔ Nenhum dado pessoal — nada aqui identifica fiscal, coordenador ou
+    dupla; é responsabilidade de quem monta a tela impressa não acrescentar
+    nenhum."""
     evolucao = []
     for offset in range(6, -1, -1):
         dia = data_referencia - timedelta(days=offset)
@@ -323,11 +335,7 @@ def montar_placar_linha(db: Session, linha_codigo: str, data_referencia: date) -
     item_semana_anterior = calcular_icv_linha_dia(db, linha_codigo, semana_anterior)
     icv_semana_anterior, _ = _icv_do_dia(item_semana_anterior)
 
-    vinculo = _bacia_da_linha(db, linha_codigo, data_referencia)
-    meta_icv = None
-    if vinculo is not None:
-        bacia = db.get(Bacia, vinculo.bacia_codigo)
-        meta_icv = float(bacia.meta_icv) if bacia is not None else None
+    meta_icv = _parametros(db).get("icv_meta")
 
     return {
         "linha_codigo": linha_codigo,

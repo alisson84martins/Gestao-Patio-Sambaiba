@@ -288,31 +288,38 @@ class PainelLinhaResponse(BaseModel):
 
 
 # ============================================================================
-# Bloco E (migration 030) — BACIA (D21), ICV_APURADO (D20/D25/D28/D30),
-# AÇÃO DA COORDENAÇÃO (D26)
+# Bloco E (migration 030) — LINHA_COORDENADOR, PARAMETRO (D29),
+# ICV_APURADO (D20/D25/D28/D30), AÇÃO DA COORDENAÇÃO (D26)
 # ============================================================================
 
 Lote = Literal["E2", "AR2"]
 OrigemIcv = Literal["PLANILHA", "MANUAL"]
 
 
-class BaciaRead(ORMBase):
-    codigo: str
-    nome: str
-    coordenador_funcionario_id: Optional[UUID] = None
-    meta_icv: float
-    ativo: bool
-    criado_em: datetime
-
-
-class BaciaLinhaRead(ORMBase):
+class LinhaCoordenadorRead(ORMBase):
     id: UUID
-    bacia_codigo: str
     linha_codigo: str
-    vigencia_inicio: date
-    vigencia_fim: Optional[date] = None
+    funcionario_id: UUID
+    periodo: Periodo
     ativo: bool
     criado_em: datetime
+    atualizado_em: Optional[datetime] = None
+
+
+class MinhaLinhaItem(BaseModel):
+    """GET /fiscalizacao/minhas-linhas — as linhas do funcionário logado,
+    em todos os períodos em que ele coordena."""
+
+    linha_codigo: str
+    periodo: Periodo
+
+
+class ParametrosRead(BaseModel):
+    """GET /fiscalizacao/parametros — meta e aceitável, sempre lidos daqui
+    (D29). ⛔ Nunca 98 nem 95 hardcoded em Python, JS ou view."""
+
+    icv_meta: float
+    icv_aceitavel: float
 
 
 class IcvApuradoRead(ORMBase):
@@ -328,6 +335,7 @@ class IcvApuradoRead(ORMBase):
     suspeito_motivo: Optional[str] = None
     arquivo_nome: Optional[str] = None
     importado_por: Optional[UUID] = None
+    bacia_texto: Optional[str] = None
     criado_em: datetime
     atualizado_em: Optional[datetime] = None
 
@@ -379,26 +387,26 @@ class IcvLinhaDiaRead(BaseModel):
     fonte_perda_absoluta: Optional[FontePerdaAbsoluta] = None
 
 
-class IcvBaciaDiaRead(BaseModel):
-    """Equivalente de fiscalizacao.vw_icv_bacia_dia (D22) — ponderado,
-    nunca média simples."""
+class IcvCoordenadorDiaRead(BaseModel):
+    """Equivalente de fiscalizacao.vw_icv_coordenador_dia (D22) —
+    ponderado, nunca média simples. Agregado das linhas de UM coordenador
+    (funcionario_id), sem parâmetro de agrupamento algum."""
 
-    bacia_codigo: str
-    bacia_nome: str
-    meta_icv: float
+    funcionario_id: UUID
     data_referencia: date
     programadas: int
     realizadas: int
     icv_ponderado: Optional[float] = None
+    icv_meta: float
+    icv_aceitavel: float
+    linhas: list[str] = Field(default_factory=list)
 
 
 class PrioridadeLinhaItem(IcvLinhaDiaRead):
     """Equivalente de uma linha de fiscalizacao.vw_prioridade_linha (D23),
-    com a divergência de denominador (D28) e a bacia da linha."""
+    com a divergência de denominador (D28)."""
 
     divergencia_denominador: Optional[int] = None
-    bacia_codigo: Optional[str] = None
-    bacia_nome: Optional[str] = None
 
 
 class CascataItem(BaseModel):

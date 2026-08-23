@@ -1,5 +1,5 @@
 -- ============================================================================
--- MIGRATION 030 — Fiscalização Bloco E: ICV apurado, bacia e ação da coordenação
+-- MIGRATION 030 — Fiscalização Bloco E: ICV apurado, coordenação por linha e ação da coordenação
 -- ----------------------------------------------------------------------------
 -- BANCO:  gestao_frota_sambaiba (produção) / gestao_patio_sambaiba (dev)
 -- SCHEMA: fiscalizacao (já existe, criado pela 029)
@@ -9,9 +9,9 @@
 --             partida_programada/registro_partida/turno/evento_turno,
 --             recurso fiscalizacao_painel), 011-rbac-cadastro-central.sql
 --             (funcionario, funcao, funcao_permissao)
--- ORIGEM: _handoff-claude/PROMPT-fiscalizacao-bloco-E-icv.md, sobre
---         _handoff-claude/DESENHO-modulo-fiscalizacao.md (D20-D30 deste
---         prompt, que continuam a numeração do desenho original D1-D19)
+-- ORIGEM: _handoff-claude/PROMPT-fiscalizacao-bloco-E-icv.md (D20-D30),
+--         revisada por _handoff-claude/PROMPT-fiscalizacao-refatora-coordenador.md
+--         antes de qualquer deploy — ver "🔁 REVISADA" abaixo.
 -- ----------------------------------------------------------------------------
 -- ⚠️ NÚMERO — os arquivos vão até 029. Próximo número livre: 030.
 --
@@ -20,30 +20,54 @@
 --   próprio cabeçalho dela) e não abre precedente — confirmado nunca se
 --   repetir.
 --
--- POR QUÊ (D20 do prompt)
+-- 🔁 REVISADA ANTES DE QUALQUER DEPLOY — "bacia" saiu, "linha_coordenador" entrou
+--   Esta migration nunca rodou fora do banco local de desenvolvimento, e
+--   origin/v3.0-dev nunca recebeu nenhum dos commits deste módulo — por
+--   isso a correção editou o arquivo NO LUGAR, sem criar uma 031 e sem
+--   tocar no histórico do git.
+--
+--   O motivo: "bacia" não é uma entidade da operação — é só o apelido do
+--   conjunto de linhas de um coordenador, e o nome dela é o nome dele.
+--   Modelar isso como tabela própria criava um substantivo para o que na
+--   verdade é uma RELAÇÃO simples (esta linha, neste período, é deste
+--   coordenador), e um cadastro que alguém teria que lembrar de manter.
+--
+--   Confirmado com o especialista de domínio antes do primeiro deploy:
+--     1. Os dois "nomes de bacia" que apareciam por linha na planilha são
+--        DOIS PERÍODOS cobertos por pessoas diferentes (1º período de
+--        manhã, 2º à tarde) — não dois agrupamentos distintos de linhas.
+--        As linhas são as mesmas nos dois. A associação usa a MESMA
+--        dimensão que fiscalizacao.turno.periodo já usa (D8) — '1'/'2',
+--        nunca um domínio novo.
+--     2. Meta e corte de aceitável são ÚNICOS para toda a operação — não
+--        por agrupamento.
+--     3. O histórico do ICV não precisa se associar a coordenador
+--        nenhum: icv_apurado já guarda por linha e por dia, então nenhum
+--        número histórico se perde quando a responsabilidade muda — só o
+--        agrupamento por coordenador passa a ser sempre o de HOJE. Por
+--        isso linha_coordenador não tem vigência: trocar o coordenador é
+--        um UPDATE, e é para ser assim mesmo.
+--
+-- POR QUÊ (D20 do prompt original)
 --   O módulo Fiscalização (029) só calcula ICV a partir do que o fiscal
 --   registra em campo — e nenhum fiscal está registrando partida ainda
 --   (a tela dele, fiscal.html, é o Bloco D, ainda não construído). Mas a
 --   gerência já manda, toda semana, uma planilha de ICV apurado pela
---   SPTrans (SIM) — importando essa planilha, o coordenador ganha ranking,
---   bacia ponderada e placar NA MESMA SEMANA, sem depender de adesão de
---   ninguém em campo. Esta migration é o banco que sustenta essa camada.
+--   SPTrans (SIM) — importando essa planilha, o coordenador ganha
+--   ranking e o seu ICV ponderado NA MESMA SEMANA, sem depender de
+--   adesão de ninguém em campo. Esta migration é o banco que sustenta
+--   essa camada.
 --
--- DECISÕES DESTE BLOCO QUE MOLDAM O SCHEMA (ver §3 do prompt)
+-- DECISÕES QUE MOLDAM O SCHEMA
 --   D20 Duas fontes de ICV convivem SEM se misturar numa coluna só:
 --       icv_apurado (planilha da gerência, oficial) e o calculado de
 --       registro_partida (campo, antecipa e explica). vw_icv_linha_dia
 --       expõe as duas lado a lado.
---   D21 Bacia é DADO, não código — nenhuma bacia/linha real seedada aqui.
---       🔴 bacia_linha tem vigência (vigencia_inicio/vigencia_fim) — ver
---       nota "DESVIO DO TEXTO LITERAL" abaixo: o §4 do prompt descreve a
---       tabela sem essas colunas, mas o §3/D21 exige vigência de forma
---       explícita e marcada 🔴, com dado real comprovando que a mesma
---       linha (1726-10) trocou de bacia entre 26/05 e 19-21/08/2026. Sem
---       vigência, qualquer agregado histórico mistura conjuntos de linhas
---       diferentes — é a própria justificativa do D21. Segui o D21.
+--   D21 Coordenação por linha é RELAÇÃO DIRETA, sem vigência (ver
+--       "🔁 REVISADA" acima) — o histórico do ICV é por linha e por dia,
+--       nunca por coordenador.
 --   D22 Todo agregado é PONDERADO por viagem programada — nunca média
---       simples de percentuais. Ver COMMENT ON VIEW de vw_icv_bacia_dia.
+--       simples de percentuais. Ver COMMENT ON VIEW de vw_icv_coordenador_dia.
 --   D23 Priorização por PERDA ABSOLUTA (programadas × (1 − icv)), sempre
 --       em view, nunca coluna gravada.
 --   D24 Cascata é condição CALCULADA NA LEITURA sobre registro_partida —
@@ -54,45 +78,27 @@
 --       gravado como veio da planilha, SEM comparar com partida_programada
 --       automaticamente aqui — a divergência é calculada na leitura
 --       (view/serviço), nunca escolhida/convertida na gravação.
---   D29 Meta é configurável: bacia.meta_icv (DEFAULT 98.00) — nunca 98 ou
---       94.3 hardcoded em código, view ou seed.
+--   D29 Meta e corte de aceitável são CONFIGURÁVEIS e ÚNICOS para toda a
+--       operação (fiscalizacao.parametro), nunca hardcoded em código,
+--       view ou seed — e nunca por agrupamento (ver decisão 2 acima).
 --   D30 ICV pode passar de 100% — nenhum teto em nenhuma coluna nem view;
 --       os contadores crus são gravados como vieram.
---
--- ⚠️ DESVIO DO TEXTO LITERAL DO PROMPT (registrado aqui, não é decisão de
---   negócio nova — é resolver uma contradição interna do próprio prompt):
---   o §4 descreve `fiscalizacao.bacia_linha` com UNIQUE(bacia_codigo,
---   linha_codigo) e SEM vigência; mas o §3/D21, poucas linhas antes, exige
---   vigência de forma explícita e crítica ("🔴 bacia_linha PRECISA de
---   vigência"), com o exemplo real da 1726-10 mudando de bacia entre maio
---   e agosto provando que sem vigência "qualquer comparação histórica
---   mistura conjuntos de linhas diferentes e o número mente". As duas
---   partes do MESMO prompt não podem estar certas ao mesmo tempo — optei
---   pelo D21 (a decisão nomeada, numerada e justificada com dado real) em
---   vez do §4 (a tabela resumida, que parece ter esquecido a própria
---   decisão anterior no mesmo documento). Troquei UNIQUE(bacia_codigo,
---   linha_codigo) por um índice não-único (linha_codigo, vigencia_inicio)
---   — a mesma linha pode voltar pra mesma bacia depois de um período fora
---   dela, então UNIQUE pura bloquearia esse caso legítimo.
 --
 -- REGRA DE FRONTEIRA (mesma da 012/024/026/029)
 --   ⛔ Zero FK para tabela operacional do Pátio. Única FK para fora do
 --   schema: public.funcionario (identidade), sem prefixo "public." no
 --   modelo (mesma pegadinha já documentada na 029). linha_codigo é
---   SNAPSHOT texto — bacia_linha.linha_codigo não tem FK para lugar
---   nenhum, mesma disciplina de turno_linha/ponto_linha na 029.
+--   SNAPSHOT texto em toda tabela deste módulo — sem exceção.
 --
 -- ⚠️ Sem SET search_path — todo objeto qualificado explicitamente com o
 --   schema (fiscalizacao./public.), mesmo padrão da 026/029.
 --
 -- ⚠️ DADO PESSOAL: zero dado pessoal real em seed, fixture ou comentário.
---   ⛔ Nenhum percentual de meta, código de linha, nome de bacia ou de
---   garagem escrito em código, view ou seed versionado nesta migration
---   (checklist §11 do prompt) — em especial, nenhum nome de pessoa (ex.:
---   de coordenador) em lugar nenhum do arquivo. O único dado concreto que
---   aparece nos COMMENTs de racional acima é o código de uma linha real
---   (D21, para justificar a vigência de bacia_linha) — nunca em INSERT
---   nem em seed, e nunca um nome de pessoa.
+--   ⛔ Nenhum percentual de meta ou de corte, código de linha ou nome de
+--   garagem escrito em código, view ou seed versionado — e, acima de
+--   tudo, nenhum nome de pessoa em lugar nenhum do arquivo, nem em
+--   comentário. fiscalizacao.parametro é o único lugar onde os números
+--   de meta/corte existem.
 --
 -- ARMADILHA DE DONO DE TABELA (ver 011, PARTE 0): se der
 -- "must be owner of table X", rode SET ROLE sambaiba; antes.
@@ -104,50 +110,60 @@
 CREATE SCHEMA IF NOT EXISTS fiscalizacao;
 
 -- ============================================================================
--- 1 · BACIA — conjunto de linhas sob um coordenador (D21)
+-- 1 · LINHA_COORDENADOR — quem coordena cada linha, por período
 -- ============================================================================
-CREATE TABLE IF NOT EXISTS fiscalizacao.bacia (
-    codigo                      VARCHAR(20) PRIMARY KEY,
-    nome                        VARCHAR(60)  NOT NULL,
-    coordenador_funcionario_id  UUID REFERENCES public.funcionario(id),
-    meta_icv                    NUMERIC(5,2) NOT NULL DEFAULT 98.00,
-    ativo                       BOOLEAN      NOT NULL DEFAULT TRUE,
-    criado_em                   TIMESTAMPTZ  NOT NULL DEFAULT NOW()
+CREATE TABLE IF NOT EXISTS fiscalizacao.linha_coordenador (
+    id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    linha_codigo   VARCHAR(20) NOT NULL,  -- ⛔ sem FK — snapshot texto, regra de fronteira
+    funcionario_id UUID        NOT NULL REFERENCES public.funcionario(id),
+    periodo        VARCHAR(1)  NOT NULL CHECK (periodo IN ('1','2')),
+    ativo          BOOLEAN     NOT NULL DEFAULT TRUE,
+    criado_em      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    atualizado_em  TIMESTAMPTZ,
+
+    UNIQUE (linha_codigo, periodo)
 );
-COMMENT ON TABLE fiscalizacao.bacia IS 'D21 — bacia é DADO, não código: conjunto de linhas sob um coordenador, atravessando vários pontos. ⛔ Nenhuma bacia real seedada aqui — tudo entra por cadastro/importação, nunca por código versionado (ver database/seeds/10-fiscalizacao-bacia.sql.exemplo).';
-COMMENT ON COLUMN fiscalizacao.bacia.meta_icv IS 'D29 — meta oficial cobrada, configurável por bacia (DEFAULT 98.00). ⛔ NUNCA hardcode 98 nem o corte de cor da planilha (~94.3) em código, view ou seed — são duas coisas diferentes (meta vs. farol) e das 12 linhas de uma bacia real analisada, 9 estavam abaixo da meta mas só 5 apareciam vermelhas no farol da planilha. O painel compara sempre contra este campo.';
+COMMENT ON TABLE fiscalizacao.linha_coordenador IS 'Não existe entidade "bacia" — o que a planilha da gerência chama de bacia é o conjunto de linhas de um coordenador, e o nome dela é o nome dele. Aqui a relação é direta: esta linha, neste período, é deste coordenador. ⛔ Sem vigência de propósito — o histórico do ICV é por linha e por dia (icv_apurado), então nenhum número se perde quando a responsabilidade muda. Trocar o coordenador é um UPDATE, e é para ser assim mesmo.';
+COMMENT ON COLUMN fiscalizacao.linha_coordenador.periodo IS 'Mesmo domínio de fiscalizacao.turno.periodo (D8) — os dois períodos de uma linha são cobertos por PESSOAS diferentes (1º turno de manhã, 2º à tarde), não dois agrupamentos distintos de linhas. UNIQUE(linha_codigo, periodo): uma linha tem um coordenador por período.';
+
+CREATE INDEX IF NOT EXISTS idx_linha_coordenador_funcionario
+    ON fiscalizacao.linha_coordenador (funcionario_id);
+
+DROP TRIGGER IF EXISTS trg_linha_coordenador_atualizado ON fiscalizacao.linha_coordenador;
+CREATE TRIGGER trg_linha_coordenador_atualizado
+    BEFORE UPDATE ON fiscalizacao.linha_coordenador
+    FOR EACH ROW EXECUTE FUNCTION fiscalizacao.fn_set_atualizado_em();
+
+-- ⚠️ Nenhuma linha/coordenador seedado aqui — ver
+-- database/seeds/10-fiscalizacao-linha-coordenador.sql.exemplo.
 
 -- ============================================================================
--- 2 · BACIA_LINHA — quais linhas, em qual vigência (D21 — ver "DESVIO" no cabeçalho)
+-- 2 · PARAMETRO — chave/valor para o que não pertence a nenhuma tabela de negócio (D29)
 -- ============================================================================
-CREATE TABLE IF NOT EXISTS fiscalizacao.bacia_linha (
-    id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    bacia_codigo     VARCHAR(20) NOT NULL REFERENCES fiscalizacao.bacia(codigo),
-    linha_codigo     VARCHAR(20) NOT NULL,  -- ⛔ sem FK — snapshot texto, regra de fronteira
-    vigencia_inicio  DATE        NOT NULL,
-    vigencia_fim     DATE,                  -- NULL = ainda vigente
-    ativo            BOOLEAN     NOT NULL DEFAULT TRUE,
-    criado_em        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-
-    CONSTRAINT ck_bacia_linha_vigencia CHECK (vigencia_fim IS NULL OR vigencia_fim >= vigencia_inicio),
-
-    -- ⚠️ Não é UNIQUE(bacia_codigo, linha_codigo) — ver "DESVIO" no
-    -- cabeçalho: a mesma linha pode voltar pra mesma bacia depois de um
-    -- período fora dela. A chave real que não pode duplicar é "esta linha
-    -- abriu uma vigência nova nesta data" — é o alvo de conflito que o
-    -- importador de ICV usa para upsert (não abre uma segunda vigência se
-    -- já existe uma começando no mesmo dia para a mesma linha).
-    UNIQUE (linha_codigo, vigencia_inicio)
+CREATE TABLE IF NOT EXISTS fiscalizacao.parametro (
+    chave         VARCHAR(40)  PRIMARY KEY,
+    valor         NUMERIC(6,2) NOT NULL,
+    descricao     TEXT         NOT NULL,
+    atualizado_em TIMESTAMPTZ
 );
-COMMENT ON TABLE fiscalizacao.bacia_linha IS 'D21 — quais linhas compõem cada bacia, COM VIGÊNCIA: a mesma linha pode trocar de bacia com o tempo (confirmado com dado real: a 1726-10 mudou de bacia entre 26/05 e 19-21/08/2026). Toda consulta agregada (vw_icv_bacia_dia) resolve a composição PELA DATA DO DADO, nunca pela composição de hoje. ⛔ Nenhuma linha real seedada aqui.';
-COMMENT ON COLUMN fiscalizacao.bacia_linha.vigencia_fim IS 'NULL = a linha ainda está nesta bacia. Preenchido quando ela migra para outra bacia (o importador da planilha de ICV fecha a vigência antiga e abre uma nova quando a coluna BACIA de uma linha muda de um dia para o outro).';
+COMMENT ON TABLE fiscalizacao.parametro IS 'D29 — configuração de negócio do módulo, não dado real de operação: meta oficial e corte de aceitável do ICV, iguais para toda a operação (não por agrupamento, não por linha). Os valores abaixo são parâmetro, não segredo nem dado pessoal — podem ser versionados.';
 
--- Índice de (linha_codigo, vigencia_inicio) já vem de graça da UNIQUE acima.
-CREATE INDEX IF NOT EXISTS idx_bacia_linha_bacia
-    ON fiscalizacao.bacia_linha (bacia_codigo);
+DROP TRIGGER IF EXISTS trg_parametro_atualizado ON fiscalizacao.parametro;
+CREATE TRIGGER trg_parametro_atualizado
+    BEFORE UPDATE ON fiscalizacao.parametro
+    FOR EACH ROW EXECUTE FUNCTION fiscalizacao.fn_set_atualizado_em();
 
--- ⚠️ Nenhuma bacia e nenhuma linha seedadas aqui — ver
--- database/seeds/10-fiscalizacao-bacia.sql.exemplo.
+-- D29 — por que meta e aceitável são coisas diferentes (corrige uma
+-- citação de corte errada, "~94,3%", numa versão anterior desta
+-- migration — o corte real, confirmado com o Alisson, é 95%): das 12
+-- linhas de uma carteira real analisada, 9 estavam abaixo da meta de 98%
+-- e só 5 apareciam vermelhas — quatro linhas passavam por boas estando
+-- abaixo da meta. É por isso que a comparação visível é sempre contra a
+-- meta, e o corte serve só para a cor do farol.
+INSERT INTO fiscalizacao.parametro (chave, valor, descricao) VALUES
+    ('icv_meta',      98.00, 'Meta oficial cobrada — igual para todas as linhas.'),
+    ('icv_aceitavel', 95.00, 'Corte de aceitável (cor do farol) — NÃO é a meta. Abaixo disto, a linha aparece crítica na cor.')
+ON CONFLICT (chave) DO NOTHING;
 
 -- ============================================================================
 -- 3 · ICV_APURADO — o número oficial, importado da planilha da gerência (D20, D28, D30)
@@ -165,16 +181,18 @@ CREATE TABLE IF NOT EXISTS fiscalizacao.icv_apurado (
     suspeito_motivo   TEXT,
     arquivo_nome      VARCHAR(255),
     importado_por     UUID REFERENCES public.funcionario(id),
+    bacia_texto       VARCHAR(60),
     criado_em         TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
     atualizado_em     TIMESTAMPTZ,
 
     UNIQUE (linha_codigo, data_referencia)
 );
 COMMENT ON TABLE fiscalizacao.icv_apurado IS 'D20 — o ICV OFICIAL, apurado pela SPTrans no SIM e importado da planilha semanal da gerência. Convive com o cálculo de registro_partida (campo) sem sobrescrever: as duas fontes aparecem lado a lado em vw_icv_linha_dia. UNIQUE(linha_codigo, data_referencia) — reimportar o mesmo dia ATUALIZA, não duplica.';
-COMMENT ON COLUMN fiscalizacao.icv_apurado.realizadas_tp_ts IS 'Sentido TP→TS, coluna separada de realizadas_ts_tp (não só a soma) — casa com o registro do fiscal, que é por terminal (D10), e o dado real mostra a mesma linha com total igual e divisão diferente entre os dois sentidos em dias distintos (ex.: 271P-10: 60+59 num dia, 59+60 no outro).';
+COMMENT ON COLUMN fiscalizacao.icv_apurado.realizadas_tp_ts IS 'Sentido TP→TS, coluna separada de realizadas_ts_tp (não só a soma) — casa com o registro do fiscal, que é por terminal (D10), e o dado real mostra a mesma linha com total igual e divisão diferente entre os dois sentidos em dias distintos.';
 COMMENT ON COLUMN fiscalizacao.icv_apurado.programadas IS 'D30 — gravado como veio da planilha, SEM teto: o total realizado (tp_ts+ts_tp) pode superar este valor (viagem extra somando nas realizadas) e o ICV calculado passa de 100% de propósito — quem decide teto é a apresentação, nunca o banco.';
 COMMENT ON COLUMN fiscalizacao.icv_apurado.suspeito IS 'D25 — TRUE quando os DOIS contadores brutos (realizadas_tp_ts e realizadas_ts_tp) são idênticos aos do dia anterior já importado para a mesma linha E o ICV do dia não é 100% (linha 100% que repete é esperado, não suspeito — célula arrastada no Excel é o padrão que este campo tenta pegar). Nunca recusa a linha, só registra e mostra (suspeito_motivo).';
 COMMENT ON COLUMN fiscalizacao.icv_apurado.origem IS 'PLANILHA = veio do upload da planilha de ICV da gerência (app/services/importacao_icv.py). MANUAL = lançamento avulso pelo painel, para o dia em que a planilha atrasar.';
+COMMENT ON COLUMN fiscalizacao.icv_apurado.bacia_texto IS 'O que a planilha da gerência chama de bacia, gravado exatamente como veio. Não é entidade e não tem FK — serve só para conferir depois se o agrupamento por coordenador do sistema (fiscalizacao.linha_coordenador) bate com o da gerência.';
 
 CREATE INDEX IF NOT EXISTS idx_icv_apurado_linha_data
     ON fiscalizacao.icv_apurado (linha_codigo, data_referencia DESC);
@@ -202,7 +220,7 @@ CREATE TABLE IF NOT EXISTS fiscalizacao.acao_coordenacao (
     criado_em             TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     atualizado_em         TIMESTAMPTZ
 );
-COMMENT ON TABLE fiscalizacao.acao_coordenacao IS 'D26 — o que o coordenador FEZ diante de um problema de linha, e o resultado observado. Único caso replicável que a bacia analisada tinha (uma linha foi de 94,62% a 99,46% em dois dias por ação da equipe) e que se perde sem este registro. ⛔ Não é campo da tela do fiscal — quem age aqui é o coordenador, no painel.';
+COMMENT ON TABLE fiscalizacao.acao_coordenacao IS 'D26 — o que o coordenador FEZ diante de um problema de linha, e o resultado observado. Único caso replicável observado nas planilhas reais analisadas (uma linha foi de 94,62% a 99,46% em dois dias por ação da equipe) e que se perde sem este registro. ⛔ Não é campo da tela do fiscal — quem age aqui é o coordenador, no painel.';
 COMMENT ON COLUMN fiscalizacao.acao_coordenacao.faixa_hora IS 'Hora cheia (17, 18, 19...) opcional — mesma granularidade da cascata (D24). NULL = ação sobre o dia inteiro, não uma faixa específica.';
 
 CREATE INDEX IF NOT EXISTS idx_acao_coordenacao_linha_data
@@ -217,7 +235,8 @@ CREATE TRIGGER trg_acao_coordenacao_atualizado
 -- 5 · VIEWS
 -- ============================================================================
 
--- vw_icv_linha_dia — as duas fontes lado a lado, sem misturar (D20), com
+-- vw_icv_linha_dia — NÃO MUDA (já é por linha, sem nenhuma referência a
+-- agrupamento). As duas fontes lado a lado, sem misturar (D20), com
 -- perda_absoluta (D23) calculada sobre a fonte oficial quando existir,
 -- senão sobre a de campo, e uma coluna dizendo qual fonte foi usada.
 --
@@ -276,12 +295,17 @@ SELECT
 
 COMMENT ON VIEW fiscalizacao.vw_icv_linha_dia IS 'D20 — as duas fontes de ICV (oficial da planilha, campo do fiscal) lado a lado, NUNCA numa coluna combinada. D23 — perda_absoluta = programadas × (1 − icv), calculada aqui, nunca gravada; usa a fonte oficial quando existe (é o número que a empresa cobra), senão a de campo, e fonte_perda_absoluta diz qual foi usada. D30 — icv_oficial e icv_campo não têm teto: podem passar de 100%.';
 
--- vw_icv_bacia_dia — agregado PONDERADO (D22), com a meta da bacia junto.
-CREATE OR REPLACE VIEW fiscalizacao.vw_icv_bacia_dia AS
+-- vw_icv_coordenador_dia (substitui vw_icv_bacia_dia) — agregado
+-- PONDERADO (D22) por funcionario_id + periodo, via linha_coordenador.
+-- 🔁 SEM RESOLUÇÃO POR DATA de propósito: linha_coordenador não tem
+-- vigência (ver "REVISADA" no cabeçalho) — a composição usada é sempre a
+-- de HOJE, então um agregado de uma data passada usa o coordenador ATUAL
+-- daquela linha, não quem coordenava na época. O histórico do ICV é por
+-- LINHA (icv_apurado), nunca por coordenador.
+CREATE OR REPLACE VIEW fiscalizacao.vw_icv_coordenador_dia AS
 SELECT
-    b.codigo                                    AS bacia_codigo,
-    b.nome                                       AS bacia_nome,
-    b.meta_icv,
+    lc.funcionario_id,
+    lc.periodo,
     vild.data_referencia,
     SUM(COALESCE(vild.programadas_oficial, vild.programadas_campo, 0))  AS programadas,
     SUM(COALESCE(vild.realizadas_oficial, vild.realizadas_campo, 0))    AS realizadas,
@@ -290,21 +314,21 @@ SELECT
              SUM(COALESCE(vild.realizadas_oficial, vild.realizadas_campo, 0))::numeric
              / SUM(COALESCE(vild.programadas_oficial, vild.programadas_campo, 0)) * 100, 2)
          ELSE NULL
-    END                                                                  AS icv_ponderado
-  FROM fiscalizacao.bacia b
-  JOIN fiscalizacao.bacia_linha bl
-    ON bl.bacia_codigo = b.codigo AND bl.ativo
+    END                                                                     AS icv_ponderado,
+    (SELECT valor FROM fiscalizacao.parametro WHERE chave = 'icv_meta')       AS icv_meta,
+    (SELECT valor FROM fiscalizacao.parametro WHERE chave = 'icv_aceitavel')  AS icv_aceitavel
+  FROM fiscalizacao.linha_coordenador lc
   JOIN fiscalizacao.vw_icv_linha_dia vild
-    ON vild.linha_codigo = bl.linha_codigo
-   AND vild.data_referencia >= bl.vigencia_inicio
-   AND (bl.vigencia_fim IS NULL OR vild.data_referencia <= bl.vigencia_fim)
- GROUP BY b.codigo, b.nome, b.meta_icv, vild.data_referencia;
+    ON vild.linha_codigo = lc.linha_codigo
+ WHERE lc.ativo
+ GROUP BY lc.funcionario_id, lc.periodo, vild.data_referencia;
 
-COMMENT ON VIEW fiscalizacao.vw_icv_bacia_dia IS 'D22 — 🔴 SOMA numerador e denominador de TODAS as linhas da bacia (na composição vigente NA DATA DO DADO, D21) antes de dividir. ⛔ AVG(percentual) é proibido aqui e em qualquer lugar do módulo: numa bacia real de 12 linhas, a média simples dos percentuais dava 95,4% enquanto a ponderada (esta view) dava 93,70% — a média simples escondia exatamente o problema que este módulo existe para mostrar. meta_icv vem junto para a tela não precisar buscar em outro lugar (D29).';
+COMMENT ON VIEW fiscalizacao.vw_icv_coordenador_dia IS 'D22 — 🔴 SOMA numerador e denominador de TODAS as linhas do coordenador (composição de HOJE, linha_coordenador não tem vigência) antes de dividir. ⛔ AVG(percentual) é proibido aqui e em qualquer lugar do módulo. icv_meta e icv_aceitavel vêm de fiscalizacao.parametro junto, para a tela não precisar buscar em outro lugar (D29) — nunca hardcoded aqui nem em código.';
 
--- vw_prioridade_linha — o ranking por perda absoluta (D23), com bacia e
--- divergência de denominador (D28) quando houver grade importada para a
--- mesma linha e mesmo tipo de dia.
+-- vw_prioridade_linha — NÃO MUDA (D23): ranking por perda absoluta, com
+-- divergência de denominador (D28). Só a coluna de agrupamento (que
+-- vinha de bacia_linha) saiu — a ordenação e o cálculo de divergência
+-- são exatamente os mesmos de antes.
 CREATE OR REPLACE VIEW fiscalizacao.vw_prioridade_linha AS
 SELECT
     vild.linha_codigo,
@@ -318,8 +342,6 @@ SELECT
     vild.icv_campo,
     vild.perda_absoluta,
     vild.fonte_perda_absoluta,
-    bl.bacia_codigo,
-    b.nome                                       AS bacia_nome,
     escala.programado_escala,
     CASE
         WHEN vild.programadas_oficial IS NOT NULL
@@ -329,12 +351,6 @@ SELECT
         ELSE NULL
     END                                           AS divergencia_denominador
   FROM fiscalizacao.vw_icv_linha_dia vild
-  LEFT JOIN fiscalizacao.bacia_linha bl
-    ON bl.linha_codigo = vild.linha_codigo
-   AND bl.ativo
-   AND vild.data_referencia >= bl.vigencia_inicio
-   AND (bl.vigencia_fim IS NULL OR vild.data_referencia <= bl.vigencia_fim)
-  LEFT JOIN fiscalizacao.bacia b ON b.codigo = bl.bacia_codigo
   LEFT JOIN LATERAL (
       SELECT COUNT(*) AS programado_escala
         FROM fiscalizacao.partida_programada pp
@@ -377,11 +393,14 @@ SELECT fn.id, v.recurso, v.pode_ler, v.pode_escrever
 -- ============================================================================
 --   SELECT table_name FROM information_schema.tables
 --    WHERE table_schema = 'fiscalizacao' AND table_name IN
---          ('bacia','bacia_linha','icv_apurado','acao_coordenacao');  -- 4
+--          ('linha_coordenador','parametro','icv_apurado','acao_coordenacao');  -- 4
 --
 --   SELECT table_name FROM information_schema.views
 --    WHERE table_schema = 'fiscalizacao' AND table_name IN
---          ('vw_icv_linha_dia','vw_icv_bacia_dia','vw_prioridade_linha');  -- 3
+--          ('vw_icv_linha_dia','vw_icv_coordenador_dia','vw_prioridade_linha');  -- 3
+--
+--   SELECT chave, valor FROM fiscalizacao.parametro ORDER BY chave;
+--    -- esperado: icv_aceitavel=95.00, icv_meta=98.00
 --
 -- Prova de que COORDENADOR_TRAFEGO e ADMIN podem escrever em
 -- fiscalizacao_painel e FISCAL continua sem nada:
@@ -396,7 +415,7 @@ SELECT fn.id, v.recurso, v.pode_ler, v.pode_escrever
 --     JOIN information_schema.constraint_column_usage ccu
 --       ON ccu.constraint_name = tc.constraint_name
 --    WHERE tc.table_schema = 'fiscalizacao' AND tc.constraint_type = 'FOREIGN KEY'
---      AND tc.table_name IN ('bacia','bacia_linha','icv_apurado','acao_coordenacao');
+--      AND tc.table_name IN ('linha_coordenador','parametro','icv_apurado','acao_coordenacao');
 -- ============================================================================
 
 -- ============================================================================
@@ -408,10 +427,10 @@ SELECT fn.id, v.recurso, v.pode_ler, v.pode_escrever
 --  );  -- ⚠️ isso também apagaria pode_ler, se algum dia o UPDATE acima mudar pode_ler
 --      -- de algo que já não fosse TRUE — hoje é seguro pois ambos já liam.
 -- DROP VIEW IF EXISTS fiscalizacao.vw_prioridade_linha;
--- DROP VIEW IF EXISTS fiscalizacao.vw_icv_bacia_dia;
+-- DROP VIEW IF EXISTS fiscalizacao.vw_icv_coordenador_dia;
 -- DROP VIEW IF EXISTS fiscalizacao.vw_icv_linha_dia;
 -- DROP TABLE IF EXISTS fiscalizacao.acao_coordenacao;
 -- DROP TABLE IF EXISTS fiscalizacao.icv_apurado;
--- DROP TABLE IF EXISTS fiscalizacao.bacia_linha;
--- DROP TABLE IF EXISTS fiscalizacao.bacia;
+-- DROP TABLE IF EXISTS fiscalizacao.parametro;
+-- DROP TABLE IF EXISTS fiscalizacao.linha_coordenador;
 -- ============================================================================

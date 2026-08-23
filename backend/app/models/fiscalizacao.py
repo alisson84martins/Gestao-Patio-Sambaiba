@@ -275,51 +275,47 @@ class Baita(Base):
 # Bloco E (migration 030) — ICV, bacia e ação da coordenação
 # ============================================================================
 
-class Bacia(Base):
-    """D21 — bacia é DADO, não código: conjunto de linhas sob um
-    coordenador. Nenhuma bacia real é seedada em código nem em seed
-    versionado — tudo entra por cadastro/importação."""
+class LinhaCoordenador(Base):
+    """Não existe entidade "bacia" — o que a planilha da gerência chama de
+    bacia é o conjunto de linhas de um coordenador, e o nome dela é o nome
+    dele. Aqui a relação é direta: esta linha, neste período, é deste
+    coordenador. ⛔ Sem vigência de propósito — o histórico do ICV é por
+    linha e por dia (icv_apurado), então nenhum número se perde quando a
+    responsabilidade muda. Trocar o coordenador é um UPDATE."""
 
-    __tablename__ = "bacia"
-    __table_args__ = {"schema": SCHEMA}
-
-    codigo: Mapped[str] = mapped_column(String(20), primary_key=True)
-    nome: Mapped[str] = mapped_column(String(60), nullable=False)
-    coordenador_funcionario_id: Mapped[Optional[UUID]] = mapped_column(
-        PG_UUID(as_uuid=True), ForeignKey("funcionario.id"), nullable=True
-    )
-    # D29 — configurável, nunca hardcoded no código.
-    meta_icv: Mapped[float] = mapped_column(Numeric(5, 2), nullable=False, default=98.00)
-    ativo: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
-    criado_em: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, server_default=func.now()
-    )
-
-
-class BaciaLinha(Base):
-    """D21 — quais linhas compõem cada bacia, COM VIGÊNCIA: a mesma linha
-    pode trocar de bacia com o tempo. Toda consulta agregada resolve a
-    composição pela data do dado (ver app/services/icv.py), nunca pela
-    composição de hoje. ⚠️ Não é UNIQUE(bacia_codigo, linha_codigo) — ver
-    o comentário "DESVIO" no cabeçalho da migration 030."""
-
-    __tablename__ = "bacia_linha"
+    __tablename__ = "linha_coordenador"
     __table_args__ = (
-        UniqueConstraint("linha_codigo", "vigencia_inicio"),
+        UniqueConstraint("linha_codigo", "periodo"),
         {"schema": SCHEMA},
     )
 
     id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True, default=uuid4)
-    bacia_codigo: Mapped[str] = mapped_column(
-        String(20), ForeignKey(f"{SCHEMA}.bacia.codigo"), nullable=False
-    )
     linha_codigo: Mapped[str] = mapped_column(String(20), nullable=False)
-    vigencia_inicio: Mapped[date] = mapped_column(Date, nullable=False)
-    vigencia_fim: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
+    funcionario_id: Mapped[UUID] = mapped_column(
+        PG_UUID(as_uuid=True), ForeignKey("funcionario.id"), nullable=False
+    )
+    # Mesmo domínio de Turno.periodo (D8) — os dois períodos de uma linha
+    # são cobertos por pessoas diferentes, não dois agrupamentos distintos.
+    periodo: Mapped[str] = mapped_column(String(1), nullable=False)
     ativo: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     criado_em: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
+    atualizado_em: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class Parametro(Base):
+    """D29 — configuração de negócio do módulo (meta e corte de
+    aceitável do ICV), única para toda a operação — nunca por
+    agrupamento, nunca hardcoded em código."""
+
+    __tablename__ = "parametro"
+    __table_args__ = {"schema": SCHEMA}
+
+    chave: Mapped[str] = mapped_column(String(40), primary_key=True)
+    valor: Mapped[float] = mapped_column(Numeric(6, 2), nullable=False)
+    descricao: Mapped[str] = mapped_column(Text, nullable=False)
+    atualizado_em: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class IcvApurado(Base):
@@ -350,6 +346,10 @@ class IcvApurado(Base):
     importado_por: Mapped[Optional[UUID]] = mapped_column(
         PG_UUID(as_uuid=True), ForeignKey("funcionario.id"), nullable=True
     )
+    # Snapshot puro do que a planilha da gerência chama de bacia — não é
+    # entidade, não tem FK, serve só para conferir depois se o agrupamento
+    # por coordenador do sistema bate com o da gerência.
+    bacia_texto: Mapped[Optional[str]] = mapped_column(String(60), nullable=True)
     criado_em: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
