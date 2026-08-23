@@ -24,7 +24,7 @@ import io
 import sqlite3
 import typing
 import uuid as _uuid_mod
-from datetime import date
+from datetime import date, time
 from uuid import uuid4
 
 import openpyxl
@@ -39,14 +39,22 @@ from sqlalchemy.pool import StaticPool
 from app.core.database import Base, get_db
 from app.main import app
 from app.models.cadastro import Funcionario
-from app.models.fiscalizacao import AcaoCoordenacao, Bacia, BaciaLinha, IcvApurado
+from app.models.fiscalizacao import (
+    AcaoCoordenacao, Bacia, BaciaLinha, EventoTurno, IcvApurado, PartidaProgramada,
+    Ponto, RegistroPartida, Turno,
+)
 from app.routers import fiscalizacao as fiscalizacao_router_mod
+from app.services.icv import (
+    _tipo_dia, calcular_icv_bacia_dia, calcular_icv_linha_dia, ranking_prioridade,
+)
 
 sqlite3.register_adapter(_uuid_mod.UUID, lambda u: u.hex)
 
 _TABELAS = [
     Funcionario.__table__, Bacia.__table__, BaciaLinha.__table__,
     IcvApurado.__table__, AcaoCoordenacao.__table__,
+    Ponto.__table__, Turno.__table__, PartidaProgramada.__table__,
+    RegistroPartida.__table__, EventoTurno.__table__,
 ]
 
 
@@ -525,3 +533,159 @@ def test_upload_icv_50mb_retorna_413(ambiente):
         files={"file": ("icv.xlsx", conteudo_grande, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
     )
     assert resp.status_code == 413, resp.text
+
+
+# ============================================================================
+# BLOCO 3 — app/services/icv.py: ICV ponderado (D22), prioridade por perda
+# absoluta (D23), duas fontes (D20), divergência de denominador (D28),
+# acima de 100% (D30). Números FICTÍCIOS — não temos a planilha real (§10
+# do prompt); escolhidos só para provar a matemática.
+# ============================================================================
+
+def test_d22_bacia_ponderado_nao_e_media_simples(db):
+    """A prova de que a média simples não voltou por acidente: uma linha
+    grande (248 programadas) perto de 89% e uma pequena (13 programadas)
+    perto de 92% — a média simples dos dois percentuais esconde o volume
+    da linha grande."""
+    hoje = date(2026, 8, 19)
+    db.add(Bacia(codigo="B1", nome="Bacia Teste"))
+    db.commit()
+    db.add(BaciaLinha(bacia_codigo="B1", linha_codigo="LINHA_A", vigencia_inicio=date(2026, 1, 1)))
+    db.add(BaciaLinha(bacia_codigo="B1", linha_codigo="LINHA_B", vigencia_inicio=date(2026, 1, 1)))
+    db.add(IcvApurado(
+        id=uuid4(), linha_codigo="LINHA_A", data_referencia=hoje,
+        programadas=248, realizadas_tp_ts=110, realizadas_ts_tp=110,  # 220/248 = 88,71%
+    ))
+    db.add(IcvApurado(
+        id=uuid4(), linha_codigo="LINHA_B", data_referencia=hoje,
+        programadas=13, realizadas_tp_ts=6, realizadas_ts_tp=6,  # 12/13 = 92,31%
+    ))
+    db.commit()
+
+    resultado = calcular_icv_bacia_dia(db, "B1", hoje)
+
+    icv_a, icv_b = 220 / 248 * 100, 12 / 13 * 100
+    media_simples = round((icv_a + icv_b) / 2, 2)
+
+    assert resultado["programadas"] == 261
+    assert resultado["realizadas"] == 232
+    ponderado_esperado = round(232 / 261 * 100, 2)
+    assert resultado["icv_ponderado"] == ponderado_esperado
+    assert resultado["icv_ponderado"] != media_simples  # 🔴 este assert é o ponto do teste
+    assert resultado["meta_icv"] == 98.00
+
+
+def test_d23_ranking_ordena_por_perda_absoluta_nao_percentual(db):
+    """Linha A (212 programadas, percentual MELHOR) aparece ACIMA da linha
+    B (13 programadas, percentual pior) no ranking — porque perde mais
+    viagem em absoluto, apesar do percentual melhor."""
+    hoje = date(2026, 8, 19)
+    db.add(IcvApurado(
+        id=uuid4(), linha_codigo="LINHA_A", data_referencia=hoje,
+        programadas=212, realizadas_tp_ts=101, realizadas_ts_tp=101,  # 202/212 = 95,28% — perda 10
+    ))
+    db.add(IcvApurado(
+        id=uuid4(), linha_codigo="LINHA_B", data_referencia=hoje,
+        programadas=13, realizadas_tp_ts=6, realizadas_ts_tp=6,  # 12/13 = 92,31% — perda 1
+    ))
+    db.commit()
+
+    resultado = ranking_prioridade(db, hoje)
+    codigos = [r["linha_codigo"] for r in resultado]
+    assert codigos.index("LINHA_A") < codigos.index("LINHA_B")
+
+    item_a = next(r for r in resultado if r["linha_codigo"] == "LINHA_A")
+    item_b = next(r for r in resultado if r["linha_codigo"] == "LINHA_B")
+    assert item_a["icv_oficial"] > item_b["icv_oficial"]       # A tem percentual MELHOR
+    assert item_a["perda_absoluta"] > item_b["perda_absoluta"]  # mas perde mais em absoluto
+
+
+def test_d28_divergencia_denominador_nenhum_numero_alterado(db):
+    """Linha com 248 no ICV oficial e 132 na grade importada (66 TP + 66
+    TS, o mesmo achado real do prompt) devolve a divergência no payload —
+    e nenhum dos dois números é alterado pelo cálculo."""
+    hoje = date(2026, 8, 19)
+    tipo_dia = _tipo_dia(hoje)
+    db.add(IcvApurado(
+        id=uuid4(), linha_codigo="LINHA_DIVERGENTE", data_referencia=hoje,
+        programadas=248, realizadas_tp_ts=103, realizadas_ts_tp=97,
+    ))
+    db.commit()
+    for i in range(66):
+        db.add(PartidaProgramada(
+            linha_codigo="LINHA_DIVERGENTE", tipo_dia=tipo_dia, numero_tabela=1,
+            sequencia=i + 1, terminal="TP", horario=time(4, 10), vigencia=hoje,
+        ))
+        db.add(PartidaProgramada(
+            linha_codigo="LINHA_DIVERGENTE", tipo_dia=tipo_dia, numero_tabela=1,
+            sequencia=i + 1, terminal="TS", horario=time(4, 10), vigencia=hoje,
+        ))
+    db.commit()
+
+    resultado = ranking_prioridade(db, hoje)
+    item = next(r for r in resultado if r["linha_codigo"] == "LINHA_DIVERGENTE")
+
+    assert item["programadas_oficial"] == 248  # ⛔ não foi alterado
+    assert item["divergencia_denominador"] == 248 - 132
+
+    with Session(db.get_bind()) as verificacao:
+        grade = verificacao.execute(
+            select(PartidaProgramada).where(PartidaProgramada.linha_codigo == "LINHA_DIVERGENTE")
+        ).scalars().all()
+    assert len(grade) == 132  # ⛔ a grade também não foi alterada
+
+
+def test_d20_duas_fontes_lado_a_lado_sem_coluna_combinada(db):
+    """Linha com oficial (planilha) e campo (fiscal) no mesmo dia devolve
+    os dois separados; nenhuma chave combinada tipo 'icv' existe."""
+    hoje = date(2026, 8, 19)
+    tipo_dia = _tipo_dia(hoje)
+    func = Funcionario(id=uuid4(), re="70030", nome="Fiscal Campo Teste", status="ATIVO")
+    ponto = Ponto(codigo="P1", nome="Ponto Teste", terminal="TP", ativo=True)
+    db.add_all([func, ponto])
+    db.commit()
+
+    db.add(IcvApurado(
+        id=uuid4(), linha_codigo="X-10", data_referencia=hoje,
+        programadas=100, realizadas_tp_ts=45, realizadas_ts_tp=40,
+    ))
+    for i in range(50):
+        db.add(PartidaProgramada(
+            linha_codigo="X-10", tipo_dia=tipo_dia, numero_tabela=1,
+            sequencia=i + 1, terminal="TP", horario=time(8, 0), vigencia=hoje,
+        ))
+    turno = Turno(
+        id=uuid4(), funcionario_id=func.id, fiscal_re=func.re, ponto_codigo="P1",
+        terminal="TP", periodo="1", data_referencia=hoje, tipo_dia=tipo_dia, status="ABERTO",
+    )
+    db.add(turno)
+    db.commit()
+    for i in range(30):
+        db.add(RegistroPartida(
+            id=uuid4(), turno_id=turno.id, linha_codigo="X-10", numero_tabela=1, terminal="TP",
+            horario_programado=time(8, i % 60), resultado="REALIZADA",
+        ))
+    db.commit()
+
+    resultado = calcular_icv_linha_dia(db, "X-10", hoje)
+    assert resultado["programadas_oficial"] == 100
+    assert resultado["realizadas_oficial"] == 85
+    assert resultado["icv_oficial"] == 85.0
+    assert resultado["programadas_campo"] == 50
+    assert resultado["realizadas_campo"] == 30
+    assert resultado["icv_campo"] == 60.0
+    assert "icv" not in resultado  # ⛔ nenhuma coluna combinada
+
+
+def test_d30_icv_acima_de_100_por_cento_sem_teto(db):
+    """programadas=20, realizadas=22 → 110%, sem teto em nenhum lugar."""
+    hoje = date(2026, 8, 19)
+    db.add(IcvApurado(
+        id=uuid4(), linha_codigo="Y-10", data_referencia=hoje,
+        programadas=20, realizadas_tp_ts=12, realizadas_ts_tp=10,
+    ))
+    db.commit()
+
+    resultado = calcular_icv_linha_dia(db, "Y-10", hoje)
+    assert resultado["realizadas_oficial"] == 22
+    assert resultado["icv_oficial"] == 110.0
