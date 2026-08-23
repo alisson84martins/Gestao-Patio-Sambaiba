@@ -48,7 +48,7 @@ _LOTES_VALIDOS = {"E2", "AR2"}
 _TOLERANCIA_PERCENTUAL = 0.01  # D28 — divergência de conferência contra a própria planilha
 
 _PADRAO_DATA = re.compile(r"(\d{2})/(\d{2})/(\d{4})")
-_LINHAS_CABECALHO_VARRIDAS = 5  # "ICV GARAGEM 3" / "DATA: ..." vêm nas 2 primeiras
+_LINHAS_CABECALHO_VARRIDAS = 5  # título e "DATA: ..." vêm nas 2 primeiras linhas (§5)
 
 
 def _normalizar_rotulo(valor) -> str:

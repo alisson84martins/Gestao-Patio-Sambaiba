@@ -71,7 +71,7 @@ export function imprimirPlacarLinha(dados) {
                 </table>
             </div>
 
-            <div class="fp-print-rodape">Sambaíba Transportes Urbanos — Garagem 3 · Placar da linha, sem identificação de pessoa</div>
+            <div class="fp-print-rodape">Sambaíba Transportes Urbanos · Placar da linha, sem identificação de pessoa</div>
         </div>
     `;
 
