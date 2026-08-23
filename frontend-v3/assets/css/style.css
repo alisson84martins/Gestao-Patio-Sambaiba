@@ -3014,6 +3014,52 @@ body.modal-open {
     }
 }
 
+/* ── Placar impresso por linha (Bloco E, §7) ──────────────────────────
+   Uma folha A4 por linha, afixada no ponto de apresentação. ⛔ Sem nome,
+   RE ou qualquer identificação de pessoa — o placar é da linha, não do
+   fiscal nem do coordenador (o gargalo que este placar existe pra desfazer
+   é justamente "ICV é sinônimo de advertência"; um placar com nome
+   confirmaria o medo em vez de desfazê-lo). Prefixo fp-print- (mesma
+   disciplina de isolamento de oc-print- acima) — não reusa @page nem a
+   regra de esconder o resto da página, ambas já globais (linha 1525/1527).
+   Molde de ocorrencia.imprimir.js. ─────────────────────────────────── */
+@media print {
+    .fp-print-folha {
+        width: 210mm;
+        min-height: 297mm;
+        padding: 14mm 16mm;
+        margin: 0;
+        background: #fff;
+        color: #000;
+        font-family: Arial, Helvetica, sans-serif;
+        display: flex;
+        flex-direction: column;
+        gap: 14px;
+        -webkit-print-color-adjust: exact;
+        print-color-adjust: exact;
+    }
+
+    .fp-print-cab { display: flex; align-items: baseline; justify-content: space-between; border-bottom: 3px solid #000; padding-bottom: 6px; }
+    .fp-print-marca { font-size: 15px; font-weight: 700; font-family: Georgia, serif; }
+    .fp-print-cab h1 { margin: 0; font-size: 22px; letter-spacing: 1px; }
+    .fp-print-data { font-size: 10px; color: #666; }
+
+    .fp-print-linha-codigo { font-size: 54px; font-weight: 800; text-align: center; letter-spacing: 1px; margin: 6px 0; }
+
+    .fp-print-metricas { display: flex; gap: 16px; }
+    .fp-print-metrica { flex: 1; border: 1px solid #000; padding: 10px 12px; text-align: center; }
+    .fp-print-metrica-rot { font-size: 10px; text-transform: uppercase; letter-spacing: 1px; color: #444; }
+    .fp-print-metrica-val { font-size: 36px; font-weight: 800; margin-top: 4px; }
+
+    .fp-print-faixa { background: #e8e8e8; border-top: 1px solid #000; border-bottom: 1px solid #000; font-size: 10px; font-weight: 700; letter-spacing: .6px; text-align: center; padding: 3px 0; text-transform: uppercase; }
+
+    .fp-print-evolucao { width: 100%; border-collapse: collapse; font-size: 11px; }
+    .fp-print-evolucao th, .fp-print-evolucao td { border: 1px solid #000; padding: 5px 6px; text-align: center; }
+    .fp-print-evolucao th { background: #f0f0f0; }
+
+    .fp-print-rodape { margin-top: auto; font-size: 8.5px; color: #666; border-top: .5px solid #ccc; padding-top: 4px; text-align: center; }
+}
+
 /* ============================================================
    PRÉ-OCORRÊNCIA DO MOTORISTA — formulário público, sem login
    (11/08/2026). Quem preenche está em pé, na rua, possivelmente

@@ -21,6 +21,7 @@ import { apiGet, apiPost, ApiError } from './api.js';
 import { API_BASE_URL, TOKEN_KEY, POLLING_INTERVAL_MS } from './config.js';
 import { podeEscrever } from './sessao.js';
 import { escapeHtml } from './escape.js';
+import { imprimirPlacarLinha } from './fiscal-placar.imprimir.js';
 
 if (!requireAuth()) {
     throw new Error('Sessão não autenticada — interrompendo carga da página');
@@ -215,6 +216,19 @@ async function carregarPainelLinha() {
         if (ignoravel(err)) return;
         corpo.innerHTML = '';
         exibirErro('Erro ao carregar a linha: ' + err.message);
+    }
+}
+
+// ─── Placar impresso por linha (§7) — molde de ocorrencia.imprimir.js ──
+async function imprimirPlacar() {
+    if (!linhaAberta) return;
+    try {
+        const params = new URLSearchParams({ data: dataSelecionada() });
+        const dados = await apiGet(`/fiscalizacao/icv/placar/${encodeURIComponent(linhaAberta)}?${params}`);
+        imprimirPlacarLinha(dados);
+    } catch (err) {
+        if (ignoravel(err)) return;
+        exibirErro('Erro ao montar o placar: ' + err.message);
     }
 }
 
@@ -413,6 +427,7 @@ async function iniciar() {
     document.getElementById('fp-acao-salvar').addEventListener('click', salvarAcao);
 
     document.getElementById('fp-icv-btn-upload').addEventListener('click', importarIcv);
+    document.getElementById('fp-btn-imprimir-placar').addEventListener('click', imprimirPlacar);
 
     await carregarBacias();
     await carregarTudo();

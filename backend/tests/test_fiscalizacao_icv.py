@@ -24,7 +24,7 @@ import io
 import sqlite3
 import typing
 import uuid as _uuid_mod
-from datetime import date, time
+from datetime import date, time, timedelta
 from uuid import uuid4
 
 import openpyxl
@@ -45,7 +45,8 @@ from app.models.fiscalizacao import (
 )
 from app.routers import fiscalizacao as fiscalizacao_router_mod
 from app.services.icv import (
-    _tipo_dia, calcular_icv_bacia_dia, calcular_icv_linha_dia, ranking_prioridade,
+    _tipo_dia, calcular_icv_bacia_dia, calcular_icv_linha_dia, montar_placar_linha,
+    ranking_prioridade,
 )
 
 sqlite3.register_adapter(_uuid_mod.UUID, lambda u: u.hex)
@@ -787,3 +788,61 @@ def test_acao_coordenacao_criar_e_listar(ambiente):
     assert listar.status_code == 200, listar.text
     assert len(listar.json()) == 1
     assert listar.json()[0]["descricao"] == "Equipe reforçou o TP às 18h."
+
+
+# ============================================================================
+# BLOCO 5 — placar impresso por linha (§7): código, ICV da semana
+# anterior, meta ao lado, evolução de 7 dias. ⛔ Nenhum dado de pessoa.
+# ============================================================================
+
+def test_placar_evolucao_sete_dias_e_semana_anterior(db):
+    hoje = date(2026, 8, 21)
+    db.add(Bacia(codigo="B1", nome="Bacia Teste", meta_icv=98.0))
+    db.commit()
+    db.add(BaciaLinha(bacia_codigo="B1", linha_codigo="1726-10", vigencia_inicio=date(2026, 1, 1)))
+
+    # Hoje e 7 dias atrás (a "semana anterior") têm dado; o resto do
+    # intervalo de 7 dias fica sem dado (icv None), pra provar que a
+    # ausência não quebra a montagem.
+    db.add(IcvApurado(
+        id=uuid4(), linha_codigo="1726-10", data_referencia=hoje,
+        programadas=100, realizadas_tp_ts=45, realizadas_ts_tp=40,  # 85%
+    ))
+    db.add(IcvApurado(
+        id=uuid4(), linha_codigo="1726-10", data_referencia=hoje - timedelta(days=7),
+        programadas=100, realizadas_tp_ts=47, realizadas_ts_tp=45,  # 92%
+    ))
+    db.commit()
+
+    placar = montar_placar_linha(db, "1726-10", hoje)
+
+    assert placar["linha_codigo"] == "1726-10"
+    assert placar["meta_icv"] == 98.0
+    assert placar["icv_semana_anterior"] == 92.0
+    assert len(placar["evolucao"]) == 7
+    assert placar["evolucao"][-1]["data_referencia"] == hoje
+    assert placar["evolucao"][-1]["icv"] == 85.0
+    assert placar["evolucao"][-1]["fonte"] == "OFICIAL"
+    # Dias sem dado nenhum (nem oficial nem grade importada) saem com
+    # icv=None, não zero — zero mentiria que o dia foi ruim.
+    dias_sem_dado = [d for d in placar["evolucao"][:-1] if d["icv"] is None]
+    assert len(dias_sem_dado) == 6
+
+
+def test_placar_sem_bacia_meta_nula_sem_erro(db):
+    """Linha sem bacia cadastrada — meta_icv sai None, não quebra."""
+    hoje = date(2026, 8, 21)
+    placar = montar_placar_linha(db, "SEM-BACIA", hoje)
+    assert placar["meta_icv"] is None
+    assert placar["icv_semana_anterior"] is None
+    assert len(placar["evolucao"]) == 7
+
+
+def test_placar_nenhum_dado_pessoal_nas_chaves(db):
+    """⛔ Sem nome, RE ou qualquer identificação de pessoa (§7) — nem
+    como chave do payload."""
+    hoje = date(2026, 8, 21)
+    placar = montar_placar_linha(db, "1726-10", hoje)
+    chaves = set(placar.keys()) | {k for dia in placar["evolucao"] for k in dia.keys()}
+    proibidas = {"re", "nome", "fiscal", "fiscal_re", "coordenador", "motorista_re", "cobrador_re"}
+    assert chaves.isdisjoint(proibidas)

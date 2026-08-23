@@ -15,7 +15,7 @@ calculado a cada chamada, nunca cacheado nem persistido (mesma disciplina
 do estado ATRASADA, D7).
 """
 from collections import defaultdict
-from datetime import date
+from datetime import date, timedelta
 from typing import Optional
 
 from sqlalchemy import func, select
@@ -293,3 +293,46 @@ def motivos_livres_frequentes(db: Session, data_inicio: date, data_fim: date, li
 
     itens = sorted(contagem.items(), key=lambda par: (-par[1], par[0]))[:limite]
     return [{"texto": texto, "quantidade": quantidade} for texto, quantidade in itens]
+
+
+def _icv_do_dia(item: dict) -> tuple[Optional[float], Optional[str]]:
+    """Um único número + fonte para um dia — oficial quando existe (é o
+    número que a empresa cobra), senão campo. Mesma prioridade de
+    calcular_icv_linha_dia para perda_absoluta."""
+    if item["icv_oficial"] is not None:
+        return item["icv_oficial"], "OFICIAL"
+    if item["icv_campo"] is not None:
+        return item["icv_campo"], "CAMPO"
+    return None, None
+
+
+def montar_placar_linha(db: Session, linha_codigo: str, data_referencia: date) -> dict:
+    """§7 — dado para o placar impresso por linha: código, ICV da semana
+    anterior, meta ao lado, e a evolução dos últimos 7 dias (data_referencia
+    incluída). ⛔ Nenhum dado pessoal — nada aqui identifica fiscal,
+    coordenador ou dupla; é responsabilidade de quem monta a tela (D
+    impresso) não acrescentar nenhum."""
+    evolucao = []
+    for offset in range(6, -1, -1):
+        dia = data_referencia - timedelta(days=offset)
+        item = calcular_icv_linha_dia(db, linha_codigo, dia)
+        icv, fonte = _icv_do_dia(item)
+        evolucao.append({"data_referencia": dia, "icv": icv, "fonte": fonte})
+
+    semana_anterior = data_referencia - timedelta(days=7)
+    item_semana_anterior = calcular_icv_linha_dia(db, linha_codigo, semana_anterior)
+    icv_semana_anterior, _ = _icv_do_dia(item_semana_anterior)
+
+    vinculo = _bacia_da_linha(db, linha_codigo, data_referencia)
+    meta_icv = None
+    if vinculo is not None:
+        bacia = db.get(Bacia, vinculo.bacia_codigo)
+        meta_icv = float(bacia.meta_icv) if bacia is not None else None
+
+    return {
+        "linha_codigo": linha_codigo,
+        "data_referencia": data_referencia,
+        "meta_icv": meta_icv,
+        "icv_semana_anterior": icv_semana_anterior,
+        "evolucao": evolucao,
+    }

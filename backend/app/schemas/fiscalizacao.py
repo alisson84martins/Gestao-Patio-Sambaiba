@@ -414,3 +414,21 @@ class MotivoLivreItem(BaseModel):
 
     texto: str
     quantidade: int
+
+
+# ============================================================================
+# Placar impresso por linha (§7) — ⛔ nenhum campo de pessoa aqui de propósito
+# ============================================================================
+
+class PlacarEvolucaoDia(BaseModel):
+    data_referencia: date
+    icv: Optional[float] = None
+    fonte: Optional[FontePerdaAbsoluta] = None
+
+
+class PlacarLinhaRead(BaseModel):
+    linha_codigo: str
+    data_referencia: date
+    meta_icv: Optional[float] = None
+    icv_semana_anterior: Optional[float] = None
+    evolucao: list[PlacarEvolucaoDia] = Field(default_factory=list)

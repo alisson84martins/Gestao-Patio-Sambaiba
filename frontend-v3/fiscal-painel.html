@@ -100,7 +100,10 @@
 
         <!-- 4. A linha aberta — horários do dia, quatro estados (D12) -->
         <section class="patio-section" id="fp-secao-linha" style="display:none">
-            <div class="patio-section-title">Linha <span id="fp-linha-codigo"></span> — horários do dia</div>
+            <div class="patio-section-title" style="display:flex;justify-content:space-between;align-items:center">
+                <span>Linha <span id="fp-linha-codigo"></span> — horários do dia</span>
+                <button type="button" class="btn btn-ghost" id="fp-btn-imprimir-placar" style="text-transform:none;letter-spacing:normal">🖨️ Imprimir placar</button>
+            </div>
             <div class="portaria-tabela-wrap">
                 <table class="portaria-tabela">
                     <thead>

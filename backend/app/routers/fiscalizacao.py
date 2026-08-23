@@ -33,14 +33,14 @@ from app.schemas.fiscalizacao import (
     AcaoCoordenacaoCreate, AcaoCoordenacaoRead, BaciaRead, BaitaRead, BaitaUpsert,
     CascataItem, EventoTurnoCreate, EventoTurnoRead, IcvBaciaDiaRead, IcvLinhaDiaRead,
     MotivoLivreItem, ObservacaoTurnoCreate, ObservacaoTurnoRead, PainelLinhaResponse,
-    PainelPartidaItem, PartidaEstadoItem, PendenciaItem, PontoRead,
+    PainelPartidaItem, PartidaEstadoItem, PendenciaItem, PlacarLinhaRead, PontoRead,
     PrioridadeLinhaItem, ProntidaoResponse, RegistroPartidaRead, RegistroPartidaUpsert,
     TipoDia, TurnoAbrirRequest, TurnoRead, TurnoUpdateRequest,
 )
 from app.services.fechamento_fiscal import montar_fechamento
 from app.services.icv import (
     calcular_icv_bacia_dia, calcular_icv_linha_dia, detectar_cascata,
-    motivos_livres_frequentes, ranking_prioridade,
+    montar_placar_linha, motivos_livres_frequentes, ranking_prioridade,
 )
 from app.services.importacao_escala_fiscal import importar_escala
 from app.services.importacao_icv import importar_icv
@@ -642,6 +642,15 @@ def icv_motivos_livres(
     data_inicio: date = Query(...), data_fim: date = Query(...),
 ):
     return motivos_livres_frequentes(db, data_inicio, data_fim)
+
+
+@router.get(
+    "/icv/placar/{linha_codigo}", response_model=PlacarLinhaRead,
+    summary="Dado do placar impresso por linha (§7) — código, ICV da semana anterior, meta e evolução de 7 dias",
+)
+def icv_placar_linha(linha_codigo: str, usuario: LeituraPainel, db: DbSession, data: Optional[date] = Query(None)):
+    data_referencia = data or datetime.now(FUSO_OPERACAO).date()
+    return montar_placar_linha(db, linha_codigo, data_referencia)
 
 
 # ============================================================================
