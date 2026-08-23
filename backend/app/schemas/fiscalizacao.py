@@ -285,3 +285,70 @@ class PainelLinhaResponse(BaseModel):
     linha_codigo: str
     data_referencia: date
     partidas: list[PainelPartidaItem] = Field(default_factory=list)
+
+
+# ============================================================================
+# Bloco E (migration 030) — BACIA (D21), ICV_APURADO (D20/D25/D28/D30),
+# AÇÃO DA COORDENAÇÃO (D26)
+# ============================================================================
+
+Lote = Literal["E2", "AR2"]
+OrigemIcv = Literal["PLANILHA", "MANUAL"]
+
+
+class BaciaRead(ORMBase):
+    codigo: str
+    nome: str
+    coordenador_funcionario_id: Optional[UUID] = None
+    meta_icv: float
+    ativo: bool
+    criado_em: datetime
+
+
+class BaciaLinhaRead(ORMBase):
+    id: UUID
+    bacia_codigo: str
+    linha_codigo: str
+    vigencia_inicio: date
+    vigencia_fim: Optional[date] = None
+    ativo: bool
+    criado_em: datetime
+
+
+class IcvApuradoRead(ORMBase):
+    id: UUID
+    linha_codigo: str
+    data_referencia: date
+    programadas: int
+    realizadas_tp_ts: int
+    realizadas_ts_tp: int
+    lote: Optional[Lote] = None
+    origem: OrigemIcv
+    suspeito: bool
+    suspeito_motivo: Optional[str] = None
+    arquivo_nome: Optional[str] = None
+    importado_por: Optional[UUID] = None
+    criado_em: datetime
+    atualizado_em: Optional[datetime] = None
+
+
+class AcaoCoordenacaoCreate(BaseModel):
+    """POST /fiscalizacao/acoes — D26, registrado no painel pelo coordenador."""
+
+    linha_codigo: str = Field(..., min_length=1, max_length=20)
+    data_referencia: date
+    faixa_hora: Optional[int] = Field(None, ge=0, le=23)
+    descricao: str = Field(..., min_length=1)
+    resultado_observado: Optional[str] = None
+
+
+class AcaoCoordenacaoRead(ORMBase):
+    id: UUID
+    linha_codigo: str
+    data_referencia: date
+    faixa_hora: Optional[int] = None
+    descricao: str
+    resultado_observado: Optional[str] = None
+    registrado_por: UUID
+    criado_em: datetime
+    atualizado_em: Optional[datetime] = None

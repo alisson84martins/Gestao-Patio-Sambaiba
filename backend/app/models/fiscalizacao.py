@@ -15,8 +15,8 @@ from typing import Optional
 from uuid import UUID, uuid4
 
 from sqlalchemy import (
-    Boolean, Date, DateTime, ForeignKey, SmallInteger, String, Text, Time,
-    UniqueConstraint,
+    Boolean, Date, DateTime, ForeignKey, Integer, Numeric, SmallInteger,
+    String, Text, Time, UniqueConstraint,
 )
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column
@@ -265,6 +265,114 @@ class Baita(Base):
     # "SAÍDA DO TS: circular" — a linha não tem terminal secundário. ⛔ NÃO é
     # o rec_ts do sistema de julho ("recolheu direto do TS sem voltar ao TP").
     ts_circular: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    criado_em: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    atualizado_em: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+# ============================================================================
+# Bloco E (migration 030) — ICV, bacia e ação da coordenação
+# ============================================================================
+
+class Bacia(Base):
+    """D21 — bacia é DADO, não código: conjunto de linhas sob um
+    coordenador. Nenhuma bacia real é seedada em código nem em seed
+    versionado — tudo entra por cadastro/importação."""
+
+    __tablename__ = "bacia"
+    __table_args__ = {"schema": SCHEMA}
+
+    codigo: Mapped[str] = mapped_column(String(20), primary_key=True)
+    nome: Mapped[str] = mapped_column(String(60), nullable=False)
+    coordenador_funcionario_id: Mapped[Optional[UUID]] = mapped_column(
+        PG_UUID(as_uuid=True), ForeignKey("funcionario.id"), nullable=True
+    )
+    # D29 — configurável, nunca hardcoded no código.
+    meta_icv: Mapped[float] = mapped_column(Numeric(5, 2), nullable=False, default=98.00)
+    ativo: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    criado_em: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
+class BaciaLinha(Base):
+    """D21 — quais linhas compõem cada bacia, COM VIGÊNCIA: a mesma linha
+    pode trocar de bacia com o tempo. Toda consulta agregada resolve a
+    composição pela data do dado (ver app/services/icv.py), nunca pela
+    composição de hoje. ⚠️ Não é UNIQUE(bacia_codigo, linha_codigo) — ver
+    o comentário "DESVIO" no cabeçalho da migration 030."""
+
+    __tablename__ = "bacia_linha"
+    __table_args__ = (
+        UniqueConstraint("linha_codigo", "vigencia_inicio"),
+        {"schema": SCHEMA},
+    )
+
+    id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True, default=uuid4)
+    bacia_codigo: Mapped[str] = mapped_column(
+        String(20), ForeignKey(f"{SCHEMA}.bacia.codigo"), nullable=False
+    )
+    linha_codigo: Mapped[str] = mapped_column(String(20), nullable=False)
+    vigencia_inicio: Mapped[date] = mapped_column(Date, nullable=False)
+    vigencia_fim: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
+    ativo: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    criado_em: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
+class IcvApurado(Base):
+    """D20 — o ICV OFICIAL, apurado pela SPTrans no SIM e importado da
+    planilha semanal da gerência. ⛔ Sem coluna `icv` nem `realizadas` —
+    ambos calculados sempre (D20/D30), nunca gravados como estado
+    derivado."""
+
+    __tablename__ = "icv_apurado"
+    __table_args__ = (
+        UniqueConstraint("linha_codigo", "data_referencia"),
+        {"schema": SCHEMA},
+    )
+
+    id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True, default=uuid4)
+    linha_codigo: Mapped[str] = mapped_column(String(20), nullable=False)
+    data_referencia: Mapped[date] = mapped_column(Date, nullable=False)
+    programadas: Mapped[int] = mapped_column(Integer, nullable=False)
+    realizadas_tp_ts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    realizadas_ts_tp: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    lote: Mapped[Optional[str]] = mapped_column(String(4), nullable=True)
+    origem: Mapped[str] = mapped_column(String(16), nullable=False, default="PLANILHA")
+    # D25 — TRUE quando os dois contadores brutos repetem o dia anterior
+    # já importado E o ICV do dia não é 100%. Nunca recusa a linha.
+    suspeito: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    suspeito_motivo: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    arquivo_nome: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    importado_por: Mapped[Optional[UUID]] = mapped_column(
+        PG_UUID(as_uuid=True), ForeignKey("funcionario.id"), nullable=True
+    )
+    criado_em: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    atualizado_em: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class AcaoCoordenacao(Base):
+    """D26 — "ação tomada" mora no coordenador, não no fiscal. Registrado
+    no painel, por linha/data/faixa de hora, com o que foi feito e o
+    resultado observado."""
+
+    __tablename__ = "acao_coordenacao"
+    __table_args__ = {"schema": SCHEMA}
+
+    id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True, default=uuid4)
+    linha_codigo: Mapped[str] = mapped_column(String(20), nullable=False)
+    data_referencia: Mapped[date] = mapped_column(Date, nullable=False)
+    faixa_hora: Mapped[Optional[int]] = mapped_column(SmallInteger, nullable=True)
+    descricao: Mapped[str] = mapped_column(Text, nullable=False)
+    resultado_observado: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    registrado_por: Mapped[UUID] = mapped_column(
+        PG_UUID(as_uuid=True), ForeignKey("funcionario.id"), nullable=False
+    )
     criado_em: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )

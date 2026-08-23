@@ -1,0 +1,39 @@
+-- ============================================================================
+-- SEED 10 (EXEMPLO) — Bacia e composição de linhas (D21)
+-- ----------------------------------------------------------------------------
+-- ⚠️ ESTE ARQUIVO NÃO RODA SOZINHO — extensão .sql.exemplo de propósito.
+--   A migration 030 deixa fiscalizacao.bacia e fiscalizacao.bacia_linha
+--   VAZIAS. Bacia é DADO, não código (D21) — nenhum código de linha, nome
+--   de bacia ou nome de coordenador pode ser escrito em Python, JS ou seed
+--   versionado. Na prática, a composição real chega pelo próprio
+--   importador da planilha de ICV (app/services/importacao_icv.py), que lê
+--   a coluna BACIA de cada linha e abre/fecha vigência em bacia_linha
+--   sozinho — este seed só serve para ambiente de teste manual/demo, sem
+--   planilha real à mão.
+--
+--   Quando quiser popular um ambiente de teste: copie este arquivo para
+--   10-fiscalizacao-bacia.sql (sem o .exemplo), preencha com dados reais e
+--   rode normalmente (idempotente — ON CONFLICT DO NOTHING).
+--
+-- O EXEMPLO ABAIXO É FICTÍCIO — não corresponde a nenhuma bacia, linha ou
+-- coordenador real da G3.
+-- ============================================================================
+
+INSERT INTO fiscalizacao.bacia (codigo, nome, meta_icv, ativo) VALUES
+    ('BACIA_EXEMPLO_1', 'Bacia de Exemplo 1', 98.00, TRUE)
+ON CONFLICT (codigo) DO NOTHING;
+
+-- vigencia_inicio é obrigatório (D21) — sem vigência não há como saber, no
+-- futuro, se esta linha ainda pertencia a esta bacia numa data passada.
+INSERT INTO fiscalizacao.bacia_linha (bacia_codigo, linha_codigo, vigencia_inicio, ativo) VALUES
+    ('BACIA_EXEMPLO_1', '0000-00', CURRENT_DATE, TRUE)
+ON CONFLICT (linha_codigo, vigencia_inicio) DO NOTHING;
+
+-- ============================================================================
+-- CONFERÊNCIA
+-- ============================================================================
+--   SELECT b.codigo, b.meta_icv, bl.linha_codigo, bl.vigencia_inicio, bl.vigencia_fim
+--     FROM fiscalizacao.bacia b
+--     JOIN fiscalizacao.bacia_linha bl ON bl.bacia_codigo = b.codigo
+--    ORDER BY b.codigo, bl.linha_codigo;
+-- ============================================================================
