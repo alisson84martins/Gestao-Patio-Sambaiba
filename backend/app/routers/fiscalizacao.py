@@ -10,7 +10,7 @@ vezes neste projeto (autopreencher/{id}, pre-ocorrencias/publico/{id}).
 """
 from datetime import date, datetime, time, timedelta
 from typing import Annotated, Optional
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from fastapi import (
     APIRouter, Depends, File, HTTPException, Query, Request, Response,
@@ -25,18 +25,23 @@ from app.core.deps import exige
 from app.core.uploads import ler_upload_limitado
 from app.models.cadastro import Funcionario
 from app.models.fiscalizacao import (
-    Baita, EventoTurno, ObservacaoTurno, PartidaProgramada, Ponto, PontoLinha,
-    RegistroPartida, Turno, TurnoLinha,
+    AcaoCoordenacao, Bacia, Baita, EventoTurno, ObservacaoTurno, PartidaProgramada,
+    Ponto, PontoLinha, RegistroPartida, Turno, TurnoLinha,
 )
 from app.models.portaria import RecolhidaAnormal
 from app.schemas.fiscalizacao import (
-    BaitaRead, BaitaUpsert, EventoTurnoCreate, EventoTurnoRead,
-    ObservacaoTurnoCreate, ObservacaoTurnoRead, PainelLinhaResponse,
+    AcaoCoordenacaoCreate, AcaoCoordenacaoRead, BaciaRead, BaitaRead, BaitaUpsert,
+    CascataItem, EventoTurnoCreate, EventoTurnoRead, IcvBaciaDiaRead, IcvLinhaDiaRead,
+    MotivoLivreItem, ObservacaoTurnoCreate, ObservacaoTurnoRead, PainelLinhaResponse,
     PainelPartidaItem, PartidaEstadoItem, PendenciaItem, PontoRead,
-    ProntidaoResponse, RegistroPartidaRead, RegistroPartidaUpsert, TipoDia,
-    TurnoAbrirRequest, TurnoRead, TurnoUpdateRequest,
+    PrioridadeLinhaItem, ProntidaoResponse, RegistroPartidaRead, RegistroPartidaUpsert,
+    TipoDia, TurnoAbrirRequest, TurnoRead, TurnoUpdateRequest,
 )
 from app.services.fechamento_fiscal import montar_fechamento
+from app.services.icv import (
+    calcular_icv_bacia_dia, calcular_icv_linha_dia, detectar_cascata,
+    motivos_livres_frequentes, ranking_prioridade,
+)
 from app.services.importacao_escala_fiscal import importar_escala
 from app.services.importacao_icv import importar_icv
 
@@ -587,6 +592,86 @@ async def upload_icv(usuario: EscritaPainel, db: DbSession, request: Request, fi
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=str(exc))
     db.commit()
     return resultado
+
+
+# ============================================================================
+# ICV, BACIA E PRIORIDADE (D20-D23, D28, D30) — exige("fiscalizacao_painel")
+# ============================================================================
+
+@router.get("/bacias", response_model=list[BaciaRead], summary="Bacias ativas (D21)")
+def listar_bacias(usuario: LeituraPainel, db: DbSession):
+    return db.execute(select(Bacia).where(Bacia.ativo.is_(True)).order_by(Bacia.nome)).scalars().all()
+
+
+@router.get("/icv/linha/{linha_codigo}", response_model=IcvLinhaDiaRead, summary="ICV das duas fontes, por linha e dia (D20)")
+def icv_linha_dia(linha_codigo: str, usuario: LeituraPainel, db: DbSession, data: Optional[date] = Query(None)):
+    data_referencia = data or datetime.now(FUSO_OPERACAO).date()
+    return calcular_icv_linha_dia(db, linha_codigo, data_referencia)
+
+
+@router.get("/icv/bacia/{bacia_codigo}", response_model=IcvBaciaDiaRead, summary="ICV ponderado da bacia, com a meta (D22, D29)")
+def icv_bacia_dia(bacia_codigo: str, usuario: LeituraPainel, db: DbSession, data: Optional[date] = Query(None)):
+    data_referencia = data or datetime.now(FUSO_OPERACAO).date()
+    resultado = calcular_icv_bacia_dia(db, bacia_codigo, data_referencia)
+    if resultado is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Bacia não encontrada")
+    return resultado
+
+
+@router.get("/icv/ranking", response_model=list[PrioridadeLinhaItem], summary="Ranking por perda absoluta, com divergência de denominador (D23, D28)")
+def icv_ranking(
+    usuario: LeituraPainel, db: DbSession,
+    data: Optional[date] = Query(None), bacia_codigo: Optional[str] = Query(None),
+):
+    data_referencia = data or datetime.now(FUSO_OPERACAO).date()
+    return ranking_prioridade(db, data_referencia, bacia_codigo=bacia_codigo)
+
+
+@router.get("/icv/cascata", response_model=list[CascataItem], summary="2+ perdas na mesma linha/faixa horária hoje (D24)")
+def icv_cascata(
+    usuario: LeituraPainel, db: DbSession,
+    data: Optional[date] = Query(None), linha_codigo: Optional[str] = Query(None),
+):
+    data_referencia = data or datetime.now(FUSO_OPERACAO).date()
+    return detectar_cascata(db, data_referencia, linha_codigo=linha_codigo)
+
+
+@router.get("/icv/motivos-livres", response_model=list[MotivoLivreItem], summary="Textos de motivo_outro mais frequentes (D27)")
+def icv_motivos_livres(
+    usuario: LeituraPainel, db: DbSession,
+    data_inicio: date = Query(...), data_fim: date = Query(...),
+):
+    return motivos_livres_frequentes(db, data_inicio, data_fim)
+
+
+# ============================================================================
+# AÇÕES DA COORDENAÇÃO (D26) — "ação tomada" mora no coordenador, não no fiscal
+# ============================================================================
+
+@router.post("/acoes", response_model=AcaoCoordenacaoRead, status_code=status.HTTP_201_CREATED, summary="Registrar ação da coordenação (D26)")
+def criar_acao_coordenacao(payload: AcaoCoordenacaoCreate, usuario: EscritaPainel, db: DbSession):
+    acao = AcaoCoordenacao(
+        id=uuid4(), linha_codigo=payload.linha_codigo, data_referencia=payload.data_referencia,
+        faixa_hora=payload.faixa_hora, descricao=payload.descricao,
+        resultado_observado=payload.resultado_observado, registrado_por=usuario.id,
+    )
+    db.add(acao)
+    db.commit()
+    db.refresh(acao)
+    return acao
+
+
+@router.get("/acoes", response_model=list[AcaoCoordenacaoRead], summary="Listar ações da coordenação (D26)")
+def listar_acoes_coordenacao(
+    usuario: LeituraPainel, db: DbSession,
+    linha_codigo: Optional[str] = Query(None), data: Optional[date] = Query(None),
+):
+    query = select(AcaoCoordenacao).order_by(AcaoCoordenacao.criado_em.desc())
+    if linha_codigo is not None:
+        query = query.where(AcaoCoordenacao.linha_codigo == linha_codigo)
+    if data is not None:
+        query = query.where(AcaoCoordenacao.data_referencia == data)
+    return db.execute(query).scalars().all()
 
 
 # ============================================================================

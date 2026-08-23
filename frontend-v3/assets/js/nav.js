@@ -41,6 +41,11 @@ const LINKS = [
     // handoff — ver §4.2 do prompt.
     { href: 'portaria-recolhida.html', texto: 'Recolhida', recurso: 'recolhida_anormal' },
     { href: 'manutencao-recolhidas.html', texto: 'Fila de Recolhidas', recurso: 'recolhida_anormal' },
+    // Fiscalização, Bloco E (migration 030) — painel do coordenador. O
+    // fiscal não tem fiscalizacao_painel (D — só registra, não vê
+    // agregado), então nunca vê este link. fiscal.html (Bloco D) ainda
+    // não existe e não entra aqui.
+    { href: 'fiscal-painel.html', texto: 'Fiscalização', recurso: 'fiscalizacao_painel' },
 ];
 
 export function initNav() {

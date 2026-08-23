@@ -14,6 +14,7 @@ divergirem, ver o débito já registrado em FISCALIZACAO-02-onde-paramos.md
 calculado a cada chamada, nunca cacheado nem persistido (mesma disciplina
 do estado ATRASADA, D7).
 """
+from collections import defaultdict
 from datetime import date
 from typing import Optional
 
@@ -243,3 +244,52 @@ def ranking_prioridade(db: Session, data_referencia: date, bacia_codigo: Optiona
 
     resultado.sort(key=lambda i: (i["perda_absoluta"] is None, -(i["perda_absoluta"] or 0)))
     return resultado
+
+
+def detectar_cascata(db: Session, data_referencia: date, linha_codigo: Optional[str] = None) -> list[dict]:
+    """D24 — cascata é CONDIÇÃO CALCULADA, não linha gravada: duas ou mais
+    partidas PERDIDA na mesma linha, na mesma faixa horária (hora cheia —
+    17, 18, 19...), no mesmo dia. Avaliada a cada chamada; some sozinha
+    quando deixa de ser verdade. ⛔ Nada gravado, nenhuma tabela, nenhum
+    job/agendador — o painel do coordenador já faz polling."""
+    query = (
+        select(RegistroPartida.linha_codigo, RegistroPartida.horario_programado)
+        .join(Turno, Turno.id == RegistroPartida.turno_id)
+        .where(Turno.data_referencia == data_referencia, RegistroPartida.resultado == "PERDIDA")
+    )
+    if linha_codigo is not None:
+        query = query.where(RegistroPartida.linha_codigo == linha_codigo)
+
+    contagem: dict[tuple[str, int], int] = defaultdict(int)
+    for linha, horario in db.execute(query).all():
+        contagem[(linha, horario.hour)] += 1
+
+    return [
+        {"linha_codigo": linha, "faixa_hora": hora, "quantidade": quantidade}
+        for (linha, hora), quantidade in sorted(contagem.items())
+        if quantidade >= 2
+    ]
+
+
+def motivos_livres_frequentes(db: Session, data_inicio: date, data_fim: date, limite: int = 10) -> list[dict]:
+    """D27 — TRANSITO continua fora dos contadores; este agrupamento dos
+    textos de motivo_outro mais frequentes é a evidência que promove (ou
+    não) um motivo a contador na versão seguinte."""
+    query = (
+        select(RegistroPartida.motivo_outro)
+        .join(Turno, Turno.id == RegistroPartida.turno_id)
+        .where(
+            Turno.data_referencia >= data_inicio,
+            Turno.data_referencia <= data_fim,
+            RegistroPartida.motivo == "OUTRO",
+            RegistroPartida.motivo_outro.is_not(None),
+        )
+    )
+    contagem: dict[str, int] = defaultdict(int)
+    for (texto,) in db.execute(query).all():
+        texto_normalizado = (texto or "").strip()
+        if texto_normalizado:
+            contagem[texto_normalizado] += 1
+
+    itens = sorted(contagem.items(), key=lambda par: (-par[1], par[0]))[:limite]
+    return [{"texto": texto, "quantidade": quantidade} for texto, quantidade in itens]

@@ -689,3 +689,101 @@ def test_d30_icv_acima_de_100_por_cento_sem_teto(db):
     resultado = calcular_icv_linha_dia(db, "Y-10", hoje)
     assert resultado["realizadas_oficial"] == 22
     assert resultado["icv_oficial"] == 110.0
+
+
+# ============================================================================
+# BLOCO 4 — painel do coordenador: cascata (D24), RBAC dos novos endpoints
+# de ICV e ações da coordenação (D26)
+# ============================================================================
+
+def _abrir_turno_e_perder(db, *, func_id, re, ponto_codigo, linha_codigo, data_referencia, tipo_dia, horarios):
+    """Helper só destes testes — cria ponto/turno e marca cada horário da
+    lista como PERDIDA (motivo OUTRO, sem exigir prefixo/RE)."""
+    if db.get(Ponto, ponto_codigo) is None:
+        db.add(Ponto(codigo=ponto_codigo, nome="Ponto Teste", terminal="TP", ativo=True))
+        db.commit()
+    turno = Turno(
+        id=uuid4(), funcionario_id=func_id, fiscal_re=re, ponto_codigo=ponto_codigo,
+        terminal="TP", periodo="1", data_referencia=data_referencia, tipo_dia=tipo_dia, status="ABERTO",
+    )
+    db.add(turno)
+    db.commit()
+    for idx, horario in enumerate(horarios):
+        db.add(RegistroPartida(
+            id=uuid4(), turno_id=turno.id, linha_codigo=linha_codigo, numero_tabela=idx + 1,
+            terminal="TP", horario_programado=horario, resultado="PERDIDA",
+            motivo="OUTRO", motivo_outro="teste",
+        ))
+    db.commit()
+    return turno
+
+
+def test_d24_cascata_duas_perdas_mesma_faixa_acende(db):
+    hoje = date(2026, 8, 19)
+    func = Funcionario(id=uuid4(), re="70040", nome="Fiscal Cascata", status="ATIVO")
+    db.add(func)
+    db.commit()
+    _abrir_turno_e_perder(
+        db, func_id=func.id, re=func.re, ponto_codigo="P1", linha_codigo="1726-10",
+        data_referencia=hoje, tipo_dia="UTIL", horarios=[time(18, 10), time(18, 40)],
+    )
+
+    from app.services.icv import detectar_cascata
+    resultado = detectar_cascata(db, hoje)
+    assert len(resultado) == 1
+    assert resultado[0] == {"linha_codigo": "1726-10", "faixa_hora": 18, "quantidade": 2}
+
+
+def test_d24_cascata_faixas_diferentes_nao_acende(db):
+    """Uma perda na faixa 18 e outra na 19 NÃO acendem — precisa de 2+ na
+    MESMA faixa horária."""
+    hoje = date(2026, 8, 19)
+    func = Funcionario(id=uuid4(), re="70041", nome="Fiscal Cascata 2", status="ATIVO")
+    db.add(func)
+    db.commit()
+    _abrir_turno_e_perder(
+        db, func_id=func.id, re=func.re, ponto_codigo="P1", linha_codigo="1726-10",
+        data_referencia=hoje, tipo_dia="UTIL", horarios=[time(18, 50), time(19, 5)],
+    )
+
+    from app.services.icv import detectar_cascata
+    resultado = detectar_cascata(db, hoje)
+    assert resultado == []
+
+
+def test_icv_ranking_fiscal_nega_403(ambiente):
+    _como_fiscal(ambiente)
+    resp = ambiente["http"].get("/fiscalizacao/icv/ranking")
+    assert resp.status_code == 403, resp.text
+
+
+def test_icv_cascata_coordenador_acessa(ambiente):
+    _como_coordenador(ambiente)
+    resp = ambiente["http"].get("/fiscalizacao/icv/cascata", params={"data": "2026-08-19"})
+    assert resp.status_code == 200, resp.text
+    assert resp.json() == []
+
+
+def test_acao_coordenacao_fiscal_nega_403(ambiente):
+    _como_fiscal(ambiente)
+    resp = ambiente["http"].post("/fiscalizacao/acoes", json={
+        "linha_codigo": "1726-10", "data_referencia": "2026-08-19",
+        "faixa_hora": 18, "descricao": "Reforço na equipe.",
+    })
+    assert resp.status_code == 403, resp.text
+
+
+def test_acao_coordenacao_criar_e_listar(ambiente):
+    _como_coordenador(ambiente)
+    criar = ambiente["http"].post("/fiscalizacao/acoes", json={
+        "linha_codigo": "1726-10", "data_referencia": "2026-08-19",
+        "faixa_hora": 18, "descricao": "Equipe reforçou o TP às 18h.",
+        "resultado_observado": "ICV subiu de 94,62% para 99,46% em dois dias.",
+    })
+    assert criar.status_code == 201, criar.text
+    assert criar.json()["registrado_por"] == str(_COORDENADOR.id)
+
+    listar = ambiente["http"].get("/fiscalizacao/acoes", params={"linha_codigo": "1726-10"})
+    assert listar.status_code == 200, listar.text
+    assert len(listar.json()) == 1
+    assert listar.json()[0]["descricao"] == "Equipe reforçou o TP às 18h."

@@ -352,3 +352,65 @@ class AcaoCoordenacaoRead(ORMBase):
     registrado_por: UUID
     criado_em: datetime
     atualizado_em: Optional[datetime] = None
+
+
+# ============================================================================
+# ICV calculado (D20-D23, D28, D30) — payload de app/services/icv.py,
+# NÃO ORMBase (vem de dict, não de linha de tabela).
+# ============================================================================
+
+FontePerdaAbsoluta = Literal["OFICIAL", "CAMPO"]
+
+
+class IcvLinhaDiaRead(BaseModel):
+    """Equivalente de fiscalizacao.vw_icv_linha_dia (D20) — as duas fontes
+    lado a lado, nunca combinadas numa chave só."""
+
+    linha_codigo: str
+    data_referencia: date
+    programadas_oficial: Optional[int] = None
+    realizadas_oficial: Optional[int] = None
+    icv_oficial: Optional[float] = None
+    suspeito: bool = False
+    programadas_campo: Optional[int] = None
+    realizadas_campo: Optional[int] = None
+    icv_campo: Optional[float] = None
+    perda_absoluta: Optional[float] = None
+    fonte_perda_absoluta: Optional[FontePerdaAbsoluta] = None
+
+
+class IcvBaciaDiaRead(BaseModel):
+    """Equivalente de fiscalizacao.vw_icv_bacia_dia (D22) — ponderado,
+    nunca média simples."""
+
+    bacia_codigo: str
+    bacia_nome: str
+    meta_icv: float
+    data_referencia: date
+    programadas: int
+    realizadas: int
+    icv_ponderado: Optional[float] = None
+
+
+class PrioridadeLinhaItem(IcvLinhaDiaRead):
+    """Equivalente de uma linha de fiscalizacao.vw_prioridade_linha (D23),
+    com a divergência de denominador (D28) e a bacia da linha."""
+
+    divergencia_denominador: Optional[int] = None
+    bacia_codigo: Optional[str] = None
+    bacia_nome: Optional[str] = None
+
+
+class CascataItem(BaseModel):
+    """D24 — condição calculada: 2+ perdas na mesma linha/faixa hora/dia."""
+
+    linha_codigo: str
+    faixa_hora: int = Field(..., ge=0, le=23)
+    quantidade: int
+
+
+class MotivoLivreItem(BaseModel):
+    """D27 — agrupamento dos textos de motivo_outro mais frequentes."""
+
+    texto: str
+    quantidade: int
