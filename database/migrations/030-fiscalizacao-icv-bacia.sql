@@ -86,11 +86,13 @@
 --   schema (fiscalizacao./public.), mesmo padrão da 026/029.
 --
 -- ⚠️ DADO PESSOAL: zero dado pessoal real em seed, fixture ou comentário.
---   ⛔ Nenhum "98", "94.3", "1726-10", "Robson", "Alison" ou "Garagem 3"
---   escrito em código versionado nesta migration (checklist §11 do
---   prompt) — os exemplos de dado real ficam só nos COMMENTs acima,
---   citando números e códigos já públicos no próprio desenho/prompt, não
---   em nenhum INSERT nem seed.
+--   ⛔ Nenhum percentual de meta, código de linha, nome de bacia ou de
+--   garagem escrito em código, view ou seed versionado nesta migration
+--   (checklist §11 do prompt) — em especial, nenhum nome de pessoa (ex.:
+--   de coordenador) em lugar nenhum do arquivo. O único dado concreto que
+--   aparece nos COMMENTs de racional acima é o código de uma linha real
+--   (D21, para justificar a vigência de bacia_linha) — nunca em INSERT
+--   nem em seed, e nunca um nome de pessoa.
 --
 -- ARMADILHA DE DONO DE TABELA (ver 011, PARTE 0): se der
 -- "must be owner of table X", rode SET ROLE sambaiba; antes.
