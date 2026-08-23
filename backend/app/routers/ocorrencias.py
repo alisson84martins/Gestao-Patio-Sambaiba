@@ -34,6 +34,7 @@ from app.schemas.ocorrencia import (
     OrigemPessoa,
 )
 from app.services.mensagem_sinistro import gerar_mensagem_sinistro
+from app.services.pre_cadastro import registrar_pessoa_vista
 
 logger = logging.getLogger(__name__)
 
@@ -129,6 +130,23 @@ def _exige_pode_ver(oc: Ocorrencia, usuario: Funcionario, db: Session) -> None:
     raise HTTPException(
         status.HTTP_403_FORBIDDEN,
         detail="Você só pode ver as ocorrências que registrou",
+    )
+
+
+# Bloco A3 (prompt de ajustes 23/08): mesma regra de pré-cadastro (Bloco
+# H) já aplicada em pré-ocorrência (na conversão) e recolhida anormal —
+# aqui é o RE de condutor/cobrador digitado direto na ocorrência.
+# ⛔ Nunca terceiro (OcorrenciaVeiculoTerceiroIn) — é gente de fora da
+# empresa. Cobrador não tem cpf/rg/cnh/telefone neste schema (só nome).
+def _registrar_pessoas_vistas(db: Session, oc: Ocorrencia) -> None:
+    registrar_pessoa_vista(
+        db, re=oc.condutor_re, papel="MOTORISTA", origem="OCORRENCIA",
+        nome=oc.condutor_nome, cpf=oc.condutor_cpf, rg=oc.condutor_rg,
+        cnh=oc.condutor_cnh,
+    )
+    registrar_pessoa_vista(
+        db, re=oc.cobrador_re, papel="COBRADOR", origem="OCORRENCIA",
+        nome=oc.cobrador_nome,
     )
 
 
@@ -444,6 +462,7 @@ def criar(payload: OcorrenciaCreate, usuario: EscritaOcorrencia, db: Annotated[S
 
     nova = Ocorrencia(**payload.model_dump(), status="RASCUNHO", registrado_por=usuario.id)
     db.add(nova)
+    _registrar_pessoas_vistas(db, nova)
     db.commit()
     db.refresh(nova)
     return nova
@@ -519,6 +538,12 @@ def atualizar(
 
     oc.atualizado_em = datetime.now(timezone.utc)
     oc.atualizado_por = usuario.id
+
+    # Bloco A3: só reprocessa a fila de pré-cadastro quando o RE de
+    # condutor/cobrador veio nesta edição — ver _registrar_pessoas_vistas.
+    if "condutor_re" in dados_capa or "cobrador_re" in dados_capa:
+        _registrar_pessoas_vistas(db, oc)
+
     db.commit()
 
     return _carregar_completa(db, ocorrencia_id)

@@ -17,12 +17,12 @@ from sqlalchemy.orm import Session
 from app.core.config import FUSO_OPERACAO
 from app.core.database import get_db
 from app.core.deps import exige
+from app.core.placa import normalizar_placa
 from app.models.cadastro import Funcionario
 from app.models.portaria import Credencial, MovimentoPortaria, VeiculoPortaria
 from app.schemas.portaria import (
     BuscaVeiculoResponse, MovimentoCreate, MovimentoCreateResponse, MovimentoRead,
     PortariaDentroResponse, Propriedade, ResolverReResponse, Sentido, VeiculoCandidato,
-    normalizar_placa,
 )
 from app.services.identidade import resolver_por_re
 from app.services.portaria import veiculo_read

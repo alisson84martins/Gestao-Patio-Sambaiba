@@ -16,6 +16,7 @@ import { apiGet, apiPatch, apiPost, ApiError } from './api.js';
 import { podeEscrever } from './sessao.js';
 import { escapeHtml } from './escape.js';
 import { API_BASE_URL, TOKEN_KEY } from './config.js';
+import { aplicarMascara } from './mascaras.js';
 
 if (!requireAuth()) {
     throw new Error('Sessão não autenticada — interrompendo carga da página');
@@ -63,6 +64,14 @@ function badgeSituacao(situacao) {
     };
     const [label, classe] = mapa[situacao] || [situacao, 'portaria-badge-baixado'];
     return `<span class="portaria-badge ${classe}">${escapeHtml(label)}</span>`;
+}
+
+// Complemento à base limpa de placa (migration 031): nunca barra o
+// cadastro, só sinaliza pra revisão manual depois — ver filtro da aba Todos.
+function badgeAtipica(v) {
+    return v.placa_atipica
+        ? ' <span class="portaria-badge portaria-badge-pendente" title="Placa fora do padrão AAA-0000/Mercosul — cadastrada assim mesmo, revisar depois">Placa atípica</span>'
+        : '';
 }
 
 function donoTexto(v) {
@@ -182,6 +191,7 @@ function lerFiltrosTodos() {
         propriedade: document.getElementById('filtro-propriedade').value || null,
         situacao: document.getElementById('filtro-situacao').value || null,
         texto: document.getElementById('filtro-texto').value.trim().toLowerCase(),
+        placaAtipica: document.getElementById('filtro-placa-atipica').checked,
     };
 }
 
@@ -203,16 +213,22 @@ async function carregarTodos() {
 }
 
 function renderTodosFiltrado() {
-    const { texto } = lerFiltrosTodos();
-    const filtrados = texto
+    const { texto, placaAtipica } = lerFiltrosTodos();
+    let filtrados = texto
         ? todosCache.filter(v => `${v.placa} ${donoTexto(v)}`.toLowerCase().includes(texto))
         : todosCache;
-    renderLista('lista-todos', filtrados, { vazio: 'Nenhum veículo encontrado.', selecionavel: true });
+    if (placaAtipica) filtrados = filtrados.filter(v => v.placa_atipica);
+    renderLista('lista-todos', filtrados, {
+        vazio: 'Nenhum veículo encontrado.',
+        selecionavel: true,
+        extra: v => badgeAtipica(v),
+    });
 }
 
 function initFiltrosTodos() {
     document.getElementById('filtro-propriedade').addEventListener('change', carregarTodos);
     document.getElementById('filtro-situacao').addEventListener('change', carregarTodos);
+    document.getElementById('filtro-placa-atipica').addEventListener('change', renderTodosFiltrado);
     let handle = null;
     document.getElementById('filtro-texto').addEventListener('input', () => {
         clearTimeout(handle);
@@ -265,7 +281,7 @@ function renderFicha(v) {
     document.getElementById('ficha-tipo').textContent =
         [v.tipo, v.marca_modelo, v.cor].filter(Boolean).join(' · ') || '—';
     document.getElementById('ficha-dono').textContent = donoTexto(v);
-    document.getElementById('ficha-situacao-badge').innerHTML = badgeSituacao(v.situacao);
+    document.getElementById('ficha-situacao-badge').innerHTML = badgeSituacao(v.situacao) + badgeAtipica(v);
 
     const detalhe = document.getElementById('ficha-situacao-detalhe');
     if (v.situacao === 'SUSPENSO' || v.situacao === 'BAIXADO') {
@@ -582,6 +598,10 @@ async function confirmarBloqueioPorRe() {
 let donoResolvidoId = null;
 
 function initNovoVeiculo() {
+    // A1: máscara + aviso visual, nunca bloqueia (D10) — placa fora do
+    // padrão ainda cadastra, só nasce com placa_atipica=true (ver
+    // renderLista/badgeAtipica e o filtro da aba Todos).
+    aplicarMascara(document.getElementById('nv-placa'), 'placa');
     document.getElementById('btn-novo-veiculo').addEventListener('click', () => {
         document.getElementById('nv-placa').value = '';
         document.getElementById('nv-propriedade').value = 'PARTICULAR';

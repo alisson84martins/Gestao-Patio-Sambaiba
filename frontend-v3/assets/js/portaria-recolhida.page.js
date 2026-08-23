@@ -22,6 +22,7 @@
 import { requireAuth, getCurrentUser, logout } from './auth.js';
 import { apiGet, apiPost, ApiError } from './api.js';
 import { escapeHtml } from './escape.js';
+import { buscarPorRe } from './identidade.js';
 
 if (!requireAuth()) {
     throw new Error('Sessão não autenticada — interrompendo carga da página');
@@ -113,7 +114,9 @@ async function resolverRe(papel) {
         return;
     }
     try {
-        const resp = await apiGet(`/portaria/resolver-re?re=${encodeURIComponent(re)}`);
+        // Bloco A2: busca por RE unificada (app/routers/identidade.py) —
+        // antes cada tela chamava um endpoint próprio pra confirmar RE.
+        const resp = await buscarPorRe(re);
         if (resp.encontrado) {
             campoNome.style.display = 'none';
             campoNome.value = '';

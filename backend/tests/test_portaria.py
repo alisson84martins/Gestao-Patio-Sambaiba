@@ -33,8 +33,9 @@ from sqlalchemy.pool import StaticPool
 
 from app.core.config import FUSO_OPERACAO
 from app.core.database import Base, get_db
+from app.core.deps import get_current_funcionario
 from app.main import app
-from app.models.cadastro import Funcionario
+from app.models.cadastro import Funcao, Funcionario, FuncionarioFuncao
 from app.models.catalogos import Linha, TipoDefeito
 from app.models.enums import OrigemEscalaEnum, SetorEnum, StatusFichaEnum, TipoEscalaEnum
 from app.models.operacoes import Escala, FichaManutencao, ImportacaoEscala
@@ -77,6 +78,8 @@ _TABELAS = [
     ImportacaoEscala.__table__, Escala.__table__, Usuario.__table__, FichaManutencao.__table__,
     # Bloco H — a recolhida alimenta o pré-cadastro (services/pre_cadastro.py).
     PessoaPreCadastro.__table__,
+    # Bloco A2 — GET /identidade/re/{re} lê funções ativas do funcionário.
+    Funcao.__table__, FuncionarioFuncao.__table__,
 ]
 
 # Onibus tem coluna GERADA com sintaxe específica do Postgres (CASE ...
@@ -1197,3 +1200,108 @@ def test_falha_no_pre_cadastro_nao_impede_registro_da_recolhida(ambiente, monkey
         "prefixo": "9994", "motivo": "OUTRO", "motorista_re": "90003",
     })
     assert resp.status_code == 201, resp.text
+
+
+# ============================================================================
+# BLOCO A1 (prompt de ajustes 23/08) — base limpa de placa (D10 mantida)
+# ============================================================================
+
+# ─── placa fora do padrão nasce placa_atipica=true, mas cadastra normal ──
+
+def test_cadastro_placa_fora_do_padrao_nasce_atipica_mas_nao_e_rejeitado(ambiente):
+    _como(ambiente, "CONTROLADOR")
+    resp = ambiente["http"].post("/portaria/veiculos", json={
+        "propriedade": "EMPRESA", "placa": "ABC12345",
+    })
+    assert resp.status_code == 201, resp.text
+    assert resp.json()["placa_atipica"] is True
+
+
+def test_cadastro_placa_padrao_nasce_nao_atipica(ambiente):
+    _como(ambiente, "CONTROLADOR")
+    resp = ambiente["http"].post("/portaria/veiculos", json={
+        "propriedade": "EMPRESA", "placa": "abc-1d23",
+    })
+    assert resp.status_code == 201, resp.text
+    corpo = resp.json()
+    assert corpo["placa_atipica"] is False
+    # D10 (core/placa.py::normalizar_placa) — sempre maiúscula, sem hífen.
+    assert corpo["placa"] == "ABC1D23"
+
+
+def test_atualizar_placa_recalcula_atipica(ambiente):
+    _como(ambiente, "CONTROLADOR")
+    veiculo_id = _criar_veiculo(ambiente, placa="ABC1D23", funcionario_id=_DONO_A.id)
+    resp = ambiente["http"].patch(f"/portaria/veiculos/{veiculo_id}", json={"placa": "ZZZ999"})
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["placa_atipica"] is True
+
+
+def test_filtro_placa_atipica_na_listagem(ambiente):
+    _como(ambiente, "CONTROLADOR")
+    _criar_veiculo(ambiente, placa="ABC1D23", funcionario_id=_DONO_A.id)
+    # _criar_veiculo insere direto via ORM (sem passar por cadastrar_veiculo,
+    # que é quem calcula placa_atipica) — precisa vir explícito aqui.
+    _criar_veiculo(ambiente, placa="PROV1SORIA", funcionario_id=_DONO_B.id, placa_atipica=True)
+
+    resp = ambiente["http"].get("/portaria/veiculos?placa_atipica=true")
+    assert resp.status_code == 200, resp.text
+    corpo = resp.json()
+    assert len(corpo) == 1
+    assert corpo[0]["placa"] == "PROV1SORIA"
+
+
+# ============================================================================
+# BLOCO A2 (prompt de ajustes 23/08) — GET /identidade/re/{re}
+# ============================================================================
+
+def _como_identidade(ambiente, funcionario):
+    """/identidade não usa exige() — é Depends(get_current_funcionario) puro
+    (ver docstring de app/routers/identidade.py). Mesmo padrão de override
+    de test_seguranca_health.py."""
+    app.dependency_overrides[get_current_funcionario] = lambda: funcionario
+
+
+def test_identidade_encontra_funcionario_com_funcoes_e_veiculo_particular(ambiente):
+    with Session(ambiente["engine"]) as db:
+        funcao = Funcao(id=uuid4(), codigo="COORDENADOR", nome="Coordenador", categoria="OPERACAO", ativo=True)
+        db.add(funcao)
+        db.add(FuncionarioFuncao(id=uuid4(), funcionario_id=_DONO_A.id, funcao_id=funcao.id, ativo=True))
+        db.commit()
+    _criar_veiculo(ambiente, placa="ABC1D23", funcionario_id=_DONO_A.id, propriedade="PARTICULAR")
+
+    _como_identidade(ambiente, _CONTROLADOR)
+    try:
+        resp = ambiente["http"].get(f"/identidade/re/{_DONO_A.re}")
+    finally:
+        app.dependency_overrides.pop(get_current_funcionario, None)
+
+    assert resp.status_code == 200, resp.text
+    corpo = resp.json()
+    assert corpo["encontrado"] is True
+    assert corpo["origem"] == "FUNCIONARIO"
+    assert corpo["funcoes"] == ["COORDENADOR"]
+    assert len(corpo["veiculo_particular"]) == 1
+    assert corpo["veiculo_particular"][0]["placa"] == "ABC1D23"
+
+
+def test_identidade_inexistente_devolve_200_vazio(ambiente):
+    _como_identidade(ambiente, _CONTROLADOR)
+    try:
+        resp = ambiente["http"].get("/identidade/re/999999")
+    finally:
+        app.dependency_overrides.pop(get_current_funcionario, None)
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["encontrado"] is False
+
+
+def test_identidade_nao_devolve_dado_sensivel(ambiente):
+    _como_identidade(ambiente, _CONTROLADOR)
+    try:
+        resp = ambiente["http"].get(f"/identidade/re/{_ENCARREGADO.re}")
+    finally:
+        app.dependency_overrides.pop(get_current_funcionario, None)
+    assert resp.status_code == 200, resp.text
+    corpo = resp.json()
+    for campo in ("cpf", "rg", "cnh", "telefone"):
+        assert campo not in corpo

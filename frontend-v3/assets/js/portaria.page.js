@@ -22,6 +22,7 @@ import { requireAuth, getCurrentUser, logout } from './auth.js';
 import { apiGet, apiPost, ApiError } from './api.js';
 import { escapeHtml } from './escape.js';
 import { POLLING_INTERVAL_MS } from './config.js';
+import { aplicarMascara } from './mascaras.js';
 
 if (!requireAuth()) {
     throw new Error('Sessão não autenticada — interrompendo carga da página');
@@ -375,6 +376,8 @@ function renderEstadoConfirmacao() {
 function initConfirmacao() {
     document.getElementById('fechar-confirmacao').addEventListener('click', () => fecharModal('modal-confirmacao'));
     document.getElementById('btn-cancelar-confirmacao').addEventListener('click', () => fecharModal('modal-confirmacao'));
+    // A1: máscara + aviso visual, nunca bloqueia (D10) — mesmo padrão de ocorrencia.form.js.
+    aplicarMascara(document.getElementById('confirmacao-placa-input'), 'placa');
 
     document.getElementById('confirmacao-observacao').addEventListener('input', (e) => {
         if (!contexto || !contexto.veiculo) return;
@@ -538,6 +541,8 @@ async function preencherSelectEmpresas(selectId) {
 function initCadastroRapido() {
     document.getElementById('fechar-cadastro-rapido').addEventListener('click', () => fecharModal('modal-cadastro-rapido'));
     document.getElementById('btn-cancelar-cadastro-rapido').addEventListener('click', () => fecharModal('modal-cadastro-rapido'));
+    // A1: máscara + aviso visual, nunca bloqueia (D10).
+    aplicarMascara(document.getElementById('cad-placa'), 'placa');
     document.getElementById('cad-propriedade').addEventListener('change', atualizarCamposPropriedade);
 
     let handleRe = null;
@@ -625,6 +630,8 @@ function initTerceiro() {
     document.getElementById('btn-terceiro').addEventListener('click', abrirModalTerceiro);
     document.getElementById('fechar-terceiro').addEventListener('click', () => fecharModal('modal-terceiro'));
     document.getElementById('btn-cancelar-terceiro').addEventListener('click', () => fecharModal('modal-terceiro'));
+    // A1: máscara + aviso visual, nunca bloqueia (D10).
+    aplicarMascara(document.getElementById('terc-placa'), 'placa');
     document.getElementById('btn-registrar-terceiro').addEventListener('click', registrarTerceiro);
 
     let handlePlaca = null;

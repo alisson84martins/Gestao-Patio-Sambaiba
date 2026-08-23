@@ -61,6 +61,13 @@ export function placaValida(valor) {
     return /^[A-Z]{3}\d{4}$/.test(s) || /^[A-Z]{3}\d[A-Z]\d{2}$/.test(s);
 }
 
+// Filtro parcial (ex.: portaria-consulta.html) — só maiúscula, sem agrupar
+// em AAA-0000 nem exigir placa completa: quem busca pode digitar só as 3
+// letras, ou um trecho que nem é placa velha nem Mercosul ainda.
+export function formatarPlacaParcial(valor) {
+    return (valor || '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 7);
+}
+
 // ─── Telefone — (11) 9 8888-7777 (celular) / (11) 2990-4445 (fixo) ─────────
 
 export function formatarTelefone(valor) {
@@ -172,6 +179,7 @@ export function formatarRG(valor) {
 const TIPOS = {
     cpf: { formatar: formatarCPF, validar: cpfValido, mensagem: 'CPF incompleto ou inválido' },
     placa: { formatar: formatarPlaca, validar: placaValida, mensagem: 'Placa incompleta ou fora do padrão' },
+    'placa-parcial': { formatar: formatarPlacaParcial, validar: null, mensagem: '' },
     telefone: { formatar: formatarTelefone, validar: telefoneValido, mensagem: 'Telefone incompleto' },
     'telefone-multi': { formatar: formatarTelefones, validar: telefonesValidos, mensagem: 'Telefone incompleto' },
     uf: { formatar: formatarUF, validar: ufValida, mensagem: 'UF inválida' },

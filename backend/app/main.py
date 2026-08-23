@@ -10,7 +10,7 @@ from app.core.config import get_settings
 from app.core.exception_handlers import register_exception_handlers
 from app.routers import (
     alertas, alocacoes, auth, escalas, filas, fiscalizacao, funcoes, funcionarios,
-    health, importacao, linhas, manutencao, motoristas, ocorrencias, onibus,
+    health, identidade, importacao, linhas, manutencao, motoristas, ocorrencias, onibus,
     patio, permissoes, portaria, portaria_recolhidas, portaria_veiculos,
     pre_cadastro, pre_ocorrencias, pre_ocorrencias_publico, tipos_defeito, usuarios,
 )
@@ -55,6 +55,7 @@ tags_metadata = [
     {"name": "ocorrências", "description": "Suite Coordenadoria — relatório de ocorrências, mensagem do sinistro e anexos"},
     {"name": "portaria", "description": "Controle de acesso veicular — entrada, saída, cadastro e autorização de veículos; QR do veículo e recolhida anormal"},
     {"name": "pré-cadastro", "description": "Cadastro preliminar de pessoas alimentado pela operação (portaria, pré-ocorrência) — nunca cria acesso ao sistema"},
+    {"name": "identidade", "description": "Busca por RE compartilhada entre módulos — nome, origem, funções e veículo particular, sem dado sensível"},
     {"name": "fiscalização", "description": "Turnos do fiscal, registro de partidas, contadores e fechamento — o app que escreve sozinho a mensagem de WhatsApp de fim de turno"},
 ]
 
@@ -150,6 +151,9 @@ app.include_router(portaria_veiculos.router)
 app.include_router(portaria_recolhidas.router)
 # Bloco H — identidade compartilhada da Suite (public), não portaria.
 app.include_router(pre_cadastro.router)
+# Bloco A2 (prompt de ajustes 23/08) — busca por RE compartilhada entre
+# módulos, reusa app/services/identidade.py::resolver_por_re (§5.3).
+app.include_router(identidade.router)
 # Fiscalização — turnos, partidas, eventos e fechamento. ⛔ Dentro do próprio
 # router, /turnos/ativo é declarada antes de /turnos/{turno_id} (ver
 # comentário no topo de fiscalizacao.py) — mesma classe de bug já corrigida

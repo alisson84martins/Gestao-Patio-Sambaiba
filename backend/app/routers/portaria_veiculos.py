@@ -20,6 +20,7 @@ from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.core.deps import exige
+from app.core.placa import placa_valida
 from app.models.cadastro import Funcionario
 from app.models.portaria import Credencial, EmpresaTerceira, VeiculoPortaria, VeiculoSituacaoHist
 from app.schemas.portaria import (
@@ -84,6 +85,10 @@ def listar_veiculos(
     propriedade: Optional[Propriedade] = None,
     situacao: Optional[SituacaoVeiculo] = None,
     apenas_ativos: bool = True,
+    # Complemento à base limpa de placa (migration 031): nunca barra o
+    # cadastro, só deixa a tela filtrar o que ficou fora do padrão pra
+    # revisão manual depois.
+    placa_atipica: Optional[bool] = None,
     skip: int = Query(0, ge=0),
     limit: int = Query(200, ge=1, le=1000),
 ):
@@ -94,6 +99,8 @@ def listar_veiculos(
         stmt = stmt.where(VeiculoPortaria.propriedade == propriedade)
     if situacao:
         stmt = stmt.where(VeiculoPortaria.situacao == situacao)
+    if placa_atipica is not None:
+        stmt = stmt.where(VeiculoPortaria.placa_atipica.is_(placa_atipica))
     stmt = stmt.order_by(VeiculoPortaria.placa).offset(skip).limit(limit)
 
     veiculos = db.execute(stmt).scalars().all()
@@ -128,6 +135,7 @@ def cadastrar_veiculo(payload: VeiculoCreate, usuario: EscritaCadastro, db: Anno
         exige_hodometro=exige_hodometro,
         situacao="PENDENTE",
         observacao=payload.observacao,
+        placa_atipica=not placa_valida(payload.placa),
         criado_por=usuario.id,
     )
     db.add(novo)
@@ -153,8 +161,11 @@ def atualizar_veiculo(
 
     # VeiculoUpdate não tem (nem aceita, extra="forbid") campo de situação —
     # este loop nunca vê `situacao`, mesmo que alguém tente mandar no JSON.
-    for campo, valor in payload.model_dump(exclude_unset=True).items():
+    dados = payload.model_dump(exclude_unset=True)
+    for campo, valor in dados.items():
         setattr(veiculo, campo, valor)
+    if "placa" in dados:
+        veiculo.placa_atipica = not placa_valida(veiculo.placa)
     veiculo.atualizado_em = datetime.now(timezone.utc)
     veiculo.atualizado_por = usuario.id
 

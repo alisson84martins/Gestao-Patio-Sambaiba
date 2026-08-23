@@ -175,7 +175,9 @@ def test_editar_veiculo_e_vitima_em_dois_saves_persiste_tudo(cliente):
 
     assert len(corpo["veiculos_terceiro"]) == 1
     assert corpo["veiculos_terceiro"][0]["modelo"] == "Argo Drive 1.3"
-    assert corpo["veiculos_terceiro"][0]["placa"] == "FIC-1234"
+    # Bloco A1 (base limpa de placa): armazenamento sempre normalizado,
+    # sem hífen — "FIC-1234" digitado vira "FIC1234" gravado.
+    assert corpo["veiculos_terceiro"][0]["placa"] == "FIC1234"
 
     assert len(corpo["vitimas"]) == 1
     assert corpo["vitimas"][0]["rg"] == "000000"
@@ -186,6 +188,6 @@ def test_editar_veiculo_e_vitima_em_dois_saves_persiste_tudo(cliente):
     assert sinistro.status_code == 200, sinistro.text
     texto = sinistro.json()["texto"]
     assert "*Dados do terceiro*" in texto
-    assert "Placa: FIC-1234" in texto
+    assert "Placa: FIC1234" in texto
     assert "*Dados da Vítima*" in texto
     assert "RG: 000000" in texto

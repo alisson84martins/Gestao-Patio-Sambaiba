@@ -5,13 +5,13 @@ fechado de opções (Literal) espelham os CHECK constraints da migration —
 validação acontece na API antes de chegar no banco, mas a fonte da verdade
 dos valores permitidos é o SQL.
 """
-import re
 from datetime import date, datetime
 from typing import Annotated, Literal, Optional
 from uuid import UUID
 
 from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, model_validator
 
+from app.core.placa import PlacaNormalizada
 from app.schemas.base import AuditoriaSchema, ORMBase
 
 Propriedade = Literal["PARTICULAR", "EMPRESA", "TERCEIRO"]
@@ -20,23 +20,9 @@ SituacaoVeiculo = Literal["PENDENTE", "AUTORIZADO", "SUSPENSO", "BAIXADO"]
 Sentido = Literal["ENTRADA", "SAIDA"]
 OrigemMovimento = Literal["MANUAL", "RETROATIVO", "QR", "TAG", "LPR"]
 
-
-_PLACA_LIMPA_RE = re.compile(r"[^A-Z0-9]")
-
-
-def normalizar_placa(v: Optional[str]) -> Optional[str]:
-    """Maiúscula, sem hífen/espaço/ponto. 'abc-1d23' -> 'ABC1D23'.
-
-    D10: não valida formato (nem AAA9999, nem Mercosul AAA9A99) — placa de
-    outro país ou provisória existe, e a regra número um do módulo (nunca
-    impedir um registro) vale também para o cadastro e a busca.
-    """
-    if v is None:
-        return v
-    return _PLACA_LIMPA_RE.sub("", v.strip().upper())
-
-
-PlacaNormalizada = Annotated[str, BeforeValidator(normalizar_placa)]
+# normalizar_placa/placa_valida/PlacaNormalizada vivem em app/core/placa.py
+# agora (D10 — mesma regra em portaria/ocorrência/pré-ocorrência, ver
+# docstring lá) — antes duplicada só neste arquivo.
 
 
 def normalizar_re(v: Optional[str]) -> Optional[str]:
@@ -149,6 +135,9 @@ class VeiculoRead(ORMBase, AuditoriaSchema):
     situacao_motivo: Optional[str] = None
     observacao: Optional[str] = None
     ativo: bool
+    # D10: nunca bloqueia o cadastro — só sinaliza pra revisão (migration
+    # 031, calculado por placa_valida() em routers/portaria_veiculos.py).
+    placa_atipica: bool = False
 
     # Resolvidos pelo backend via join — não existem como coluna própria.
     funcionario_nome: Optional[str] = None

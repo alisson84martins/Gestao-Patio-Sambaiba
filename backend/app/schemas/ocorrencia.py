@@ -10,6 +10,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field
 
+from app.core.placa import PlacaNormalizadaOpcional
 from app.schemas.base import ORMBase
 
 StatusOcorrencia = Literal["RASCUNHO", "FINALIZADA", "CANCELADA"]
@@ -103,7 +104,10 @@ class OcorrenciaVeiculoTerceiroIn(BaseModel):
     modelo: Optional[str] = Field(None, max_length=60)
     ano: Optional[str] = Field(None, max_length=9)
     cor: Optional[str] = Field(None, max_length=30)
-    placa: Optional[str] = Field(None, max_length=10)
+    # D10 (app/core/placa.py): normaliza (maiúscula, sem hífen/espaço),
+    # nunca rejeita — placa de terceiro num acidente também pode ser
+    # provisória ou de outro estado/país.
+    placa: PlacaNormalizadaOpcional = Field(None, max_length=10)
     cidade_placa: Optional[str] = Field(None, max_length=80)
     estado_placa: Optional[str] = Field(None, max_length=2)
     renavam: Optional[str] = Field(None, max_length=20)
@@ -247,7 +251,8 @@ class OcorrenciaBase(BaseModel):
     data_ocorrencia: date
     hora_ocorrencia: time
     prefixo: str = Field(..., max_length=10)
-    placa: Optional[str] = Field(None, max_length=10)
+    # D10 (app/core/placa.py): normaliza, nunca rejeita por formato.
+    placa: PlacaNormalizadaOpcional = Field(None, max_length=10)
     linha_codigo: Optional[str] = Field(None, max_length=20)
 
     condutor_re: Optional[str] = Field(None, max_length=20)
@@ -324,7 +329,8 @@ class OcorrenciaUpdate(BaseModel):
     data_ocorrencia: Optional[date] = None
     hora_ocorrencia: Optional[time] = None
     prefixo: Optional[str] = Field(None, max_length=10)
-    placa: Optional[str] = Field(None, max_length=10)
+    # D10 (app/core/placa.py): normaliza, nunca rejeita por formato.
+    placa: PlacaNormalizadaOpcional = Field(None, max_length=10)
     linha_codigo: Optional[str] = Field(None, max_length=20)
 
     condutor_re: Optional[str] = Field(None, max_length=20)

@@ -92,6 +92,11 @@ class VeiculoPortaria(Base, AuditoriaMixin):
     observacao: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     ativo: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
 
+    # D10 (migration 031): nunca bloqueia o cadastro por causa do formato
+    # da placa — só sinaliza pra revisão. Calculado por placa_valida() em
+    # routers/portaria_veiculos.py a cada create/update de placa.
+    placa_atipica: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+
     # ⛔ Sem campo `validade` — D12: autorização não vence.
 
 

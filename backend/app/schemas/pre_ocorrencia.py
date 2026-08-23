@@ -21,6 +21,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field
 
+from app.core.placa import PlacaNormalizadaOpcional
 from app.schemas.base import ORMBase
 
 StatusAutorizacao = Literal["AGUARDANDO", "ENVIADA", "EXPIRADA", "CANCELADA"]
@@ -180,7 +181,9 @@ class PreOcorrenciaPublicoUpdate(BaseModel):
 
     relato: Optional[str] = None
 
-    terceiro_placa: Optional[str] = Field(None, max_length=10)
+    # D10 (app/core/placa.py): normaliza, nunca rejeita por formato — o
+    # motorista digita em pé, no local do acidente.
+    terceiro_placa: PlacaNormalizadaOpcional = Field(None, max_length=10)
     terceiro_modelo_cor: Optional[str] = Field(None, max_length=120)
     terceiro_nome: Optional[str] = Field(None, max_length=120)
     terceiro_telefone: Optional[str] = Field(None, max_length=20)

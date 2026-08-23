@@ -14,6 +14,7 @@
 import { requireAuth, getCurrentUser, logout } from './auth.js';
 import { apiGet, ApiError } from './api.js';
 import { escapeHtml } from './escape.js';
+import { aplicarMascara } from './mascaras.js';
 
 if (!requireAuth()) {
     throw new Error('Sessão não autenticada — interrompendo carga da página');
@@ -65,6 +66,10 @@ function montarQueryString(filtros, { paginado = true } = {}) {
 }
 
 function initFiltros() {
+    // A1: só uppercase, sem agrupar nem exigir placa completa (é filtro
+    // parcial) — mesma regra da máscara, importada de mascaras.js.
+    aplicarMascara(document.getElementById('filtro-placa'), 'placa-parcial');
+
     // Mexer em qualquer filtro sai do atalho "sem saída há 24h+" — senão a
     // mudança de filtro parece não fazer nada, porque a lista continua
     // presa no /alertas/sem-saida.
