@@ -38,14 +38,18 @@ from app.schemas.fiscalizacao import (
 )
 from app.services.fechamento_fiscal import montar_fechamento
 from app.services.importacao_escala_fiscal import importar_escala
+from app.services.importacao_icv import importar_icv
 
 router = APIRouter(prefix="/fiscalizacao", tags=["fiscalização"])
 
 LeituraFiscalizacao = Annotated[Funcionario, Depends(exige("fiscalizacao"))]
 EscritaFiscalizacao = Annotated[Funcionario, Depends(exige("fiscalizacao", escrever=True))]
 LeituraPainel = Annotated[Funcionario, Depends(exige("fiscalizacao_painel"))]
+EscritaPainel = Annotated[Funcionario, Depends(exige("fiscalizacao_painel", escrever=True))]
 EscritaEscala = Annotated[Funcionario, Depends(exige("escala", escrever=True))]
 DbSession = Annotated[Session, Depends(get_db)]
+
+TAMANHO_MAXIMO_ICV = 10 * 1024 * 1024  # 10 MB, mesmo limite dos outros três endpoints de upload
 
 # Eventos com contador (D4) — os cinco que custam viagem quando a partida é
 # marcada PERDIDA. VIAGEM_EXTRA só existe como evento avulso (não é motivo de
@@ -564,6 +568,23 @@ async def upload_escala(
     resultado = importar_escala(
         db, conteudo, tipo_dia=tipo_dia, vigencia=vigencia or datetime.now(FUSO_OPERACAO).date()
     )
+    db.commit()
+    return resultado
+
+
+# ============================================================================
+# IMPORTAÇÃO DA PLANILHA DE ICV (D20, D25, D28, §5) — exige("fiscalizacao_painel", escrever=True)
+# ============================================================================
+
+@router.post("/icv/upload", summary="Importa a planilha semanal de ICV da gerência (D20)")
+async def upload_icv(usuario: EscritaPainel, db: DbSession, request: Request, file: UploadFile = File(...)):
+    if not file.filename or not file.filename.lower().endswith((".xlsx", ".xlsm")):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="Apenas arquivos .xlsx são aceitos")
+    conteudo = await ler_upload_limitado(file, TAMANHO_MAXIMO_ICV, request)
+    try:
+        resultado = importar_icv(db, conteudo, arquivo_nome=file.filename, importado_por=usuario.id)
+    except ValueError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=str(exc))
     db.commit()
     return resultado
 
