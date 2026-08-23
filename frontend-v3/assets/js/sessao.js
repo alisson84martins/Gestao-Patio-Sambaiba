@@ -23,7 +23,7 @@ const MODULO_ATUAL_KEY = 'patio_v3_modulo_atual';
 const PAGINA_INICIAL = {
     PATIO: 'patio.html',
     COORDENADORIA: 'ocorrencias.html',   // ainda não existe — Etapa 6
-    FISCALIZACAO: 'fiscal.html',         // ainda não existe — Etapa 7
+    FISCALIZACAO: 'fiscal-painel.html',   // painel do coordenador (Bloco E)
     ADMINISTRACAO: 'cadastros.html',
     // 🔴 Sem isto (e sem 'PORTARIA' em PAGINAS_PRONTAS logo abaixo), o
     // controlador loga e cai em modulos.html?indisponivel=PORTARIA — porque
@@ -33,6 +33,15 @@ const PAGINA_INICIAL = {
 };
 
 const PAGINAS_PRONTAS = new Set(['PATIO', 'ADMINISTRACAO', 'COORDENADORIA', 'PORTARIA']);
+
+// Módulos cuja página inicial depende do acesso da pessoa. FISCALIZACAO tem
+// dois blocos: o painel do coordenador (E, pronto em fiscal-painel.html) e o
+// registro do fiscal em campo (D, fiscal.html — ainda não existe). Quem não
+// tem `fiscalizacao_painel` continua caindo no aviso de "em construção", em
+// vez de abrir o painel e levar 403 em toda chamada.
+const PAGINA_CONDICIONAL = {
+    FISCALIZACAO: () => (podeLer('fiscalizacao_painel') ? PAGINA_INICIAL.FISCALIZACAO : null),
+};
 
 function _dadosSessao() {
     const raw = localStorage.getItem(USER_KEY);
@@ -98,6 +107,9 @@ export function setModuloAtual(codigo) {
  * nav.js e pelos cartões de modulos.page.js — não duplique esta lista.
  */
 export function paginaModulo(codigo) {
+    const condicional = PAGINA_CONDICIONAL[codigo]?.();
+    if (condicional) return condicional;
+
     return PAGINAS_PRONTAS.has(codigo)
         ? PAGINA_INICIAL[codigo]
         : `modulos.html?indisponivel=${encodeURIComponent(codigo)}`;
