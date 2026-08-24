@@ -648,14 +648,24 @@ def test_gerador_sem_pastas_omite_bloco_e_sem_none(ambiente):
 # ============================================================================
 
 def test_app_registra_rotas_fiscalizacao():
-    rotas = {r.path for r in app.routes if hasattr(r, "path")}
-    assert "/fiscalizacao/turnos/ativo" in rotas
-    assert "/fiscalizacao/turnos/{turno_id}" in rotas
-    # ⛔ ordem: /turnos/ativo tem que estar declarada ANTES de /turnos/{turno_id}
-    caminhos = [r.path for r in app.routes if hasattr(r, "path") and r.path.startswith("/fiscalizacao/turnos")]
-    idx_ativo = caminhos.index("/fiscalizacao/turnos/ativo")
-    idx_param = caminhos.index("/fiscalizacao/turnos/{turno_id}")
-    assert idx_ativo < idx_param
+    """⚠️ Lê pelo OpenAPI, NÃO por app.routes. A partir de certa versão do
+    FastAPI, cada include_router() vira UM objeto _IncludedRouter em
+    app.routes e as rotas dos módulos deixam de aparecer ali — foi o que
+    fez este teste falhar sem que nada estivesse quebrado (24/08/2026).
+    O OpenAPI é a superfície pública e preserva a ordem de declaração."""
+    caminhos = list(app.openapi()["paths"].keys())
+    assert "/fiscalizacao/turnos/ativo" in caminhos
+    assert "/fiscalizacao/turnos/{turno_id}" in caminhos
+
+    # ⛔ ordem: rota literal SEMPRE antes da rota com path parameter, senão
+    # "ativo" chega como se fosse um turno_id. Mesma classe de bug que já
+    # apareceu quatro vezes neste projeto.
+    assert caminhos.index("/fiscalizacao/turnos/ativo") < caminhos.index("/fiscalizacao/turnos/{turno_id}")
+
+    # D39 — as duas rotas literais do painel, pela mesma razão: sem isto,
+    # "ao-vivo" e "turnos" seriam capturados como código de linha.
+    assert caminhos.index("/fiscalizacao/painel/ao-vivo") < caminhos.index("/fiscalizacao/painel/{linha_codigo}")
+    assert caminhos.index("/fiscalizacao/painel/turnos") < caminhos.index("/fiscalizacao/painel/{linha_codigo}")
 
 
 # ============================================================================
@@ -949,3 +959,111 @@ def test_coordenador_sem_escrita_fiscalizacao_no_patch_linha_nega_403(ambiente):
         "programadas_informadas": 10,
     })
     assert resp.status_code == 403, resp.text
+
+
+# ============================================================================
+# Bloco D — D39: o painel ao vivo. Estes dois endpoints são o topo da tela do
+# coordenador e foram a última costura do bloco — sem eles o painel chamava
+# rota inexistente e as duas primeiras seções morriam em 404.
+# ============================================================================
+
+def test_painel_ao_vivo_lista_registro_do_fiscal_na_linha_do_coordenador(ambiente):
+    """Ponta a ponta do D39: o fiscal marca uma perda; o coordenador que
+    coordena aquela linha vê o registro no ao vivo, com o motivo, o RE de
+    quem marcou e a marcação de que custou viagem (D4)."""
+    _como(ambiente, "COORDENADOR")
+    atribuir = ambiente["http"].post("/fiscalizacao/minhas-linhas", json={
+        "linha_codigo": "1726-10", "periodo": "1",
+    })
+    assert atribuir.status_code == 201, atribuir.text
+
+    turno = _criar_turno(ambiente)
+    _como(ambiente, "FISCAL")
+    marcar = ambiente["http"].put(f"/fiscalizacao/turnos/{turno.id}/partidas", json={
+        "linha_codigo": "1726-10", "terminal": "TP", "horario_programado": "18:20:00",
+        "resultado": "PERDIDA", "motivo": "RA", "prefixo": "1721",
+    })
+    assert marcar.status_code == 200, marcar.text
+
+    _como(ambiente, "COORDENADOR")
+    resp = ambiente["http"].get("/fiscalizacao/painel/ao-vivo")
+    assert resp.status_code == 200, resp.text
+    itens = resp.json()
+    assert len(itens) == 1, itens
+    assert itens[0]["linha_codigo"] == "1726-10"
+    assert itens[0]["tipo"] == "RA"
+    assert itens[0]["custou_viagem"] is True
+    assert itens[0]["fiscal_re"] == _FISCAL_A.re
+    assert itens[0]["ponto_codigo"] == "PQ_TESTE"
+    assert itens[0]["minutos_atras"] >= 0
+
+
+def test_painel_ao_vivo_nao_conta_duas_vezes_o_evento_vinculado(ambiente):
+    """D4 na tela: marcar PERDIDA com motivo que tem contador cria um
+    evento_turno vinculado. O ao vivo lista o registro e IGNORA esse evento
+    — senão a mesma perda apareceria duas vezes para quem olha o painel."""
+    _como(ambiente, "COORDENADOR")
+    ambiente["http"].post("/fiscalizacao/minhas-linhas", json={
+        "linha_codigo": "1726-10", "periodo": "1",
+    })
+    turno = _criar_turno(ambiente)
+    _como(ambiente, "FISCAL")
+    ambiente["http"].put(f"/fiscalizacao/turnos/{turno.id}/partidas", json={
+        "linha_codigo": "1726-10", "terminal": "TP", "horario_programado": "19:10:00",
+        "resultado": "PERDIDA", "motivo": "SOS", "prefixo": "1730",
+    })
+
+    with Session(ambiente["engine"]) as db:
+        eventos = db.execute(
+            select(EventoTurno).where(EventoTurno.turno_id == turno.id)
+        ).scalars().all()
+    assert len(eventos) == 1  # o vinculado existe...
+
+    _como(ambiente, "COORDENADOR")
+    itens = ambiente["http"].get("/fiscalizacao/painel/ao-vivo").json()
+    assert len(itens) == 1  # ...e mesmo assim o ao vivo mostra UMA linha
+
+
+def test_painel_ao_vivo_ignora_linha_que_nao_e_do_coordenador(ambiente):
+    """O painel é das linhas de quem está logado (D39). Sem atribuição
+    nenhuma (D40), a lista vem vazia — e isso é caso normal, não erro."""
+    turno = _criar_turno(ambiente)
+    _como(ambiente, "FISCAL")
+    ambiente["http"].put(f"/fiscalizacao/turnos/{turno.id}/partidas", json={
+        "linha_codigo": "1726-10", "terminal": "TP", "horario_programado": "20:00:00",
+        "resultado": "PERDIDA", "motivo": "RA", "prefixo": "1721",
+    })
+
+    _como(ambiente, "COORDENADOR")  # nenhuma linha atribuída
+    resp = ambiente["http"].get("/fiscalizacao/painel/ao-vivo")
+    assert resp.status_code == 200, resp.text
+    assert resp.json() == []
+
+
+def test_painel_turnos_mostra_quem_esta_na_rua(ambiente):
+    """D39 — turnos abertos nas minhas linhas, com o nome do fiscal e há
+    quanto tempo ele não registra nada. Turno recém-aberto sem registro
+    nenhum vem com minutos_sem_registrar nulo, que é diferente de zero."""
+    _como(ambiente, "COORDENADOR")
+    ambiente["http"].post("/fiscalizacao/minhas-linhas", json={
+        "linha_codigo": "1726-10", "periodo": "1",
+    })
+    turno = _criar_turno(ambiente)
+
+    resp = ambiente["http"].get("/fiscalizacao/painel/turnos")
+    assert resp.status_code == 200, resp.text
+    itens = resp.json()
+    assert len(itens) == 1, itens
+    assert itens[0]["fiscal_re"] == _FISCAL_A.re
+    assert itens[0]["fiscal_nome"] == _FISCAL_A.nome
+    assert itens[0]["ponto_codigo"] == "PQ_TESTE"
+    assert itens[0]["linhas"] == ["1726-10"]
+    assert itens[0]["minutos_sem_registrar"] is None
+
+
+def test_fiscal_sem_painel_no_ao_vivo_nega_403(ambiente):
+    """RBAC do módulo: FISCAL registra, não vê agregado (mesma decisão do
+    controlador de acesso na Portaria). Vale para os dois endpoints novos."""
+    _como(ambiente, "FISCAL")
+    assert ambiente["http"].get("/fiscalizacao/painel/ao-vivo").status_code == 403
+    assert ambiente["http"].get("/fiscalizacao/painel/turnos").status_code == 403
