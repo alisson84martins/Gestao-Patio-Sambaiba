@@ -970,6 +970,48 @@ def test_post_ponto_codigo_repetido_nega_409(ambiente):
 
 
 # ============================================================================
+# Validação da linha contra o catálogo — a R.A que sumiu do painel do
+# coordenador em 24/08 foi cadastrada com "1726" quando a linha era
+# "1726-10". A tela impede o erro (seletor); isto impede o que passar
+# por fora dela.
+# ============================================================================
+
+def test_post_ponto_com_linha_fora_do_catalogo_recusado_422(ambiente):
+    _como(ambiente, "FISCAL")
+    resp = ambiente["http"].post("/fiscalizacao/pontos", json={
+        "codigo": "PQ_FORA", "nome": "Ponto Fora", "terminal": "TP", "linhas": ["1726"],
+    })
+    assert resp.status_code == 422, resp.text
+    assert "1726" in resp.text
+
+
+def test_post_ponto_com_linha_inativa_recusado_422(ambiente):
+    _como(ambiente, "FISCAL")
+    resp = ambiente["http"].post("/fiscalizacao/pontos", json={
+        "codigo": "PQ_INATIVA", "nome": "Ponto Inativa", "terminal": "TP", "linhas": ["9999-10"],
+    })
+    assert resp.status_code == 422, resp.text
+
+
+def test_post_minha_linha_fora_do_catalogo_recusado_422(ambiente):
+    _como(ambiente, "COORDENADOR")
+    resp = ambiente["http"].post("/fiscalizacao/minhas-linhas", json={
+        "linha_codigo": "1726", "periodo": "1",
+    })
+    assert resp.status_code == 422, resp.text
+    assert "1726" in resp.text
+
+
+def test_post_ponto_com_linhas_validas_cria_201(ambiente):
+    # Caminho feliz não pode ter sido quebrado pela validação nova.
+    _como(ambiente, "FISCAL")
+    resp = ambiente["http"].post("/fiscalizacao/pontos", json={
+        "codigo": "PQ_VALIDO", "nome": "Ponto Válido", "terminal": "TP", "linhas": ["1726-10", "2032-10"],
+    })
+    assert resp.status_code == 201, resp.text
+
+
+# ============================================================================
 # Bloco D — D38: coordenador atribui e remove as próprias linhas
 # ============================================================================
 

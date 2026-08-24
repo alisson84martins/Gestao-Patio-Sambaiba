@@ -127,6 +127,28 @@ def _normalizar_linhas(linhas: list[str]) -> list[str]:
     return vistas
 
 
+def _exige_linha_no_catalogo(db: Session, linhas: list[str]) -> None:
+    """A tela impede o erro (seletor em vez de texto livre); isto impede o
+    que passar por fora dela — a API não pode aceitar lixo. Recusa com 422
+    quando o código não existe no catálogo (app/models/catalogos.py::Linha)
+    ou existe mas está inativo — nunca corrige/completa o código sozinho:
+    adivinhar linha (ex.: "1726" → "1726-10") é pior que recusar. Origem:
+    R.A registrada com "1726" nunca apareceu pro coordenador de "1726-10" —
+    nenhum erro, nenhum log, só sumiu."""
+    for codigo in linhas:
+        linha = db.execute(select(Linha).where(Linha.codigo == codigo)).scalar_one_or_none()
+        if linha is None:
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=f"A linha {codigo} não existe no catálogo. Confira o código completo (ex.: 1726-10).",
+            )
+        if not linha.ativa:
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=f"A linha {codigo} está inativa no catálogo.",
+            )
+
+
 def _aware_utc(dt: datetime) -> datetime:
     """Postgres devolve datetime aware em coluna DateTime(timezone=True);
     SQLite (testes) devolve naive mesmo nessa coluna. Mesmo padrão de
@@ -329,6 +351,7 @@ def criar_ponto(payload: PontoCreate, usuario: EscritaFiscalizacao, db: DbSessio
     linhas = _normalizar_linhas(payload.linhas)
     if not linhas:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Informe ao menos uma linha.")
+    _exige_linha_no_catalogo(db, linhas)
 
     ponto = Ponto(codigo=codigo, nome=payload.nome.strip(), terminal=payload.terminal, ativo=True)
     db.add(ponto)
@@ -357,6 +380,7 @@ def atualizar_ponto(codigo: str, payload: PontoUpdate, usuario: EscritaFiscaliza
         linhas = _normalizar_linhas(dados["linhas"] or [])
         if not linhas:
             raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Informe ao menos uma linha.")
+        _exige_linha_no_catalogo(db, linhas)
         existentes = {
             pl.linha_codigo: pl
             for pl in db.execute(select(PontoLinha).where(PontoLinha.ponto_codigo == codigo)).scalars().all()
@@ -826,6 +850,7 @@ def atribuir_minha_linha(payload: MinhaLinhaCreate, usuario: EscritaPainel, db: 
         alvo_id = payload.funcionario_id
 
     linha_codigo = payload.linha_codigo.strip()
+    _exige_linha_no_catalogo(db, [linha_codigo])
     existente = db.execute(
         select(LinhaCoordenador).where(
             LinhaCoordenador.linha_codigo == linha_codigo, LinhaCoordenador.periodo == payload.periodo,
