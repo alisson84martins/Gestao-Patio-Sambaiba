@@ -541,3 +541,32 @@ class RecolhidaAnaliseResponse(BaseModel):
     por_motivo: list[RecolhidaAnaliseItem] = Field(default_factory=list)
     tempo_medio_avaliacao_minutos: Optional[float] = None
 
+
+# ============================================================================
+# AVARIA_SAIDA (Bloco G, migration 036) — dano visto na conferência de saída
+# ============================================================================
+
+class AvariaSaidaCreate(BaseModel):
+    """POST /portaria/avarias. `motorista_re` é opcional (regra número um —
+    nunca bloqueia); `motorista_nome` só é usado quando o RE digitado não
+    resolve em public.funcionario/motorista (aí vira snapshot do que o
+    controlador informou, e alimenta o pré-cadastro do Bloco H)."""
+
+    prefixo: str = Field(..., min_length=1, max_length=10)
+    motorista_re: ReNormalizado = Field(None, max_length=20)
+    motorista_nome: Optional[str] = Field(None, max_length=120)
+    descricao: str = Field(..., min_length=1)
+
+
+class AvariaSaidaRead(ORMBase):
+    id: UUID
+    prefixo: str
+    data_servico: date
+    ocorrido_em: datetime
+    motorista_re: Optional[str] = None
+    motorista_nome: Optional[str] = None
+    descricao: str
+    registrado_por: UUID
+    criado_em: datetime
+    expira_em: datetime
+

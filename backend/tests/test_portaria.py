@@ -41,11 +41,12 @@ from app.models.enums import OrigemEscalaEnum, SetorEnum, StatusFichaEnum, TipoE
 from app.models.operacoes import Escala, FichaManutencao, ImportacaoEscala
 from app.models.pessoas import Motorista, Usuario
 from app.models.portaria import (
-    Credencial, EmpresaTerceira, MovimentoPortaria, PortariaLocal,
+    AvariaSaida, Credencial, EmpresaTerceira, MovimentoPortaria, PortariaLocal,
     RecolhidaAnormal, VeiculoPortaria, VeiculoSituacaoHist,
 )
 from app.models.pre_cadastro import PessoaPreCadastro
 from app.routers import portaria as portaria_router_mod
+from app.routers import portaria_avarias as portaria_avarias_router_mod
 from app.routers import portaria_recolhidas as portaria_recolhidas_router_mod
 from app.routers import portaria_veiculos as portaria_veiculos_router_mod
 from app.services import pre_cadastro as pre_cadastro_service_mod
@@ -73,7 +74,7 @@ _DONO_B = Funcionario(id=uuid4(), re="60011", nome="Dono B")
 _TABELAS = [
     Funcionario.__table__, PortariaLocal.__table__, EmpresaTerceira.__table__,
     VeiculoPortaria.__table__, VeiculoSituacaoHist.__table__, MovimentoPortaria.__table__,
-    Credencial.__table__, RecolhidaAnormal.__table__,
+    Credencial.__table__, RecolhidaAnormal.__table__, AvariaSaida.__table__,
     Motorista.__table__, Linha.__table__, TipoDefeito.__table__,
     ImportacaoEscala.__table__, Escala.__table__, Usuario.__table__, FichaManutencao.__table__,
     # Bloco H — a recolhida alimenta o pré-cadastro (services/pre_cadastro.py).
@@ -120,6 +121,11 @@ _PERMISSOES = {
         "leitura_gerencial": False,
         "leitura_tratativa": False, "escrita_tratativa": False,
         "leitura_recolhida_ou_tratativa": True,
+        # Bloco G — mesmo recurso acesso_veicular de "leitura_acesso"/
+        # "escrita_acesso", mas dependência SEPARADA (routers/portaria_avarias.py
+        # chama exige() de novo — cada chamada gera um callable novo, então
+        # dependency_overrides precisa mirar os dois objetos).
+        "leitura_acesso_avarias": True, "escrita_acesso_avarias": True,
     },
     "ENCARREGADO": {
         "leitura_acesso": True, "escrita_acesso": False,
@@ -129,6 +135,7 @@ _PERMISSOES = {
         "leitura_gerencial": True,
         "leitura_tratativa": True, "escrita_tratativa": False,
         "leitura_recolhida_ou_tratativa": True,
+        "leitura_acesso_avarias": True, "escrita_acesso_avarias": False,
     },
     "MECANICO": {
         "leitura_acesso": False, "escrita_acesso": False,
@@ -138,12 +145,14 @@ _PERMISSOES = {
         "leitura_gerencial": False,
         "leitura_tratativa": True, "escrita_tratativa": True,
         "leitura_recolhida_ou_tratativa": True,
+        "leitura_acesso_avarias": False, "escrita_acesso_avarias": False,
     },
     "ADMIN": {chave: True for chave in (
         "leitura_acesso", "escrita_acesso", "leitura_cadastro",
         "escrita_cadastro", "leitura_autorizacao", "escrita_autorizacao",
         "leitura_recolhida", "escrita_recolhida", "leitura_gerencial",
         "leitura_tratativa", "escrita_tratativa", "leitura_recolhida_ou_tratativa",
+        "leitura_acesso_avarias", "escrita_acesso_avarias",
     )},
 }
 _USUARIOS = {
@@ -197,6 +206,8 @@ def ambiente():
         "leitura_recolhida_ou_tratativa": _dependency_de(
             portaria_recolhidas_router_mod.LeituraRecolhidaOuTratativa
         ),
+        "leitura_acesso_avarias": _dependency_de(portaria_avarias_router_mod.LeituraAcesso),
+        "escrita_acesso_avarias": _dependency_de(portaria_avarias_router_mod.EscritaAcesso),
     }
 
     app.dependency_overrides[get_db] = _get_db_teste
@@ -1607,3 +1618,83 @@ def test_identidade_nao_devolve_dado_sensivel(ambiente):
     corpo = resp.json()
     for campo in ("cpf", "rg", "cnh", "telefone"):
         assert campo not in corpo
+
+
+# ============================================================================
+# BLOCO G — Avaria na saída da frota (migration 036)
+# ============================================================================
+
+def test_avaria_registrada_pelo_controlador_devolve_201(ambiente):
+    _como(ambiente, "CONTROLADOR")
+    resp = ambiente["http"].post("/portaria/avarias", json={
+        "prefixo": "1234", "descricao": "Retrovisor direito rachado.",
+    })
+    assert resp.status_code == 201, resp.text
+    corpo = resp.json()
+    assert corpo["prefixo"] == "1234"
+    assert corpo["descricao"] == "Retrovisor direito rachado."
+    assert corpo["data_servico"] is not None
+
+
+def test_avaria_post_exige_escrita_em_acesso_veicular(ambiente):
+    """RBAC do Bloco G — reaproveita acesso_veicular (migration 024), nenhum
+    recurso novo. ENCARREGADO lê acesso_veicular mas não escreve -> 403."""
+    _como(ambiente, "ENCARREGADO")
+    resp = ambiente["http"].post("/portaria/avarias", json={
+        "prefixo": "1234", "descricao": "Para-choque quebrado.",
+    })
+    assert resp.status_code == 403, resp.text
+
+
+def test_avaria_get_esconde_registro_expirado(ambiente):
+    vencida_id = uuid4()
+    valida_id = uuid4()
+    with Session(ambiente["engine"]) as db:
+        db.add(AvariaSaida(
+            id=vencida_id, prefixo="1234", data_servico=date(2026, 1, 1),
+            descricao="Vencida — expira_em no passado.",
+            registrado_por=_CONTROLADOR.id,
+            expira_em=datetime.now(timezone.utc) - timedelta(days=1),
+        ))
+        db.add(AvariaSaida(
+            id=valida_id, prefixo="1234", data_servico=date(2026, 1, 1),
+            descricao="Válida — expira_em no futuro.",
+            registrado_por=_CONTROLADOR.id,
+            expira_em=datetime.now(timezone.utc) + timedelta(days=59),
+        ))
+        db.commit()
+
+    _como(ambiente, "CONTROLADOR")
+    resp = ambiente["http"].get("/portaria/avarias", params={"prefixo": "1234"})
+    assert resp.status_code == 200, resp.text
+    ids = [item["id"] for item in resp.json()]
+    assert str(valida_id) in ids
+    assert str(vencida_id) not in ids
+
+
+def test_avaria_re_resolvido_usa_nome_do_cadastro_como_snapshot(ambiente):
+    _como(ambiente, "CONTROLADOR")
+    resp = ambiente["http"].post("/portaria/avarias", json={
+        "prefixo": "1234", "descricao": "Risco na lateral.",
+        "motorista_re": _DONO_A.re, "motorista_nome": "nome digitado errado",
+    })
+    assert resp.status_code == 201, resp.text
+    # RE resolveu em funcionario -> nome vem do cadastro, não do payload.
+    assert resp.json()["motorista_nome"] == _DONO_A.nome
+
+
+def test_avaria_re_nao_resolvido_alimenta_pre_cadastro(ambiente):
+    _como(ambiente, "CONTROLADOR")
+    resp = ambiente["http"].post("/portaria/avarias", json={
+        "prefixo": "1234", "descricao": "Farol trincado.",
+        "motorista_re": "99999", "motorista_nome": "Motorista Desconhecido",
+    })
+    assert resp.status_code == 201, resp.text
+    assert resp.json()["motorista_nome"] == "Motorista Desconhecido"
+
+    with Session(ambiente["engine"]) as db:
+        pre = db.execute(
+            select(PessoaPreCadastro).where(PessoaPreCadastro.re == "99999")
+        ).scalar_one_or_none()
+    assert pre is not None
+    assert pre.ultima_origem == "PORTARIA_AVARIA"

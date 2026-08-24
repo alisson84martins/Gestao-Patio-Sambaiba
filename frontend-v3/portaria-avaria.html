@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<!--
+  Sistema de Gestão Operacional Sambaíba — V3
+  Suite Portaria — Avaria na saída da frota (Bloco G)
+  Desenvolvido por Alisson Martins
+  © 2026 — Todos os direitos reservados
+-->
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="theme-color" content="#0a0a0a">
+    <title>Avaria — Portaria — Sambaíba V3</title>
+
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700;800&family=Barlow+Condensed:wght@400;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="assets/css/style.css">
+</head>
+<body>
+
+<header class="app-header">
+    <div class="app-header-brand">
+        <img class="app-header-logo" src="assets/img/sambaiba-logo.jpg" alt="Eu amo Sambaíba">
+        <div class="app-header-titles">
+            <div class="app-header-empresa">Sambaíba</div>
+            <div class="app-header-title">PORTARIA</div>
+        </div>
+    </div>
+
+    <div class="app-header-user">
+        <div class="app-user-info">
+            <div class="app-user-name" id="user-name">—</div>
+            <div class="app-user-meta" id="user-meta">—</div>
+        </div>
+        <button class="btn-logout" id="btn-logout" title="Sair">Sair</button>
+    </div>
+</header>
+
+<nav class="app-nav"></nav>
+<script type="module" src="./assets/js/nav.js"></script>
+
+<!-- ========================================================= -->
+<!-- Bloco G: dano visto na saída — não é recolhida (o carro    -->
+<!-- está saindo) e não é ocorrência (não houve sinistro).      -->
+<!-- Caso de uso número um: "esse risco já estava aí ontem?"    -->
+<!-- ========================================================= -->
+<main class="patio-main">
+
+    <!-- Bloco G — sem link próprio na barra (nav.js), a página fica só com ativo:'portaria.html'. -->
+    <a href="portaria.html" class="btn btn-ghost" style="display:inline-block;margin-bottom:16px">&larr; Voltar</a>
+
+    <div class="recolhida-campo">
+        <label class="form-label" for="av-prefixo">Carro</label>
+        <input type="text" class="form-input recolhida-input-grande" id="av-prefixo"
+               inputmode="numeric" autocomplete="off" autofocus placeholder="Prefixo">
+        <div id="av-prefixo-status" class="portaria-ficha-linha"></div>
+    </div>
+
+    <!-- Busca por carro — histórico de 60 dias do prefixo digitado acima. -->
+    <section class="portaria-secao" id="av-historico-wrap" style="display:none">
+        <div class="portaria-secao-titulo">Histórico deste carro (60 dias)</div>
+        <div id="av-historico-carro"></div>
+    </section>
+
+    <div class="recolhida-campo">
+        <label class="form-label" for="av-motorista-re">RE motorista (opcional)</label>
+        <input type="text" class="form-input" id="av-motorista-re" inputmode="numeric" autocomplete="off">
+        <div id="av-motorista-status" class="portaria-ficha-linha"></div>
+        <input type="text" class="form-input" id="av-motorista-nome" placeholder="Nome (RE não encontrado)" style="display:none;margin-top:6px">
+    </div>
+
+    <div class="recolhida-campo">
+        <label class="form-label" for="av-descricao">O que foi visto</label>
+        <textarea class="form-input form-textarea" id="av-descricao" rows="3" placeholder="Ex.: retrovisor direito rachado"></textarea>
+    </div>
+
+    <div id="av-erro" style="display:none;color:var(--accent);font-size:0.85rem;margin-bottom:10px"></div>
+
+    <button type="button" class="btn btn-primary btn-full" id="btn-registrar-avaria">REGISTRAR</button>
+
+    <section class="portaria-secao" style="margin-top:24px">
+        <div class="portaria-secao-titulo">Suas avarias do turno</div>
+        <div id="av-lista-turno"><div class="patio-loading">Carregando…</div></div>
+    </section>
+
+</main>
+
+<script type="module" src="./assets/js/portaria-avaria.page.js"></script>
+</body>
+</html>

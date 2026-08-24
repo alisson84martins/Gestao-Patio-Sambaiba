@@ -49,6 +49,8 @@ const PAGINAS = {
     // "Portaria" aceso quando esta página está aberta, mesmo padrão de
     // ocorrencia-form.html acima.
     'portaria-recolhida.html':     { modulo: 'PORTARIA', ativo: 'portaria.html' },
+    // Bloco G — Avaria também é botão, não link de barra (mesma regra do Bloco B/C).
+    'portaria-avaria.html':        { modulo: 'PORTARIA', ativo: 'portaria.html' },
     'cadastros.html':              { modulo: 'ADMINISTRACAO' },
     'permissoes.html':             { modulo: 'ADMINISTRACAO' },
 };

@@ -828,6 +828,16 @@ function initRecolhida() {
     });
 }
 
+// ─── Bloco G — Avaria na saída da frota (mesmo botão, mesmo padrão) ────
+function initAvaria() {
+    if (!podeEscrever('acesso_veicular')) return;
+    const btn = document.getElementById('btn-avaria');
+    btn.style.display = '';
+    btn.addEventListener('click', () => {
+        window.location.href = 'portaria-avaria.html';
+    });
+}
+
 // ─── Polling da lista "dentro agora" ────────────────────────────────────
 function startPolling() {
     if (pollHandle) return;
@@ -847,6 +857,7 @@ initEntradaAvulsa();
 initCadastroRapido();
 initTerceiro();
 initRecolhida();
+initAvaria();
 initLeitorQr();
 carregarDentro();
 startPolling();

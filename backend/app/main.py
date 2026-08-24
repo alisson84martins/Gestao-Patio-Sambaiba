@@ -11,7 +11,7 @@ from app.core.exception_handlers import register_exception_handlers
 from app.routers import (
     alertas, alocacoes, auth, escalas, filas, fiscalizacao, funcoes, funcionarios,
     health, identidade, importacao, linhas, manutencao, motoristas, ocorrencias, onibus,
-    patio, permissoes, portaria, portaria_recolhidas, portaria_veiculos,
+    patio, permissoes, portaria, portaria_avarias, portaria_recolhidas, portaria_veiculos,
     pre_cadastro, pre_ocorrencias, pre_ocorrencias_publico, tipos_defeito, usuarios,
 )
 
@@ -149,6 +149,9 @@ app.include_router(pre_ocorrencias.router)
 app.include_router(portaria.router)
 app.include_router(portaria_veiculos.router)
 app.include_router(portaria_recolhidas.router)
+# Bloco G — avaria na saída da frota. Recurso acesso_veicular (mesmo de
+# portaria.py), sem colisão de rota: único path fixo é /portaria/avarias.
+app.include_router(portaria_avarias.router)
 # Bloco H — identidade compartilhada da Suite (public), não portaria.
 app.include_router(pre_cadastro.router)
 # Bloco A2 (prompt de ajustes 23/08) — busca por RE compartilhada entre

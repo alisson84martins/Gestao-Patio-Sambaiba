@@ -10,7 +10,7 @@ pre_ocorrencia.py (Funcionario não declara __table_args__ com schema, então
 "funcionario.id" é a chave correta no MetaData; "public.funcionario.id"
 não bate com a tabela já registrada).
 """
-from datetime import date, datetime
+from datetime import date, datetime, timedelta, timezone
 from typing import Optional
 from uuid import UUID, uuid4
 
@@ -311,4 +311,50 @@ class RecolhidaAnormal(Base):
     )
     criado_em: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
+class AvariaSaida(Base):
+    """Avaria vista na conferência de saída da frota (Bloco G). Espelha
+    database/migrations/036-avaria-saida-frota.sql. Não é recolhida (o carro
+    está saindo, não voltando) e não é ocorrência (não houve sinistro) — é
+    a resposta a "esse risco já estava aí ontem?" quando o carro volta com
+    dano maior.
+
+    SNAPSHOT de texto, não FK (mesma decisão de recolhida_anormal, migration
+    026): prefixo e motorista_nome são o que o controlador VIU naquele
+    momento; renumeração de frota não pode reescrever o passado.
+
+    Retenção curta (60 dias, `expira_em`) — o projeto não tem scheduler
+    (mesma decisão da migration 028), então o expurgo é por FILTRO
+    (`routers/portaria_avarias.py::listar_avarias` exige `expira_em > NOW()`),
+    nunca por job de background."""
+
+    __tablename__ = "avaria_saida"
+    __table_args__ = {"schema": SCHEMA}
+
+    id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True, default=uuid4)
+
+    prefixo: Mapped[str] = mapped_column(String(10), nullable=False)
+    # Ciclo operacional (get_data_servico(), vira às 20h) — ⛔ divergência
+    # proposital de portaria.movimento.data_referencia (D9, 24h corrido,
+    # migration 024): a avaria acompanha o dia de OPERAÇÃO do carro.
+    data_servico: Mapped[date] = mapped_column(Date, nullable=False)
+    ocorrido_em: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+    motorista_re: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
+    motorista_nome: Mapped[Optional[str]] = mapped_column(String(120), nullable=True)
+    descricao: Mapped[str] = mapped_column(Text, nullable=False)
+
+    registrado_por: Mapped[UUID] = mapped_column(
+        PG_UUID(as_uuid=True), ForeignKey("funcionario.id"), nullable=False
+    )
+    criado_em: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    expira_em: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False,
+        default=lambda: datetime.now(timezone.utc) + timedelta(days=60),
     )
