@@ -334,6 +334,42 @@ class PainelLinhaResponse(BaseModel):
     partidas: list[PainelPartidaItem] = Field(default_factory=list)
 
 
+class PainelAoVivoItem(BaseModel):
+    """D39 — o que os fiscais registraram HOJE nas linhas deste coordenador,
+    mais recente primeiro. Une numa lista só as duas coisas que o D4 mantém
+    separadas no banco (registro_partida e evento_turno avulso): para quem
+    olha o painel, ambas são "aconteceu isso agora". `custou_viagem` é o que
+    preserva a distinção — evento avulso nunca custa viagem."""
+
+    linha_codigo: str
+    numero_tabela: Optional[int] = None
+    # Motivo (partida perdida), TipoEvento (evento avulso) ou "REALIZADA".
+    # Deliberadamente str e não Literal: a união dos três vocabulários muda
+    # quando um motivo do OBS virar contador (D5) e este campo é só rótulo.
+    tipo: str
+    custou_viagem: bool
+    horario: Optional[time] = None
+    ponto_codigo: str
+    fiscal_re: str
+    minutos_atras: int
+
+
+class PainelTurnoAbertoItem(BaseModel):
+    """D39 — quem está na rua agora. `minutos_sem_registrar` é o número que
+    responde "o fiscal está marcando ou parou?"; None = ainda não registrou
+    nada neste turno, que é diferente de "parou há muito tempo"."""
+
+    turno_id: UUID
+    fiscal_nome: str
+    fiscal_re: str
+    ponto_codigo: str
+    terminal: Terminal
+    periodo: Periodo
+    linhas: list[str] = Field(default_factory=list)
+    aberto_em: Optional[datetime] = None
+    minutos_sem_registrar: Optional[int] = None
+
+
 # ============================================================================
 # Bloco E (migration 030) — LINHA_COORDENADOR, PARAMETRO (D29),
 # ICV_APURADO (D20/D25/D28/D30), AÇÃO DA COORDENAÇÃO (D26)

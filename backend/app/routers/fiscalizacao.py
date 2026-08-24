@@ -8,7 +8,7 @@ funciona com pendências, mesma filosofia da regra número um da Portaria.
 de `/turnos/{turno_id}` (path parameter) — mesmo bug que já aconteceu duas
 vezes neste projeto (autopreencher/{id}, pre-ocorrencias/publico/{id}).
 """
-from datetime import date, datetime, time, timedelta
+from datetime import date, datetime, time, timedelta, timezone
 from typing import Annotated, Optional
 from uuid import UUID, uuid4
 
@@ -33,7 +33,7 @@ from app.schemas.fiscalizacao import (
     AcaoCoordenacaoCreate, AcaoCoordenacaoRead, BaitaRead, BaitaUpsert, CascataItem,
     EventoTurnoCreate, EventoTurnoRead, IcvCoordenadorDiaRead, IcvLinhaDiaRead,
     MinhaLinhaCreate, MinhaLinhaItem, MotivoLivreItem, ObservacaoTurnoCreate, ObservacaoTurnoRead,
-    PainelLinhaResponse, PainelPartidaItem,
+    PainelAoVivoItem, PainelLinhaResponse, PainelPartidaItem, PainelTurnoAbertoItem,
     ParametrosRead, PartidaEstadoItem, PendenciaItem, Periodo, PlacarLinhaRead, PontoCreate, PontoRead,
     PontoUpdate, PrioridadeLinhaItem, ProntidaoResponse, RegistroPartidaRead,
     RegistroPartidaUpsert, TipoDia, TurnoAbrirRequest, TurnoLinhaContagemUpdate, TurnoLinhaRead,
@@ -124,6 +124,13 @@ def _normalizar_linhas(linhas: list[str]) -> list[str]:
             continue
         vistas.append(codigo)
     return vistas
+
+
+def _aware_utc(dt: datetime) -> datetime:
+    """Postgres devolve datetime aware em coluna DateTime(timezone=True);
+    SQLite (testes) devolve naive mesmo nessa coluna. Mesmo padrão de
+    app/routers/pre_ocorrencias_publico.py — trata naive como UTC."""
+    return dt if dt.tzinfo is not None else dt.replace(tzinfo=timezone.utc)
 
 
 def _linhas_do_turno(db: Session, turno_id: UUID) -> list[str]:
@@ -950,6 +957,162 @@ def _recolhida_correlata(db: Session, prefixo: str, momento_programado: datetime
         .order_by(RecolhidaAnormal.momento.asc())
         .limit(1)
     ).scalar_one_or_none()
+
+
+# ============================================================================
+# PAINEL AO VIVO (D39) — o topo da tela do coordenador
+#
+# 🔴 Estas duas rotas LITERAIS precisam ficar ANTES de /painel/{linha_codigo}:
+# com o path parameter declarado primeiro, "ao-vivo" e "turnos" chegariam
+# como codigo de linha. Mesmo bug que ja aconteceu tres vezes neste projeto
+# (autopreencher/{id}, pre-ocorrencias/publico/{id}, turnos/ativo).
+# ============================================================================
+
+def _momento_registro(registro: RegistroPartida) -> datetime:
+    """Quando este registro passou a valer — a ultima resposta do fiscal,
+    nao a primeira: ele pode corrigir o que marcou (upsert)."""
+    return _aware_utc(registro.atualizado_em or registro.registrado_em)
+
+
+def _turnos_das_linhas(db: Session, data_referencia: date, linhas: set[str]) -> list[Turno]:
+    """Turnos do dia que cobrem pelo menos uma destas linhas. Conjunto vazio
+    devolve lista vazia sem ir ao banco — coordenador sem linha atribuida
+    (D40) e' caso normal, nao erro."""
+    if not linhas:
+        return []
+    return list(
+        db.execute(
+            select(Turno)
+            .join(TurnoLinha, TurnoLinha.turno_id == Turno.id)
+            .where(Turno.data_referencia == data_referencia, TurnoLinha.linha_codigo.in_(linhas))
+            .distinct()
+        ).scalars().all()
+    )
+
+
+def _ultimo_momento_do_turno(db: Session, turno_id: UUID) -> Optional[datetime]:
+    """O registro OU evento mais recente deste turno. None = o fiscal abriu
+    o turno e ainda nao marcou nada — diferente de "parou ha muito tempo"."""
+    momentos: list[datetime] = [
+        _momento_registro(r)
+        for r in db.execute(
+            select(RegistroPartida).where(RegistroPartida.turno_id == turno_id)
+        ).scalars().all()
+    ]
+    momentos += [
+        _aware_utc(e.criado_em)
+        for e in db.execute(
+            select(EventoTurno).where(EventoTurno.turno_id == turno_id)
+        ).scalars().all()
+    ]
+    return max(momentos) if momentos else None
+
+
+@router.get(
+    "/painel/ao-vivo", response_model=list[PainelAoVivoItem],
+    summary="O que os fiscais registraram hoje nas linhas do coordenador logado (D39)",
+)
+def painel_ao_vivo(
+    usuario: LeituraPainel, db: DbSession,
+    data: Optional[date] = Query(None),
+    limite: int = Query(100, ge=1, le=500, description="Quantos itens mais recentes devolver"),
+):
+    data_referencia = data or datetime.now(FUSO_OPERACAO).date()
+    minhas = {item["linha_codigo"] for item in linhas_do_coordenador(db, usuario.id)}
+    turnos = _turnos_das_linhas(db, data_referencia, minhas)
+    if not turnos:
+        return []
+
+    por_turno = {turno.id: turno for turno in turnos}
+    ids = list(por_turno.keys())
+    agora = datetime.now(timezone.utc)
+    pares: list[tuple[datetime, PainelAoVivoItem]] = []
+
+    registros = db.execute(
+        select(RegistroPartida).where(
+            RegistroPartida.turno_id.in_(ids), RegistroPartida.linha_codigo.in_(minhas)
+        )
+    ).scalars().all()
+    for registro in registros:
+        turno = por_turno[registro.turno_id]
+        momento = _momento_registro(registro)
+        perdida = registro.resultado == "PERDIDA"
+        pares.append((momento, PainelAoVivoItem(
+            linha_codigo=registro.linha_codigo,
+            numero_tabela=registro.numero_tabela,
+            tipo=(registro.motivo or "OUTRO") if perdida else "REALIZADA",
+            custou_viagem=perdida,
+            horario=registro.horario_programado,
+            ponto_codigo=turno.ponto_codigo,
+            fiscal_re=turno.fiscal_re,
+            minutos_atras=max(0, int((agora - momento).total_seconds() // 60)),
+        )))
+
+    # D4 — so' os eventos AVULSOS. O evento vinculado a uma partida perdida
+    # ja' entrou acima pelo registro; lista-lo de novo contaria duas vezes na
+    # tela o que o banco guarda uma vez so'.
+    eventos = db.execute(
+        select(EventoTurno).where(
+            EventoTurno.turno_id.in_(ids),
+            EventoTurno.linha_codigo.in_(minhas),
+            EventoTurno.registro_partida_id.is_(None),
+        )
+    ).scalars().all()
+    for evento in eventos:
+        turno = por_turno[evento.turno_id]
+        momento = _aware_utc(evento.criado_em)
+        pares.append((momento, PainelAoVivoItem(
+            linha_codigo=evento.linha_codigo,
+            numero_tabela=evento.numero_tabela,
+            tipo=evento.tipo,
+            custou_viagem=False,
+            horario=evento.horario,
+            ponto_codigo=turno.ponto_codigo,
+            fiscal_re=turno.fiscal_re,
+            minutos_atras=max(0, int((agora - momento).total_seconds() // 60)),
+        )))
+
+    pares.sort(key=lambda par: par[0], reverse=True)
+    return [item for _, item in pares[:limite]]
+
+
+@router.get(
+    "/painel/turnos", response_model=list[PainelTurnoAbertoItem],
+    summary="Quem esta' na rua agora nas linhas do coordenador logado (D39)",
+)
+def painel_turnos_abertos(
+    usuario: LeituraPainel, db: DbSession, data: Optional[date] = Query(None)
+):
+    data_referencia = data or datetime.now(FUSO_OPERACAO).date()
+    minhas = {item["linha_codigo"] for item in linhas_do_coordenador(db, usuario.id)}
+    agora = datetime.now(timezone.utc)
+
+    itens: list[PainelTurnoAbertoItem] = []
+    for turno in _turnos_das_linhas(db, data_referencia, minhas):
+        if turno.status != "ABERTO":
+            continue
+        funcionario = db.get(Funcionario, turno.funcionario_id)
+        ultimo = _ultimo_momento_do_turno(db, turno.id)
+        itens.append(PainelTurnoAbertoItem(
+            turno_id=turno.id,
+            fiscal_nome=funcionario.nome if funcionario is not None else "—",
+            fiscal_re=turno.fiscal_re,
+            ponto_codigo=turno.ponto_codigo,
+            terminal=turno.terminal,
+            periodo=turno.periodo,
+            linhas=_linhas_do_turno(db, turno.id),
+            aberto_em=turno.aberto_em,
+            minutos_sem_registrar=(
+                None if ultimo is None else max(0, int((agora - ultimo).total_seconds() // 60))
+            ),
+        ))
+
+    # ⛔ Nao ordenar por (is None, aberto_em) puro: com dois turnos sem
+    # aberto_em, o desempate compararia None com None e levantaria
+    # TypeError. E aberto_em pode vir aware (Postgres) ou naive (SQLite).
+    _INICIO = datetime.min.replace(tzinfo=timezone.utc)
+    itens.sort(key=lambda i: _aware_utc(i.aberto_em) if i.aberto_em else _INICIO)
+    return itens
 
 
 @router.get(
