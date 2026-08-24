@@ -32,7 +32,7 @@ const CATEGORIAS = [
     { codigo: 'mecanica', label: 'Mecânica' },
     { codigo: 'eletrica', label: 'Elétrica' },
     { codigo: 'ar', label: 'Ar-condicionado' },
-    { codigo: 'lataria', label: 'Lataria' },
+    { codigo: 'funilaria', label: 'Funilaria' },
     { codigo: 'pneus', label: 'Pneus' },
     { codigo: 'interno', label: 'Interno' },
     { codigo: 'outros', label: 'Outros' },

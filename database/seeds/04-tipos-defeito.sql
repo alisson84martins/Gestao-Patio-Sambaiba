@@ -25,12 +25,12 @@ INSERT INTO tipo_defeito (codigo, nome, categoria, ativo) VALUES
     ('AC_GERAL',      'Ar-condicionado',      'ar', TRUE),
     ('AC_GAS',        'Recarga de gás',       'ar', TRUE),
 
-    -- Lataria
-    ('LAT_PARACHO',   'Pára-choque',          'lataria', TRUE),
-    ('LAT_RETROVISOR','Retrovisor',           'lataria', TRUE),
-    ('LAT_PORTA',     'Porta',                'lataria', TRUE),
-    ('LAT_VIDRO',     'Vidro / Janela',       'lataria', TRUE),
-    ('LAT_PINTURA',   'Pintura',              'lataria', TRUE),
+    -- Funilaria
+    ('LAT_PARACHO',   'Pára-choque',          'funilaria', TRUE),
+    ('LAT_RETROVISOR','Retrovisor',           'funilaria', TRUE),
+    ('LAT_PORTA',     'Porta',                'funilaria', TRUE),
+    ('LAT_VIDRO',     'Vidro / Janela',       'funilaria', TRUE),
+    ('LAT_PINTURA',   'Pintura',              'funilaria', TRUE),
 
     -- Pneus
     ('PNE_FURO',      'Pneu furado',          'pneus', TRUE),

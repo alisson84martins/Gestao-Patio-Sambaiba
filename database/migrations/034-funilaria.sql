@@ -1,0 +1,59 @@
+-- ============================================================================
+-- MIGRATION 034 — Funilaria no lugar de Lataria
+-- ----------------------------------------------------------------------------
+-- BANCO:  gestao_frota_sambaiba (produção) / gestao_patio_sambaiba (dev)
+-- SCHEMA: public (tipo_defeito)
+-- DATA:   2026-08-24
+-- AUTOR:  Claude Code
+-- DEPENDE DE: seed 04-tipos-defeito.sql (categoria 'lataria')
+-- ORIGEM: _handoff-claude/PROMPT-portaria-ajustes-2026-08-24.md, Bloco A
+-- ----------------------------------------------------------------------------
+-- ⚠️ NÚMERO — os arquivos vão até 033. Próximo número livre: 034.
+--
+-- 🟢 100% ADITIVA no sentido de dado: só um UPDATE de valor de coluna, não
+--   mexe em schema. Idempotente — rodar duas vezes não muda nada na segunda
+--   (a segunda vez não encontra mais nenhuma linha com categoria='lataria').
+--
+-- POR QUÊ
+--   Na Sambaíba o setor chama "funilaria". "Lataria" não é o nome de nenhum
+--   setor do pátio real — o controlador não reconhece o termo na hora de
+--   classificar a recolhida.
+--
+--   `tipo_defeito.categoria` é só agrupamento visual — as recolhidas gravam
+--   `tipo_defeito_codigo` (texto, 'LAT_PARACHO' etc.), nunca a categoria
+--   (migration 026, linha 118). Por isso renomear a categoria é seguro e não
+--   invalida histórico.
+--
+-- ⛔ NÃO renomear os códigos LAT_* — eles estão gravados como texto em
+--   recolhida_anormal.tipo_defeito_codigo e em fichas de manutenção antigas.
+--   Código é identificador, não rótulo. Só a coluna categoria muda.
+--
+-- ⚠️ DADO PESSOAL: nenhum nesta migration.
+--
+-- ARMADILHA DE DONO DE TABELA (ver 011, PARTE 0): se der
+-- "must be owner of table X", rode SET ROLE sambaiba; antes.
+-- COMO RODAR:
+--   sudo -u postgres psql -d gestao_frota_sambaiba -c "SET ROLE sambaiba;" \
+--        -f 034-funilaria.sql
+-- ============================================================================
+
+UPDATE tipo_defeito SET categoria = 'funilaria' WHERE categoria = 'lataria';
+
+-- ============================================================================
+-- CONFERÊNCIA
+-- ============================================================================
+--   -- Não deve sobrar nenhuma linha com a categoria antiga:
+--   SELECT count(*) FROM tipo_defeito WHERE categoria = 'lataria';  -- esperado: 0
+--
+--   -- Os códigos LAT_* continuam intactos, só a categoria mudou:
+--   SELECT codigo, nome, categoria FROM tipo_defeito WHERE codigo LIKE 'LAT_%'
+--    ORDER BY codigo;  -- esperado: 5 linhas, categoria='funilaria'
+--
+--   -- Rodar o arquivo inteiro DUAS VEZES não erra (idempotência).
+-- ============================================================================
+
+-- ============================================================================
+-- ROLLBACK
+-- ============================================================================
+-- UPDATE tipo_defeito SET categoria = 'lataria' WHERE categoria = 'funilaria';
+-- ============================================================================
