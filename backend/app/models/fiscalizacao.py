@@ -115,6 +115,13 @@ class TurnoLinha(Base):
     )
     linha_codigo: Mapped[str] = mapped_column(String(20), nullable=False)
 
+    # D35 (migration 033) — só usado quando não há grade vigente para a
+    # linha (fonte="INFORMADO" em services/fechamento_fiscal.py::
+    # _totais_da_linha). NULL = "não informado", diferente de 0.
+    programadas_informadas: Mapped[Optional[int]] = mapped_column(SmallInteger, nullable=True)
+    realizadas_informadas: Mapped[Optional[int]] = mapped_column(SmallInteger, nullable=True)
+    extras_informadas: Mapped[Optional[int]] = mapped_column(SmallInteger, nullable=True)
+
 
 class PartidaProgramada(Base):
     """A grade importada da escala gerencial (§7). ⚠️ UNIQUE inclui
@@ -168,7 +175,10 @@ class RegistroPartida(Base):
     )
 
     linha_codigo: Mapped[str] = mapped_column(String(20), nullable=False)
-    numero_tabela: Mapped[int] = mapped_column(SmallInteger, nullable=False)
+    # D33 (migration 033) — opcional: nem toda anormalidade tem tabela
+    # conhecida na hora do registro. ⚠️ A UNIQUE não protege duplicata
+    # quando é NULL — ver comentário em marcar_partida (router).
+    numero_tabela: Mapped[Optional[int]] = mapped_column(SmallInteger, nullable=True)
     terminal: Mapped[str] = mapped_column(String(2), nullable=False)
     horario_programado: Mapped[time] = mapped_column(Time, nullable=False)
 

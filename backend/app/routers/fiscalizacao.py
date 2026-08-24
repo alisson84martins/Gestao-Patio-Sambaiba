@@ -16,7 +16,7 @@ from fastapi import (
     APIRouter, Depends, File, HTTPException, Query, Request, Response,
     UploadFile, status,
 )
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text
 from sqlalchemy.orm import Session
 
 from app.core.config import FUSO_OPERACAO
@@ -25,20 +25,21 @@ from app.core.deps import exige
 from app.core.uploads import ler_upload_limitado
 from app.models.cadastro import Funcionario
 from app.models.fiscalizacao import (
-    AcaoCoordenacao, Baita, EventoTurno, ObservacaoTurno, Parametro, PartidaProgramada,
-    Ponto, PontoLinha, RegistroPartida, Turno, TurnoLinha,
+    AcaoCoordenacao, Baita, EventoTurno, LinhaCoordenador, ObservacaoTurno, Parametro,
+    PartidaProgramada, Ponto, PontoLinha, RegistroPartida, Turno, TurnoLinha,
 )
 from app.models.portaria import RecolhidaAnormal
 from app.schemas.fiscalizacao import (
     AcaoCoordenacaoCreate, AcaoCoordenacaoRead, BaitaRead, BaitaUpsert, CascataItem,
     EventoTurnoCreate, EventoTurnoRead, IcvCoordenadorDiaRead, IcvLinhaDiaRead,
-    MinhaLinhaItem, MotivoLivreItem, ObservacaoTurnoCreate, ObservacaoTurnoRead,
-    PainelLinhaResponse, PainelPartidaItem, ParametrosRead, PartidaEstadoItem,
-    PendenciaItem, PlacarLinhaRead, PontoRead, PrioridadeLinhaItem, ProntidaoResponse,
-    RegistroPartidaRead, RegistroPartidaUpsert, TipoDia, TurnoAbrirRequest, TurnoRead,
-    TurnoUpdateRequest,
+    MinhaLinhaCreate, MinhaLinhaItem, MotivoLivreItem, ObservacaoTurnoCreate, ObservacaoTurnoRead,
+    PainelLinhaResponse, PainelPartidaItem,
+    ParametrosRead, PartidaEstadoItem, PendenciaItem, Periodo, PlacarLinhaRead, PontoCreate, PontoRead,
+    PontoUpdate, PrioridadeLinhaItem, ProntidaoResponse, RegistroPartidaRead,
+    RegistroPartidaUpsert, TipoDia, TurnoAbrirRequest, TurnoLinhaContagemUpdate, TurnoLinhaRead,
+    TurnoRead, TurnoUpdateRequest,
 )
-from app.services.fechamento_fiscal import montar_fechamento
+from app.services.fechamento_fiscal import _totais_da_linha, montar_fechamento
 from app.services.icv import (
     calcular_icv_coordenador_dia, calcular_icv_linha_dia, detectar_cascata,
     linhas_do_coordenador, montar_placar_linha, motivos_livres_frequentes, ranking_prioridade,
@@ -98,6 +99,33 @@ def _exige_dono(turno: Turno, usuario: Funcionario) -> None:
         raise HTTPException(status.HTTP_403_FORBIDDEN, detail="Este turno pertence a outro fiscal.")
 
 
+def _eh_admin(db: Session, funcionario_id: UUID) -> bool:
+    """Mesmo helper de app/routers/ocorrencias.py::_eh_admin — checa a
+    função pelo modelo RBAC (funcionario_funcao → funcao), não por um
+    campo legado."""
+    row = db.execute(
+        text(
+            "SELECT 1 FROM funcionario_funcao ff "
+            "JOIN funcao f ON f.id = ff.funcao_id "
+            "WHERE ff.funcionario_id = :fid AND ff.ativo AND f.codigo = 'ADMIN'"
+        ),
+        {"fid": funcionario_id},
+    ).first()
+    return row is not None
+
+
+def _normalizar_linhas(linhas: list[str]) -> list[str]:
+    """D37 — remove vazias e repetidas preservando a ordem; a lista vazia
+    resultante é responsabilidade de quem chama recusar com 422."""
+    vistas: list[str] = []
+    for linha in linhas:
+        codigo = (linha or "").strip()
+        if not codigo or codigo in vistas:
+            continue
+        vistas.append(codigo)
+    return vistas
+
+
 def _linhas_do_turno(db: Session, turno_id: UUID) -> list[str]:
     return list(
         db.execute(
@@ -125,27 +153,42 @@ def _vigencia_vigente(db: Session, linha_codigo: str, tipo_dia: Optional[str], d
 
 
 def _itens_partidas(db: Session, turno: Turno, linha_codigo: str, agora: datetime) -> list[PartidaEstadoItem]:
-    """A grade do turno para uma linha, cada horário com seu estado (D7).
+    """A grade do turno para uma linha, cada horário com seu estado (D7),
+    unida aos registros que não casam com nenhum horário da grade (D34).
+
+    🔴 D34 — antes desta correção, uma anormalidade registrada numa linha
+    sem grade importada ficava gravada e NUNCA aparecia (nem para o
+    fiscal, nem no painel, nem na prontidão): esta função devolvia []
+    assim que `_vigencia_vigente` não achava vigência, e o laço percorria
+    só `partida_programada`. Agora ela sempre une duas fontes: os horários
+    da grade (quando existe) e os RegistroPartida do turno cuja chave
+    (linha, numero_tabela, terminal, horario_programado) não bateu com
+    nenhum horário programado — marcados com `fora_da_grade=True`. Quando
+    não há vigência nenhuma, a função devolve só os registros avulsos —
+    nunca mais `[]` com registro existindo.
+
     🔴 ATRASADA/AGUARDANDO são calculados aqui, a cada chamada — nunca
-    gravados. Partida com periodo IS NULL entra pelo filtro de horário
-    (§7.3): aparece na listagem de qualquer período do mesmo dia/tipo_dia,
-    porque o parser não conseguiu decidir a qual período ela pertence —
-    melhor mostrar duas vezes do que nunca aparecer para ninguém responder.
+    gravados. Item fora da grade nunca é ATRASADA — só existe porque
+    alguém respondeu. Partida com periodo IS NULL entra pelo filtro de
+    horário (§7.3): aparece na listagem de qualquer período do mesmo
+    dia/tipo_dia, porque o parser não conseguiu decidir a qual período ela
+    pertence — melhor mostrar duas vezes do que nunca aparecer para
+    ninguém responder.
     """
     vigencia = _vigencia_vigente(db, linha_codigo, turno.tipo_dia, turno.data_referencia)
-    if vigencia is None:
-        return []
 
-    partidas_prog = db.execute(
-        select(PartidaProgramada)
-        .where(
-            PartidaProgramada.linha_codigo == linha_codigo,
-            PartidaProgramada.tipo_dia == turno.tipo_dia,
-            PartidaProgramada.vigencia == vigencia,
-            (PartidaProgramada.periodo == turno.periodo) | (PartidaProgramada.periodo.is_(None)),
-        )
-        .order_by(PartidaProgramada.horario)
-    ).scalars().all()
+    partidas_prog: list[PartidaProgramada] = []
+    if vigencia is not None:
+        partidas_prog = db.execute(
+            select(PartidaProgramada)
+            .where(
+                PartidaProgramada.linha_codigo == linha_codigo,
+                PartidaProgramada.tipo_dia == turno.tipo_dia,
+                PartidaProgramada.vigencia == vigencia,
+                (PartidaProgramada.periodo == turno.periodo) | (PartidaProgramada.periodo.is_(None)),
+            )
+            .order_by(PartidaProgramada.horario)
+        ).scalars().all()
 
     registros = {
         (r.linha_codigo, r.numero_tabela, r.terminal, r.horario_programado): r
@@ -157,8 +200,10 @@ def _itens_partidas(db: Session, turno: Turno, linha_codigo: str, agora: datetim
     }
 
     itens: list[PartidaEstadoItem] = []
+    chaves_da_grade: set = set()
     for pp in partidas_prog:
         chave = (pp.linha_codigo, pp.numero_tabela, pp.terminal, pp.horario)
+        chaves_da_grade.add(chave)
         registro = registros.get(chave)
         if registro is not None:
             estado = registro.resultado
@@ -172,8 +217,25 @@ def _itens_partidas(db: Session, turno: Turno, linha_codigo: str, agora: datetim
             horario_programado=pp.horario,
             periodo=pp.periodo,
             estado=estado,
+            fora_da_grade=False,
             registro=RegistroPartidaRead.model_validate(registro) if registro is not None else None,
         ))
+
+    for chave, registro in registros.items():
+        if chave in chaves_da_grade:
+            continue
+        itens.append(PartidaEstadoItem(
+            partida_programada_id=None,
+            numero_tabela=registro.numero_tabela,
+            terminal=registro.terminal,
+            horario_programado=registro.horario_programado,
+            periodo=None,
+            estado=registro.resultado,
+            fora_da_grade=True,
+            registro=RegistroPartidaRead.model_validate(registro),
+        ))
+
+    itens.sort(key=lambda i: i.horario_programado)
     return itens
 
 
@@ -207,9 +269,12 @@ def _sincronizar_evento_vinculado(db: Session, registro: RegistroPartida) -> Non
 # CATÁLOGO
 # ============================================================================
 
-@router.get("/pontos", response_model=list[PontoRead], summary="Pontos ativos com suas linhas")
-def listar_pontos(usuario: LeituraFiscalizacao, db: DbSession):
-    pontos = db.execute(select(Ponto).where(Ponto.ativo.is_(True)).order_by(Ponto.codigo)).scalars().all()
+@router.get("/pontos", response_model=list[PontoRead], summary="Pontos com suas linhas — só ativos por padrão")
+def listar_pontos(usuario: LeituraFiscalizacao, db: DbSession, incluir_inativos: bool = Query(False)):
+    query = select(Ponto)
+    if not incluir_inativos:
+        query = query.where(Ponto.ativo.is_(True))
+    pontos = db.execute(query.order_by(Ponto.codigo)).scalars().all()
     resultado = []
     for p in pontos:
         linhas = db.execute(
@@ -219,6 +284,71 @@ def listar_pontos(usuario: LeituraFiscalizacao, db: DbSession):
         ).scalars().all()
         resultado.append(PontoRead(codigo=p.codigo, nome=p.nome, terminal=p.terminal, ativo=p.ativo, linhas=list(linhas)))
     return resultado
+
+
+@router.post(
+    "/pontos", response_model=PontoRead, status_code=status.HTTP_201_CREATED,
+    summary="Cadastra ponto (D37) — o fiscal cria na hora, se não existir",
+)
+def criar_ponto(payload: PontoCreate, usuario: EscritaFiscalizacao, db: DbSession):
+    codigo = payload.codigo.strip().upper()
+    if not codigo:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Código do ponto não pode ser vazio.")
+    if db.get(Ponto, codigo) is not None:
+        raise HTTPException(status.HTTP_409_CONFLICT, detail=f"Já existe um ponto com o código '{codigo}'.")
+
+    linhas = _normalizar_linhas(payload.linhas)
+    if not linhas:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Informe ao menos uma linha.")
+
+    ponto = Ponto(codigo=codigo, nome=payload.nome.strip(), terminal=payload.terminal, ativo=True)
+    db.add(ponto)
+    db.flush()
+    for linha_codigo in linhas:
+        db.add(PontoLinha(ponto_codigo=codigo, linha_codigo=linha_codigo))
+    db.commit()
+    return PontoRead(codigo=ponto.codigo, nome=ponto.nome, terminal=ponto.terminal, ativo=ponto.ativo, linhas=linhas)
+
+
+@router.patch(
+    "/pontos/{codigo}", response_model=PontoRead,
+    summary="Renomeia, ativa/desativa e substitui as linhas do ponto (D37) — nunca DELETE",
+)
+def atualizar_ponto(codigo: str, payload: PontoUpdate, usuario: EscritaFiscalizacao, db: DbSession):
+    ponto = db.get(Ponto, codigo)
+    if ponto is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Ponto não encontrado")
+
+    dados = payload.model_dump(exclude_unset=True)
+    if "nome" in dados:
+        ponto.nome = dados["nome"].strip()
+    if "ativo" in dados:
+        ponto.ativo = dados["ativo"]
+    if "linhas" in dados:
+        linhas = _normalizar_linhas(dados["linhas"] or [])
+        if not linhas:
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Informe ao menos uma linha.")
+        existentes = {
+            pl.linha_codigo: pl
+            for pl in db.execute(select(PontoLinha).where(PontoLinha.ponto_codigo == codigo)).scalars().all()
+        }
+        for linha_codigo in linhas:
+            if linha_codigo in existentes:
+                existentes[linha_codigo].ativo = True
+            else:
+                db.add(PontoLinha(ponto_codigo=codigo, linha_codigo=linha_codigo))
+        for linha_codigo, pl in existentes.items():
+            if linha_codigo not in linhas:
+                pl.ativo = False
+
+    db.commit()
+    db.refresh(ponto)
+    linhas_atuais = db.execute(
+        select(PontoLinha.linha_codigo)
+        .where(PontoLinha.ponto_codigo == codigo, PontoLinha.ativo.is_(True))
+        .order_by(PontoLinha.linha_codigo)
+    ).scalars().all()
+    return PontoRead(codigo=ponto.codigo, nome=ponto.nome, terminal=ponto.terminal, ativo=ponto.ativo, linhas=list(linhas_atuais))
 
 
 # ============================================================================
@@ -304,6 +434,29 @@ def atualizar_turno(turno_id: UUID, payload: TurnoUpdateRequest, usuario: Escrit
     return _turno_read(db, turno)
 
 
+@router.patch(
+    "/turnos/{turno_id}/linhas/{linha_codigo}", response_model=TurnoLinhaRead,
+    summary="Contagem informada pelo fiscal quando a linha não tem grade (D35)",
+)
+def atualizar_contagem_linha(
+    turno_id: UUID, linha_codigo: str, payload: TurnoLinhaContagemUpdate, usuario: EscritaFiscalizacao, db: DbSession
+):
+    turno = db.get(Turno, turno_id)
+    if turno is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Turno não encontrado")
+    _exige_dono(turno, usuario)
+    turno_linha = db.execute(
+        select(TurnoLinha).where(TurnoLinha.turno_id == turno_id, TurnoLinha.linha_codigo == linha_codigo)
+    ).scalar_one_or_none()
+    if turno_linha is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Esta linha não está no turno.")
+    for campo, valor in payload.model_dump(exclude_unset=True).items():
+        setattr(turno_linha, campo, valor)
+    db.commit()
+    db.refresh(turno_linha)
+    return turno_linha
+
+
 @router.post("/turnos/{turno_id}/fechar", response_model=TurnoRead)
 def fechar_turno(turno_id: UUID, usuario: EscritaFiscalizacao, db: DbSession):
     turno = db.get(Turno, turno_id)
@@ -339,6 +492,14 @@ def marcar_partida(turno_id: UUID, payload: RegistroPartidaUpsert, usuario: Escr
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Turno não encontrado")
     _exige_dono(turno, usuario)
 
+    # D33 — numero_tabela é opcional; a UNIQUE do banco não protege
+    # duplicata quando é NULL (NULL não colide com NULL). A guarda é este
+    # SELECT: `Coluna == None` é traduzido pelo SQLAlchemy para
+    # `IS NULL` automaticamente (comportamento padrão de
+    # ColumnOperators.__eq__), então quando payload.numero_tabela é None
+    # este SELECT já encontra o registro sem tabela informada do mesmo
+    # turno/linha/terminal/horário e cai no UPDATE abaixo — não precisa de
+    # nenhum código a mais além do tipo do campo ter virado Optional.
     registro = db.execute(
         select(RegistroPartida).where(
             RegistroPartida.turno_id == turno_id,
@@ -522,6 +683,23 @@ def prontidao_turno(turno_id: UUID, usuario: LeituraFiscalizacao, db: DbSession)
             PendenciaItem(tipo="PARTIDAS_SEM_RESPOSTA", quantidade=sum(por_linha.values()), por_linha=por_linha)
         )
 
+    # D36 — sem grade não existe "partida sem resposta" para cobrar; o que
+    # cobra é a contagem que o fiscal precisa digitar na mão. Mesma função
+    # do fechamento (_totais_da_linha) decide se a linha tem grade — não
+    # reimplementar esta checagem aqui (ver docstring da função).
+    linhas_sem_contagem = []
+    for linha_codigo in linhas:
+        programadas, realizadas, _extras, fonte = _totais_da_linha(db, turno, linha_codigo)
+        if fonte == "INFORMADO" and (programadas is None or realizadas is None):
+            linhas_sem_contagem.append(linha_codigo)
+    if linhas_sem_contagem:
+        pendencias.append(PendenciaItem(tipo="CONTAGEM_NAO_INFORMADA", linhas=linhas_sem_contagem))
+
+    # D15/D36 — refeição do fiscal é linha fixa do OBS; sem ela o
+    # fechamento sai incompleto.
+    if turno.refeicao_inicio is None or turno.refeicao_fim is None:
+        pendencias.append(PendenciaItem(tipo="REFEICAO_NAO_INFORMADA"))
+
     baitas = db.execute(
         select(Baita.linha_codigo, Baita.tipo).where(Baita.turno_id == turno_id)
     ).all()
@@ -605,6 +783,64 @@ async def upload_icv(usuario: EscritaPainel, db: DbSession, request: Request, fi
 )
 def minhas_linhas(usuario: LeituraPainel, db: DbSession):
     return linhas_do_coordenador(db, usuario.id)
+
+
+@router.post(
+    "/minhas-linhas", response_model=MinhaLinhaItem, status_code=status.HTTP_201_CREATED,
+    summary="Coordenador atribui uma linha a si mesmo (D38); ADMIN pode atribuir a outro",
+)
+def atribuir_minha_linha(payload: MinhaLinhaCreate, usuario: EscritaPainel, db: DbSession):
+    alvo_id = usuario.id
+    if payload.funcionario_id is not None and payload.funcionario_id != usuario.id:
+        if not _eh_admin(db, usuario.id):
+            raise HTTPException(status.HTTP_403_FORBIDDEN, detail="Só ADMIN pode atribuir linha a outro funcionário.")
+        alvo_id = payload.funcionario_id
+
+    linha_codigo = payload.linha_codigo.strip()
+    existente = db.execute(
+        select(LinhaCoordenador).where(
+            LinhaCoordenador.linha_codigo == linha_codigo, LinhaCoordenador.periodo == payload.periodo,
+        )
+    ).scalar_one_or_none()
+    # ⛔ A mensagem nunca diz de quem é a linha (nome próprio não trafega
+    # em mensagem de erro) — D38.
+    if existente is not None and existente.ativo and existente.funcionario_id != alvo_id:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            detail="Esta linha já está atribuída a outro coordenador neste período.",
+        )
+
+    if existente is not None:
+        existente.funcionario_id = alvo_id
+        existente.ativo = True
+    else:
+        db.add(LinhaCoordenador(linha_codigo=linha_codigo, funcionario_id=alvo_id, periodo=payload.periodo, ativo=True))
+    db.commit()
+    return MinhaLinhaItem(linha_codigo=linha_codigo, periodo=payload.periodo)
+
+
+@router.delete(
+    "/minhas-linhas/{linha_codigo}", status_code=status.HTTP_204_NO_CONTENT,
+    summary="Remove a própria atribuição (D38); ADMIN remove de qualquer funcionário",
+)
+def remover_minha_linha(linha_codigo: str, usuario: EscritaPainel, db: DbSession, periodo: Periodo = Query(...)):
+    # A linha do banco é achada só por (linha_codigo, periodo) — a UNIQUE
+    # da tabela garante que não há ambiguidade. ADMIN passa aqui de
+    # qualquer forma (exceção de D38); qualquer outro só remove a própria.
+    registro = db.execute(
+        select(LinhaCoordenador).where(
+            LinhaCoordenador.linha_codigo == linha_codigo,
+            LinhaCoordenador.periodo == periodo,
+            LinhaCoordenador.ativo.is_(True),
+        )
+    ).scalar_one_or_none()
+    if registro is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Atribuição não encontrada.")
+    if registro.funcionario_id != usuario.id and not _eh_admin(db, usuario.id):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, detail="Esta linha é de outro coordenador.")
+    registro.ativo = False
+    db.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.get("/parametros", response_model=ParametrosRead, summary="Meta e aceitável do ICV (D29)")

@@ -27,9 +27,9 @@ from sqlalchemy.pool import StaticPool
 from app.core.config import FUSO_OPERACAO
 from app.core.database import Base, get_db
 from app.main import app
-from app.models.cadastro import Funcionario
+from app.models.cadastro import Funcao, Funcionario, FuncionarioFuncao
 from app.models.fiscalizacao import (
-    Baita, EventoTurno, ObservacaoTurno, PartidaProgramada, Ponto, PontoLinha,
+    Baita, EventoTurno, LinhaCoordenador, ObservacaoTurno, PartidaProgramada, Ponto, PontoLinha,
     RegistroPartida, Turno, TurnoLinha,
 )
 from app.models.portaria import RecolhidaAnormal
@@ -52,17 +52,28 @@ _FISCAL_A = Funcionario(id=uuid4(), re="70001", nome="Fiscal A")
 _FISCAL_B = Funcionario(id=uuid4(), re="70002", nome="Fiscal B")
 _COORDENADOR = Funcionario(id=uuid4(), re="70003", nome="Coordenador Teste")
 _ADMIN = Funcionario(id=uuid4(), re="70004", nome="Admin Teste")
+_COORDENADOR_B = Funcionario(id=uuid4(), re="70005", nome="Coordenador Teste B")
 
 _TABELAS = [
-    Funcionario.__table__, Ponto.__table__, PontoLinha.__table__, Turno.__table__, TurnoLinha.__table__,
+    Funcionario.__table__, Funcao.__table__, FuncionarioFuncao.__table__,
+    Ponto.__table__, PontoLinha.__table__, Turno.__table__, TurnoLinha.__table__,
     PartidaProgramada.__table__, RegistroPartida.__table__, EventoTurno.__table__, ObservacaoTurno.__table__,
-    Baita.__table__, RecolhidaAnormal.__table__,
+    Baita.__table__, RecolhidaAnormal.__table__, LinhaCoordenador.__table__,
 ]
 
 _PERMISSOES = {
-    "FISCAL": {"leitura": True, "escrita": True, "leitura_painel": False, "escrita_escala": False},
-    "COORDENADOR": {"leitura": True, "escrita": False, "leitura_painel": True, "escrita_escala": True},
-    "ADMIN": {"leitura": True, "escrita": True, "leitura_painel": True, "escrita_escala": True},
+    "FISCAL": {
+        "leitura": True, "escrita": True, "leitura_painel": False, "escrita_painel": False,
+        "escrita_escala": False,
+    },
+    "COORDENADOR": {
+        "leitura": True, "escrita": False, "leitura_painel": True, "escrita_painel": True,
+        "escrita_escala": True,
+    },
+    "ADMIN": {
+        "leitura": True, "escrita": True, "leitura_painel": True, "escrita_painel": True,
+        "escrita_escala": True,
+    },
 }
 _USUARIOS_PADRAO = {"FISCAL": _FISCAL_A, "COORDENADOR": _COORDENADOR, "ADMIN": _ADMIN}
 
@@ -84,7 +95,7 @@ def ambiente():
     Base.metadata.create_all(engine, tables=_TABELAS)
 
     with Session(engine) as setup:
-        for f in (_FISCAL_A, _FISCAL_B, _COORDENADOR, _ADMIN):
+        for f in (_FISCAL_A, _FISCAL_B, _COORDENADOR, _ADMIN, _COORDENADOR_B):
             setup.add(Funcionario(id=f.id, re=f.re, nome=f.nome, status="ATIVO"))
         setup.add(Ponto(codigo="PQ_TESTE", nome="Ponto Teste", terminal="TP", ativo=True))
         setup.add(PontoLinha(ponto_codigo="PQ_TESTE", linha_codigo="1726-10", ativo=True))
@@ -101,6 +112,7 @@ def ambiente():
         "leitura": _dependency_de(fiscalizacao_router_mod.LeituraFiscalizacao),
         "escrita": _dependency_de(fiscalizacao_router_mod.EscritaFiscalizacao),
         "leitura_painel": _dependency_de(fiscalizacao_router_mod.LeituraPainel),
+        "escrita_painel": _dependency_de(fiscalizacao_router_mod.EscritaPainel),
         "escrita_escala": _dependency_de(fiscalizacao_router_mod.EscritaEscala),
     }
 
@@ -732,3 +744,208 @@ def test_upload_escala_50mb_retorna_413(ambiente):
         files={"file": ("escala.xlsx", conteudo_grande, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
     )
     assert resp.status_code == 413, resp.text
+
+
+# ============================================================================
+# Bloco D — D34: registro fora da grade precisa aparecer na listagem
+# ============================================================================
+
+def test_partida_fora_da_grade_aparece_na_listagem(ambiente):
+    """🔴 O teste que provava o defeito central do D34: antes da correção,
+    _itens_partidas devolvia [] assim que não achava vigência, e o
+    registro gravado ficava invisível. Turno sem NENHUMA partida_programada
+    + uma anormalidade registrada → a listagem tem que devolver 1 item,
+    com fora_da_grade=true e partida_programada_id nulo."""
+    turno = _criar_turno(ambiente)  # sem nenhuma partida_programada
+    _como(ambiente, "FISCAL")
+
+    marcar = ambiente["http"].put(f"/fiscalizacao/turnos/{turno.id}/partidas", json={
+        "linha_codigo": "1726-10", "terminal": "TP", "horario_programado": "08:00:00",
+        "resultado": "PERDIDA", "motivo": "RA", "prefixo": "1721",
+    })
+    assert marcar.status_code == 200, marcar.text
+
+    resp = ambiente["http"].get(f"/fiscalizacao/turnos/{turno.id}/partidas")
+    assert resp.status_code == 200, resp.text
+    itens = resp.json()["1726-10"]
+    assert len(itens) == 1
+    assert itens[0]["fora_da_grade"] is True
+    assert itens[0]["partida_programada_id"] is None
+    assert itens[0]["estado"] == "PERDIDA"
+
+
+# ============================================================================
+# Bloco D — D33: upsert sem tabela não duplica (guarda de NULL na UNIQUE)
+# ============================================================================
+
+def test_upsert_sem_tabela_duas_vezes_nao_duplica(ambiente):
+    turno = _criar_turno(ambiente)
+    _como(ambiente, "FISCAL")
+    payload_base = {"linha_codigo": "1726-10", "terminal": "TP", "horario_programado": "09:00:00"}
+
+    primeira = ambiente["http"].put(f"/fiscalizacao/turnos/{turno.id}/partidas", json={
+        **payload_base, "resultado": "PERDIDA", "motivo": "OUTRO", "motivo_outro": "sem condobus",
+    })
+    assert primeira.status_code == 200, primeira.text
+
+    segunda = ambiente["http"].put(f"/fiscalizacao/turnos/{turno.id}/partidas", json={
+        **payload_base, "resultado": "PERDIDA", "motivo": "OUTRO", "motivo_outro": "confirmado sem condobus",
+    })
+    assert segunda.status_code == 200, segunda.text
+    assert segunda.json()["id"] == primeira.json()["id"]  # mesmo registro, não um novo
+
+    with Session(ambiente["engine"]) as db:
+        registros = db.execute(select(RegistroPartida).where(RegistroPartida.turno_id == turno.id)).scalars().all()
+    assert len(registros) == 1
+    assert registros[0].motivo_outro == "confirmado sem condobus"
+
+
+# ============================================================================
+# Bloco D — D35: contagem informada no fechamento, quando não há grade
+# ============================================================================
+
+def test_fechamento_sem_grade_usa_contagem_informada(ambiente):
+    hoje = date(2026, 8, 21)
+    turno = _criar_turno(ambiente, data_referencia=hoje, tipo_dia="UTIL", periodo="1", linhas=("1726-10",))
+    _como(ambiente, "FISCAL")
+
+    patch = ambiente["http"].patch(f"/fiscalizacao/turnos/{turno.id}/linhas/1726-10", json={
+        "programadas_informadas": 20, "realizadas_informadas": 18, "extras_informadas": 2,
+    })
+    assert patch.status_code == 200, patch.text
+
+    with Session(ambiente["engine"]) as db:
+        turno_db = db.get(Turno, turno.id)
+        agregado = calcular_fechamento_linha(db, turno_db, "1726-10")
+    assert agregado["fonte"] == "INFORMADO"
+    assert agregado["programadas"] == 20
+    assert agregado["realizadas_programadas"] == 18
+    assert agregado["extras"] == 2
+    assert agregado["realizadas_total"] == 20  # D6: 18 + 2
+    assert agregado["perdidas"] == 2
+
+
+def test_fechamento_sem_grade_sem_contagem_informada_sai_traco(ambiente):
+    """D35 — nulo nunca vira zero: sem grade e sem contagem informada, o
+    gerador imprime "—" nas duas primeiras linhas, nunca "00"."""
+    hoje = date(2026, 8, 21)
+    turno = _criar_turno(ambiente, data_referencia=hoje, tipo_dia="UTIL", periodo="1", linhas=("1726-10",))
+
+    with Session(ambiente["engine"]) as db:
+        turno_db = db.get(Turno, turno.id)
+        mensagens = montar_fechamento(db, turno_db.id)
+
+    assert len(mensagens) == 1
+    texto = mensagens[0]
+    assert "PARTIDAS PROGRAMADAS: 1° período —" in texto
+    assert "PARTIDAS REALIZADAS: 1° período —" in texto
+
+
+def test_fechamento_com_grade_ignora_informado(ambiente):
+    """D35 — quando existe grade vigente, ela manda: o que o fiscal tiver
+    informado (por engano, ou de um turno anterior) é ignorado."""
+    hoje = date(2026, 8, 21)
+    turno = _criar_turno(ambiente, data_referencia=hoje, tipo_dia="UTIL", periodo="1", linhas=("1726-10",))
+    _criar_partida_programada(
+        ambiente, linha_codigo="1726-10", tipo_dia="UTIL", numero_tabela=1, sequencia=1,
+        terminal="TP", horario=time(8, 0), periodo="1", vigencia=hoje,
+    )
+    _como(ambiente, "FISCAL")
+
+    patch = ambiente["http"].patch(f"/fiscalizacao/turnos/{turno.id}/linhas/1726-10", json={
+        "programadas_informadas": 999, "realizadas_informadas": 999, "extras_informadas": 999,
+    })
+    assert patch.status_code == 200, patch.text
+
+    with Session(ambiente["engine"]) as db:
+        turno_db = db.get(Turno, turno.id)
+        agregado = calcular_fechamento_linha(db, turno_db, "1726-10")
+    assert agregado["fonte"] == "GRADE"
+    assert agregado["programadas"] == 1  # da grade, não 999
+
+
+# ============================================================================
+# Bloco D — D36: prontidão sem grade cobra contagem, não partida sem resposta
+# ============================================================================
+
+def test_prontidao_sem_grade_cobra_contagem_nao_partida(ambiente):
+    turno = _criar_turno(ambiente)  # sem partida_programada nenhuma
+    _como(ambiente, "FISCAL")
+    resp = ambiente["http"].get(f"/fiscalizacao/turnos/{turno.id}/prontidao")
+    assert resp.status_code == 200, resp.text
+    tipos = {p["tipo"] for p in resp.json()["pendencias"]}
+    assert "CONTAGEM_NAO_INFORMADA" in tipos
+    assert "PARTIDAS_SEM_RESPOSTA" not in tipos
+
+
+def test_prontidao_sem_refeicao_cobra(ambiente):
+    turno = _criar_turno(ambiente)
+    _como(ambiente, "FISCAL")
+    resp = ambiente["http"].get(f"/fiscalizacao/turnos/{turno.id}/prontidao")
+    assert resp.status_code == 200, resp.text
+    tipos = {p["tipo"] for p in resp.json()["pendencias"]}
+    assert "REFEICAO_NAO_INFORMADA" in tipos
+
+
+# ============================================================================
+# Bloco D — D37: cadastro de pontos pela tela
+# ============================================================================
+
+def test_post_ponto_codigo_repetido_nega_409(ambiente):
+    _como(ambiente, "FISCAL")
+    primeiro = ambiente["http"].post("/fiscalizacao/pontos", json={
+        "codigo": "PQ_NOVO", "nome": "Ponto Novo", "terminal": "TP", "linhas": ["1726-10"],
+    })
+    assert primeiro.status_code == 201, primeiro.text
+
+    segundo = ambiente["http"].post("/fiscalizacao/pontos", json={
+        "codigo": "PQ_NOVO", "nome": "Outro nome", "terminal": "TS", "linhas": ["9999-10"],
+    })
+    assert segundo.status_code == 409, segundo.text
+
+
+# ============================================================================
+# Bloco D — D38: coordenador atribui e remove as próprias linhas
+# ============================================================================
+
+def test_post_minha_linha_ja_atribuida_nega_409_sem_nome(ambiente):
+    _como(ambiente, "COORDENADOR")
+    primeiro = ambiente["http"].post("/fiscalizacao/minhas-linhas", json={
+        "linha_codigo": "1726-10", "periodo": "1",
+    })
+    assert primeiro.status_code == 201, primeiro.text
+
+    _como(ambiente, "COORDENADOR", usuario=_COORDENADOR_B)
+    segundo = ambiente["http"].post("/fiscalizacao/minhas-linhas", json={
+        "linha_codigo": "1726-10", "periodo": "1",
+    })
+    assert segundo.status_code == 409, segundo.text
+    # ⛔ D38 — a mensagem de recusa não diz de quem é a linha.
+    assert _COORDENADOR.nome not in segundo.text
+    assert _COORDENADOR.re not in segundo.text
+
+
+def test_delete_minha_linha_de_outro_nega_403(ambiente):
+    _como(ambiente, "COORDENADOR")
+    criar = ambiente["http"].post("/fiscalizacao/minhas-linhas", json={
+        "linha_codigo": "1726-10", "periodo": "1",
+    })
+    assert criar.status_code == 201, criar.text
+
+    _como(ambiente, "COORDENADOR", usuario=_COORDENADOR_B)
+    remover = ambiente["http"].delete("/fiscalizacao/minhas-linhas/1726-10", params={"periodo": "1"})
+    assert remover.status_code == 403, remover.text
+
+
+# ============================================================================
+# Bloco D — D35: a costura nova (PATCH contagem) exige escrita em
+# fiscalizacao, não em fiscalizacao_painel
+# ============================================================================
+
+def test_coordenador_sem_escrita_fiscalizacao_no_patch_linha_nega_403(ambiente):
+    turno = _criar_turno(ambiente)
+    _como(ambiente, "COORDENADOR")
+    resp = ambiente["http"].patch(f"/fiscalizacao/turnos/{turno.id}/linhas/1726-10", json={
+        "programadas_informadas": 10,
+    })
+    assert resp.status_code == 403, resp.text

@@ -10,6 +10,7 @@ linhas (ex.: "ATRASO DE GARAGEM 00", sem ":").
 — mesma dívida que mensagem_sinistro.py já pagou uma vez (_linha_contato_vitima).
 Campo obrigatório que faltar sai como "—".
 """
+from datetime import date
 from typing import Optional
 from uuid import UUID
 
@@ -25,16 +26,24 @@ _TIPOS_EVENTO = (
 )
 
 
-def _contar_programadas(db: Session, linha_codigo: str, turno: Turno) -> int:
+def _vigencia_da_linha(db: Session, linha_codigo: str, turno: Turno) -> Optional[date]:
+    """Mesma lógica de app/routers/fiscalizacao.py::_vigencia_vigente —
+    duplicada aqui (não importada do router) para não criar import
+    circular, mesmo precedente já registrado em app/services/icv.py::
+    _tipo_dia."""
     if turno.tipo_dia is None:
-        return 0
-    vigencia = db.execute(
+        return None
+    return db.execute(
         select(func.max(PartidaProgramada.vigencia)).where(
             PartidaProgramada.linha_codigo == linha_codigo,
             PartidaProgramada.tipo_dia == turno.tipo_dia,
             PartidaProgramada.vigencia <= turno.data_referencia,
         )
     ).scalar_one_or_none()
+
+
+def _contar_programadas(db: Session, linha_codigo: str, turno: Turno) -> int:
+    vigencia = _vigencia_da_linha(db, linha_codigo, turno)
     if vigencia is None:
         return 0
     return db.execute(
@@ -96,24 +105,72 @@ def _bloco_baita(registro: Optional[Baita]) -> list[str]:
     ]
 
 
+def _totais_da_linha(
+    db: Session, turno: Turno, linha_codigo: str
+) -> tuple[Optional[int], Optional[int], Optional[int], str]:
+    """D35/D36 — o denominador do fechamento (e da prontidão) vem da grade
+    quando ela existe para linha+tipo_dia+período; senão, vem do que o
+    fiscal informou ao fechar (turno_linha.*_informadas, D32/D33). `fonte`
+    diz qual dos dois foi usado — a tela NUNCA troca de fonte em silêncio.
+
+    🔴 Única função que decide isso — tanto app/routers/fiscalizacao.py::
+    prontidao_turno (CONTAGEM_NAO_INFORMADA) quanto _montar_linha (abaixo)
+    passam por aqui. Não reimplemente esta checagem em nenhum outro lugar
+    (débito já registrado em FISCALIZACAO-02-onde-paramos.md §7: a conta do
+    fechamento já existia duplicada entre a view SQL e o Python — uma
+    terceira cópia só pioraria)."""
+    vigencia = _vigencia_da_linha(db, linha_codigo, turno)
+    if vigencia is not None:
+        programadas = db.execute(
+            select(func.count()).select_from(PartidaProgramada).where(
+                PartidaProgramada.linha_codigo == linha_codigo,
+                PartidaProgramada.tipo_dia == turno.tipo_dia,
+                PartidaProgramada.vigencia == vigencia,
+                PartidaProgramada.periodo == turno.periodo,
+            )
+        ).scalar_one()
+        realizadas = _contar_realizadas_programadas(db, turno.id, linha_codigo)
+        extras = _contar_eventos(db, turno.id, linha_codigo)["VIAGEM_EXTRA"]
+        return programadas, realizadas, extras, "GRADE"
+
+    turno_linha = db.execute(
+        select(TurnoLinha).where(TurnoLinha.turno_id == turno.id, TurnoLinha.linha_codigo == linha_codigo)
+    ).scalar_one_or_none()
+    programadas = turno_linha.programadas_informadas if turno_linha is not None else None
+    realizadas = turno_linha.realizadas_informadas if turno_linha is not None else None
+    extras = turno_linha.extras_informadas if turno_linha is not None else None
+    return programadas, realizadas, extras, "INFORMADO"
+
+
 def calcular_fechamento_linha(db: Session, turno: Turno, linha_codigo: str) -> dict:
     """Equivalente em Python de fiscalizacao.vw_fechamento_turno (uma linha
     da view) — reimplementado aqui porque o gerador roda igual em SQLite
     (testes) e Postgres (produção), mesmo motivo de portaria.py não
     depender de vw_dentro. D6: expõe programadas/realizadas_programadas/
-    extras SEPARADOS, além do realizadas_total somado e perdidas."""
-    programadas = _contar_programadas(db, linha_codigo, turno)
-    realizadas_programadas = _contar_realizadas_programadas(db, turno.id, linha_codigo)
+    extras SEPARADOS, além do realizadas_total somado e perdidas.
+
+    D35 — sem grade (fonte="INFORMADO"), qualquer um dos três números pode
+    vir None ("não informado" — nulo não vira zero); realizadas_total e
+    perdidas saem None quando faltar o que precisam para o cálculo."""
+    programadas, realizadas_programadas, extras, fonte = _totais_da_linha(db, turno, linha_codigo)
     contadores = _contar_eventos(db, turno.id, linha_codigo)
-    extras = contadores["VIAGEM_EXTRA"]
-    realizadas_total = realizadas_programadas + extras
+
+    realizadas_total = None
+    if realizadas_programadas is not None or extras is not None:
+        realizadas_total = (realizadas_programadas or 0) + (extras or 0)
+
+    perdidas = None
+    if programadas is not None and realizadas_programadas is not None:
+        perdidas = programadas - realizadas_programadas
+
     return {
         "programadas": programadas,
         "realizadas_programadas": realizadas_programadas,
         "extras": extras,
         "realizadas_total": realizadas_total,
-        "perdidas": programadas - realizadas_programadas,
+        "perdidas": perdidas,
         "contadores": contadores,
+        "fonte": fonte,
     }
 
 
@@ -130,12 +187,17 @@ def _montar_linha(
     realizadas_total = agregado["realizadas_total"]
     contagem = agregado["contadores"]
 
+    # D35 — nulo (não informado, linha sem grade) sai como "—", nunca "00":
+    # "00" é uma afirmação de que zero aconteceu, "—" é a ausência do dado.
+    programadas_texto = str(programadas) if programadas is not None else "—"
+    realizadas_texto = str(realizadas_total) if realizadas_total is not None else "—"
+
     linhas_texto = [
         "Sambaiba G3",
         f"SEGUE ABAIXO FECHAMENTO... {turno.data_referencia.strftime('%d/%m/%Y')}",
         f"LINHA: {linha_codigo}",
-        f"PARTIDAS PROGRAMADAS: {turno.periodo}° período {programadas}",
-        f"PARTIDAS REALIZADAS: {turno.periodo}° período {realizadas_total}",
+        f"PARTIDAS PROGRAMADAS: {turno.periodo}° período {programadas_texto}",
+        f"PARTIDAS REALIZADAS: {turno.periodo}° período {realizadas_texto}",
         f" FALTA DE OPERADORES: {contagem['FALTA_OPERADORES']:02d}",
         f" R.A: {contagem['RA']:02d}",
         f" S.O.S: {contagem['SOS']:02d}",
@@ -166,8 +228,10 @@ def _montar_linha(
     for registro in perdas_outro:
         if registro.linha_codigo != linha_codigo:
             continue
+        # D33 — numero_tabela é opcional agora; "—" quando não informado.
+        tabela_texto = f"{registro.numero_tabela:02d}" if registro.numero_tabela is not None else "—"
         linhas_texto.append(
-            f" 👉🏼 Tabela {registro.numero_tabela:02d}, {registro.motivo_outro}, "
+            f" 👉🏼 Tabela {tabela_texto}, {registro.motivo_outro}, "
             f"viagem das {registro.horario_programado.strftime('%H:%M')} não realizada."
         )
 

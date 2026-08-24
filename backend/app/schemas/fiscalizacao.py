@@ -41,6 +41,26 @@ class PontoRead(ORMBase):
     linhas: list[str] = Field(default_factory=list)
 
 
+class PontoCreate(BaseModel):
+    """POST /fiscalizacao/pontos — D37: o fiscal pode criar o ponto na
+    hora, se ele não existir, para destravar o primeiro turno."""
+
+    codigo: str = Field(..., min_length=1, max_length=20)
+    nome: str = Field(..., min_length=1, max_length=60)
+    terminal: Terminal
+    linhas: list[str] = Field(..., min_length=1)
+
+
+class PontoUpdate(BaseModel):
+    """PATCH /fiscalizacao/pontos/{codigo} — renomeia, ativa/desativa e
+    substitui o conjunto de linhas. Todos os campos opcionais (PATCH
+    parcial); `linhas`, quando informado, SUBSTITUI o conjunto inteiro."""
+
+    nome: Optional[str] = Field(None, min_length=1, max_length=60)
+    ativo: Optional[bool] = None
+    linhas: Optional[list[str]] = None
+
+
 # ============================================================================
 # TURNO (D8, D9, D14, D15)
 # ============================================================================
@@ -86,6 +106,25 @@ class TurnoRead(ORMBase):
     linhas: list[str] = Field(default_factory=list)
 
 
+class TurnoLinhaContagemUpdate(BaseModel):
+    """PATCH /fiscalizacao/turnos/{id}/linhas/{linha_codigo} — D35: a
+    contagem que o fiscal informa quando a linha não tem grade vigente.
+    Nulo permanece nulo se o campo não for enviado (PATCH parcial)."""
+
+    programadas_informadas: Optional[int] = Field(None, ge=0)
+    realizadas_informadas: Optional[int] = Field(None, ge=0)
+    extras_informadas: Optional[int] = Field(None, ge=0)
+
+
+class TurnoLinhaRead(ORMBase):
+    id: UUID
+    turno_id: UUID
+    linha_codigo: str
+    programadas_informadas: Optional[int] = None
+    realizadas_informadas: Optional[int] = None
+    extras_informadas: Optional[int] = None
+
+
 # ============================================================================
 # PARTIDAS — a grade do turno com estado calculado na leitura (D7)
 # ============================================================================
@@ -99,7 +138,8 @@ class RegistroPartidaUpsert(BaseModel):
 
     partida_programada_id: Optional[UUID] = None
     linha_codigo: str = Field(..., min_length=1, max_length=20)
-    numero_tabela: int = Field(..., ge=1)
+    # D33 — opcional: nem toda anormalidade tem tabela conhecida na hora.
+    numero_tabela: Optional[int] = Field(None, ge=1)
     terminal: Terminal
     horario_programado: time
 
@@ -131,7 +171,7 @@ class RegistroPartidaRead(ORMBase):
     turno_id: UUID
     partida_programada_id: Optional[UUID] = None
     linha_codigo: str
-    numero_tabela: int
+    numero_tabela: Optional[int] = None
     terminal: Terminal
     horario_programado: time
     resultado: Resultado
@@ -151,11 +191,15 @@ class PartidaEstadoItem(BaseModel):
     comparando horario_programado com o relógio atual em FUSO_OPERACAO."""
 
     partida_programada_id: Optional[UUID] = None
-    numero_tabela: int
+    numero_tabela: Optional[int] = None
     terminal: Terminal
     horario_programado: time
     periodo: Optional[Periodo] = None
     estado: EstadoPartida
+    # D34 — True quando o item nasceu de um RegistroPartida que não casou
+    # com nenhum horário da grade (linha sem grade, ou anormalidade fora
+    # dela). Nunca ATRASADA: só existe porque alguém respondeu.
+    fora_da_grade: bool = False
     registro: Optional[RegistroPartidaRead] = None
 
 
@@ -250,7 +294,10 @@ class BaitaRead(ORMBase):
 
 class PendenciaItem(BaseModel):
     tipo: Literal[
-        "PARTIDAS_SEM_RESPOSTA", "BAITA_FALTANDO", "ANTI_BAITA_FALTANDO", "PASTAS_NAO_INFORMADAS"
+        "PARTIDAS_SEM_RESPOSTA", "BAITA_FALTANDO", "ANTI_BAITA_FALTANDO", "PASTAS_NAO_INFORMADAS",
+        # D36 — novas pendências do modo sem grade (D32/D35) e da refeição
+        # do fiscal (D15), que antes não entravam no medidor.
+        "CONTAGEM_NAO_INFORMADA", "REFEICAO_NAO_INFORMADA",
     ]
     quantidade: Optional[int] = None
     por_linha: Optional[dict[str, int]] = None
@@ -269,7 +316,7 @@ class ProntidaoResponse(BaseModel):
 class PainelPartidaItem(BaseModel):
     """Uma linha do painel — D12: todos os horários do dia, não só o que furou."""
 
-    numero_tabela: int
+    numero_tabela: Optional[int] = None
     terminal: Terminal
     horario_programado: time
     estado: EstadoPartida
@@ -312,6 +359,17 @@ class MinhaLinhaItem(BaseModel):
 
     linha_codigo: str
     periodo: Periodo
+
+
+class MinhaLinhaCreate(BaseModel):
+    """POST /fiscalizacao/minhas-linhas — D38: o coordenador atribui uma
+    linha a si mesmo. `funcionario_id` diferente de quem está logado só é
+    aceito de quem tem a função ADMIN — de qualquer outro, 403 (ver
+    router)."""
+
+    linha_codigo: str = Field(..., min_length=1, max_length=20)
+    periodo: Periodo
+    funcionario_id: Optional[UUID] = None
 
 
 class ParametrosRead(BaseModel):
