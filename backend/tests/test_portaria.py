@@ -805,10 +805,12 @@ def test_credencial_svg_e_etiquetas_respondem_conteudo_esperado(ambiente):
     etiquetas = ambiente["http"].get(f"/portaria/credenciais/etiquetas?ids={veiculo_id}")
     assert etiquetas.status_code == 200, etiquetas.text
     assert "text/html" in etiquetas.headers["content-type"]
-    assert "ABC1D23" in etiquetas.text
-    # Reversão de 2026-08-24 (§1.4 revisto): RE do dono passa a sair na
-    # etiqueta, abaixo da placa. Nome e CPF continuam banidos do adesivo.
+    # Reversão de 2026-08-24 (§1.4 revisto): no veículo PARTICULAR a etiqueta
+    # traz o RE do dono NO LUGAR da placa — só o RE, mais nada (a placa é
+    # redundante: quem cola o adesivo é o próprio dono). Nome e CPF continuam
+    # banidos do adesivo.
     assert _DONO_A.re in etiquetas.text
+    assert "ABC1D23" not in etiquetas.text
     assert _DONO_A.nome not in etiquetas.text
 
 
