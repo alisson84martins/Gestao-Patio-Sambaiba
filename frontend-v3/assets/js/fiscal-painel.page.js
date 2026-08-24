@@ -26,6 +26,7 @@ import { podeEscrever } from './sessao.js';
 import { escapeHtml } from './escape.js';
 import { dataLocalISO } from './data.util.js';
 import { imprimirPlacarLinha } from './fiscal-placar.imprimir.js';
+import { criarSeletorLinhas } from './linhas.seletor.js';
 
 if (!requireAuth()) {
     throw new Error('Sessão não autenticada — interrompendo carga da página');
@@ -35,6 +36,11 @@ let pollHandle = null;
 let linhaAberta = null;
 let minhasLinhasCache = [];
 let periodoNovaLinha = '1';
+
+// D38 §3 — seletor de linhas do catálogo (linhas.seletor.js), compartilhado
+// com fiscal.page.js. Aqui em modo único: o coordenador atribui uma linha
+// por vez a si mesmo.
+let seletorNovaLinha = null;
 
 // ─── Header ─────────────────────────────────────────────────────────────
 function initHeader() {
@@ -169,11 +175,11 @@ function renderModalLinhas() {
     });
 }
 
-function abrirModalLinhas() {
+async function abrirModalLinhas() {
     document.getElementById('fp-modal-linhas-erro').style.display = 'none';
-    document.getElementById('fp-nova-linha-codigo').value = '';
     renderModalLinhas();
     document.getElementById('fp-modal-linhas').classList.add('open');
+    await seletorNovaLinha.carregar();
 }
 
 function fecharModalLinhas() {
@@ -193,15 +199,15 @@ function initPeriodoNovaLinha() {
 async function adicionarMinhaLinha() {
     const erro = document.getElementById('fp-modal-linhas-erro');
     erro.style.display = 'none';
-    const linha = document.getElementById('fp-nova-linha-codigo').value.trim();
+    const [linha] = seletorNovaLinha.getSelecao();
     if (!linha) {
-        erro.textContent = 'Digite o código da linha.';
+        erro.textContent = 'Escolha a linha na lista.';
         erro.style.display = 'block';
         return;
     }
     try {
         await apiPost('/fiscalizacao/minhas-linhas', { linha_codigo: linha, periodo: periodoNovaLinha });
-        document.getElementById('fp-nova-linha-codigo').value = '';
+        await seletorNovaLinha.carregar();
         await carregarMinhasLinhas();
         renderModalLinhas();
         await carregarTudo();
@@ -550,6 +556,11 @@ async function iniciar() {
     document.getElementById('fp-modal-linhas-concluir').addEventListener('click', fecharModalLinhas);
     document.getElementById('fp-nova-linha-adicionar').addEventListener('click', adicionarMinhaLinha);
     initPeriodoNovaLinha();
+    seletorNovaLinha = criarSeletorLinhas({
+        containerLista: document.getElementById('fp-nova-linha-lista'),
+        campoBusca: document.getElementById('fp-nova-linha-busca'),
+        multiplo: false,
+    });
 
     document.getElementById('fp-btn-nova-acao').addEventListener('click', abrirModalAcao);
     document.getElementById('fp-modal-acao-fechar').addEventListener('click', fecharModalAcao);

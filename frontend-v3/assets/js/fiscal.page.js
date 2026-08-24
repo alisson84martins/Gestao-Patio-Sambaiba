@@ -24,6 +24,7 @@
 import { requireAuth, getCurrentUser, logout } from './auth.js';
 import { apiGet, apiPatch, apiPost, apiPut, ApiError } from './api.js';
 import { escapeHtml } from './escape.js';
+import { criarSeletorLinhas } from './linhas.seletor.js';
 
 if (!requireAuth()) {
     throw new Error('Sessão não autenticada — interrompendo carga da página');
@@ -42,6 +43,11 @@ let motivoSelecionado = null;
 let viagemEscolhida = null;      // 'sim' | 'nao' | null
 let terminalNovoPonto = 'TP';
 let mensagensGeradas = [];
+
+// D37 §3 — seletor de linhas do catálogo (linhas.seletor.js), compartilhado
+// com fiscal-painel.js. Aqui em modo múltiplo: o ponto pode ter mais de
+// uma linha (D9).
+let seletorPontoLinhas = null;
 
 const TIPO_LABEL = {
     FALTA_OPERADORES: 'Falta de operadores', RA: 'R.A', SOS: 'S.O.S',
@@ -374,16 +380,21 @@ function initModalPonto() {
             btn.classList.add('active');
         });
     });
+    seletorPontoLinhas = criarSeletorLinhas({
+        containerLista: document.getElementById('fis-ponto-linhas-lista'),
+        campoBusca: document.getElementById('fis-ponto-linhas-busca'),
+        multiplo: true,
+    });
 }
 
-function abrirModalPonto() {
+async function abrirModalPonto() {
     document.getElementById('fis-ponto-codigo').value = '';
     document.getElementById('fis-ponto-nome').value = '';
-    document.getElementById('fis-ponto-linhas').value = '';
     document.getElementById('fis-ponto-erro').style.display = 'none';
     terminalNovoPonto = 'TP';
     document.querySelectorAll('#fis-ponto-terminal .recolhida-chip').forEach((b, i) => b.classList.toggle('active', i === 0));
     document.getElementById('fis-modal-ponto').classList.add('open');
+    await seletorPontoLinhas.carregar();
 }
 
 function fecharModalPonto() {
@@ -395,7 +406,7 @@ async function salvarPonto() {
     erro.style.display = 'none';
     const codigo = document.getElementById('fis-ponto-codigo').value.trim();
     const nome = document.getElementById('fis-ponto-nome').value.trim();
-    const linhas = document.getElementById('fis-ponto-linhas').value.split('\n').map(s => s.trim()).filter(Boolean);
+    const linhas = Array.from(seletorPontoLinhas.getSelecao());
     if (!codigo || !nome || linhas.length === 0) {
         erro.textContent = 'Preencha código, nome e ao menos uma linha.';
         erro.style.display = 'block';
