@@ -367,6 +367,18 @@ class PainelAoVivoItem(BaseModel):
     minutos_atras: int
 
 
+class LinhaSemCoordenadorItem(BaseModel):
+    """GET /fiscalizacao/painel/linhas-sem-coordenador — nada some em
+    silêncio (§4 do prompt de 24/08): linha com registro ou evento hoje que
+    não está em LinhaCoordenador em nenhum período. Não é erro, é aviso —
+    o caso real que motivou isto foi um ponto cadastrado com a linha
+    "1726" quando o coordenador tinha "1726-10": nenhum log, o registro só
+    nunca apareceu pra quem precisava vê-lo."""
+
+    linha_codigo: str
+    quantidade_registros: int
+
+
 class PainelTurnoAbertoItem(BaseModel):
     """D39 — quem está na rua agora. `minutos_sem_registrar` é o número que
     responde "o fiscal está marcando ou parou?"; None = ainda não registrou

@@ -32,7 +32,7 @@ from app.models.fiscalizacao import (
 from app.models.portaria import RecolhidaAnormal
 from app.schemas.fiscalizacao import (
     AcaoCoordenacaoCreate, AcaoCoordenacaoRead, BaitaRead, BaitaUpsert, CascataItem, CatalogoLinhaItem,
-    EventoTurnoCreate, EventoTurnoRead, IcvCoordenadorDiaRead, IcvLinhaDiaRead,
+    EventoTurnoCreate, EventoTurnoRead, IcvCoordenadorDiaRead, IcvLinhaDiaRead, LinhaSemCoordenadorItem,
     MinhaLinhaCreate, MinhaLinhaItem, MotivoLivreItem, ObservacaoTurnoCreate, ObservacaoTurnoRead,
     PainelAoVivoItem, PainelLinhaResponse, PainelPartidaItem, PainelTurnoAbertoItem,
     ParametrosRead, PartidaEstadoItem, PendenciaItem, Periodo, PlacarLinhaRead, PontoCreate, PontoRead,
@@ -1009,10 +1009,11 @@ def _recolhida_correlata(db: Session, prefixo: str, momento_programado: datetime
 # ============================================================================
 # PAINEL AO VIVO (D39) — o topo da tela do coordenador
 #
-# 🔴 Estas duas rotas LITERAIS precisam ficar ANTES de /painel/{linha_codigo}:
-# com o path parameter declarado primeiro, "ao-vivo" e "turnos" chegariam
-# como codigo de linha. Mesmo bug que ja aconteceu tres vezes neste projeto
-# (autopreencher/{id}, pre-ocorrencias/publico/{id}, turnos/ativo).
+# 🔴 Estas três rotas LITERAIS precisam ficar ANTES de /painel/{linha_codigo}:
+# com o path parameter declarado primeiro, "ao-vivo", "turnos" e
+# "linhas-sem-coordenador" chegariam como codigo de linha. Mesmo bug que ja
+# aconteceu tres vezes neste projeto (autopreencher/{id},
+# pre-ocorrencias/publico/{id}, turnos/ativo).
 # ============================================================================
 
 def _momento_registro(registro: RegistroPartida) -> datetime:
@@ -1160,6 +1161,47 @@ def painel_turnos_abertos(
     _INICIO = datetime.min.replace(tzinfo=timezone.utc)
     itens.sort(key=lambda i: _aware_utc(i.aberto_em) if i.aberto_em else _INICIO)
     return itens
+
+
+@router.get(
+    "/painel/linhas-sem-coordenador", response_model=list[LinhaSemCoordenadorItem],
+    summary="Linhas com registro/evento hoje que não têm coordenador em nenhum período (D40)",
+)
+def painel_linhas_sem_coordenador(usuario: LeituraPainel, db: DbSession, data: Optional[date] = Query(None)):
+    """Nada some em silêncio: a validação do catálogo (§4) evita o erro
+    previsto — código de linha errado; isto avisa do imprevisto — linha
+    nova, código alterado, coordenador que esqueceu de se atribuir. Não é
+    erro, é aviso: nunca bloqueia nada, só lista."""
+    data_referencia = data or datetime.now(FUSO_OPERACAO).date()
+
+    linhas_com_coordenador = set(
+        db.execute(
+            select(LinhaCoordenador.linha_codigo).where(LinhaCoordenador.ativo.is_(True))
+        ).scalars().all()
+    )
+
+    contagem: dict[str, int] = {}
+    for linha_codigo in db.execute(
+        select(RegistroPartida.linha_codigo)
+        .join(Turno, Turno.id == RegistroPartida.turno_id)
+        .where(Turno.data_referencia == data_referencia)
+    ).scalars().all():
+        contagem[linha_codigo] = contagem.get(linha_codigo, 0) + 1
+
+    # Só os eventos AVULSOS (D4) — o evento vinculado a uma partida perdida
+    # já entrou acima pelo registro; contá-lo de novo dobraria a contagem.
+    for linha_codigo in db.execute(
+        select(EventoTurno.linha_codigo)
+        .join(Turno, Turno.id == EventoTurno.turno_id)
+        .where(Turno.data_referencia == data_referencia, EventoTurno.registro_partida_id.is_(None))
+    ).scalars().all():
+        contagem[linha_codigo] = contagem.get(linha_codigo, 0) + 1
+
+    return [
+        LinhaSemCoordenadorItem(linha_codigo=linha_codigo, quantidade_registros=quantidade)
+        for linha_codigo, quantidade in sorted(contagem.items())
+        if linha_codigo not in linhas_com_coordenador
+    ]
 
 
 @router.get(

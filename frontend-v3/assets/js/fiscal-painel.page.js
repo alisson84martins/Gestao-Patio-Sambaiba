@@ -79,6 +79,26 @@ function ignoravel(err) {
     return err instanceof ApiError && err.status === 401;
 }
 
+// ─── D40 — aviso quando há registro em linha sem coordenador ────────────
+async function carregarAvisoSemCoordenador() {
+    const el = document.getElementById('fp-aviso-sem-coordenador');
+    try {
+        const params = new URLSearchParams({ data: dataSelecionada() });
+        const itens = await apiGet(`/fiscalizacao/painel/linhas-sem-coordenador?${params}`);
+        if (itens.length === 0) {
+            el.style.display = 'none';
+            return;
+        }
+        const partes = itens.map(i =>
+            `${i.linha_codigo} (${i.quantidade_registros} registro${i.quantidade_registros === 1 ? '' : 's'})`
+        ).join(', ');
+        el.textContent = `⚠️ Há registros hoje em linhas sem coordenador: ${partes}. Confira o cadastro do ponto ou atribua a linha.`;
+        el.style.display = '';
+    } catch (err) {
+        if (ignoravel(err)) return;
+    }
+}
+
 // ─── 1. Agora na rua (D39) ───────────────────────────────────────────────
 const TIPO_LABEL = {
     FALTA_OPERADORES: 'Falta de operadores', RA: 'R.A', SOS: 'S.O.S',
@@ -508,6 +528,7 @@ async function importarIcv() {
 async function carregarTudo() {
     ocultarErroSeVazio();
     await Promise.all([
+        carregarAvisoSemCoordenador(),
         carregarAoVivo(),
         carregarTurnosAbertos(),
         carregarIcvDoDia(),

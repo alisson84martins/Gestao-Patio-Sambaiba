@@ -1164,3 +1164,49 @@ def test_fiscal_sem_painel_no_ao_vivo_nega_403(ambiente):
     _como(ambiente, "FISCAL")
     assert ambiente["http"].get("/fiscalizacao/painel/ao-vivo").status_code == 403
     assert ambiente["http"].get("/fiscalizacao/painel/turnos").status_code == 403
+
+
+# ============================================================================
+# GET /painel/linhas-sem-coordenador (D40) — nada some em silêncio
+# ============================================================================
+
+def test_linhas_sem_coordenador_aparece_com_a_contagem(ambiente):
+    """"1726-10" tem registro hoje e ninguém coordena — mesmo caso real que
+    motivou este endpoint (§4 do prompt de 24/08)."""
+    turno = _criar_turno(ambiente)
+    _como(ambiente, "FISCAL")
+    ambiente["http"].put(f"/fiscalizacao/turnos/{turno.id}/partidas", json={
+        "linha_codigo": "1726-10", "terminal": "TP", "horario_programado": "20:00:00",
+        "resultado": "PERDIDA", "motivo": "RA", "prefixo": "1721",
+    })
+
+    _como(ambiente, "COORDENADOR")  # nenhuma linha atribuída
+    resp = ambiente["http"].get("/fiscalizacao/painel/linhas-sem-coordenador")
+    assert resp.status_code == 200, resp.text
+    itens = resp.json()
+    assert len(itens) == 1, itens
+    assert itens[0]["linha_codigo"] == "1726-10"
+    assert itens[0]["quantidade_registros"] == 1
+
+
+def test_linhas_sem_coordenador_com_coordenador_nao_aparece(ambiente):
+    _como(ambiente, "COORDENADOR")
+    ambiente["http"].post("/fiscalizacao/minhas-linhas", json={
+        "linha_codigo": "1726-10", "periodo": "1",
+    })
+    turno = _criar_turno(ambiente)
+    _como(ambiente, "FISCAL")
+    ambiente["http"].put(f"/fiscalizacao/turnos/{turno.id}/partidas", json={
+        "linha_codigo": "1726-10", "terminal": "TP", "horario_programado": "20:00:00",
+        "resultado": "PERDIDA", "motivo": "RA", "prefixo": "1721",
+    })
+
+    _como(ambiente, "COORDENADOR")
+    resp = ambiente["http"].get("/fiscalizacao/painel/linhas-sem-coordenador")
+    assert resp.status_code == 200, resp.text
+    assert resp.json() == []
+
+
+def test_linhas_sem_coordenador_fiscal_nega_403(ambiente):
+    _como(ambiente, "FISCAL")
+    assert ambiente["http"].get("/fiscalizacao/painel/linhas-sem-coordenador").status_code == 403
