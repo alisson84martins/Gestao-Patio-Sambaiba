@@ -27,6 +27,19 @@ TipoEvento = Literal[
 ]
 TipoBaita = Literal["BAITA", "ANTI_BAITA"]
 EstadoPartida = Literal["REALIZADA", "PERDIDA", "ATRASADA", "AGUARDANDO"]
+Setor = Literal["E2", "AR2"]
+
+
+# ============================================================================
+# CATÁLOGO DE LINHAS — leitura do catálogo do Pátio (app/models/catalogos.py
+# ::Linha), servida pela própria Fiscalização (ver comentário do endpoint em
+# app/routers/fiscalizacao.py sobre por que não é GET /linhas direto).
+# ============================================================================
+
+class CatalogoLinhaItem(ORMBase):
+    codigo: str
+    nome: str
+    setor: Setor
 
 
 # ============================================================================

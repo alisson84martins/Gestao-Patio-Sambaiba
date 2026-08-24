@@ -24,13 +24,14 @@ from app.core.database import get_db
 from app.core.deps import exige
 from app.core.uploads import ler_upload_limitado
 from app.models.cadastro import Funcionario
+from app.models.catalogos import Linha
 from app.models.fiscalizacao import (
     AcaoCoordenacao, Baita, EventoTurno, LinhaCoordenador, ObservacaoTurno, Parametro,
     PartidaProgramada, Ponto, PontoLinha, RegistroPartida, Turno, TurnoLinha,
 )
 from app.models.portaria import RecolhidaAnormal
 from app.schemas.fiscalizacao import (
-    AcaoCoordenacaoCreate, AcaoCoordenacaoRead, BaitaRead, BaitaUpsert, CascataItem,
+    AcaoCoordenacaoCreate, AcaoCoordenacaoRead, BaitaRead, BaitaUpsert, CascataItem, CatalogoLinhaItem,
     EventoTurnoCreate, EventoTurnoRead, IcvCoordenadorDiaRead, IcvLinhaDiaRead,
     MinhaLinhaCreate, MinhaLinhaItem, MotivoLivreItem, ObservacaoTurnoCreate, ObservacaoTurnoRead,
     PainelAoVivoItem, PainelLinhaResponse, PainelPartidaItem, PainelTurnoAbertoItem,
@@ -273,7 +274,28 @@ def _sincronizar_evento_vinculado(db: Session, registro: RegistroPartida) -> Non
 
 
 # ============================================================================
-# CATÁLOGO
+# CATÁLOGO DE LINHAS — leitura do catálogo do Pátio, servida por aqui
+# ============================================================================
+
+@router.get(
+    "/catalogo/linhas", response_model=list[CatalogoLinhaItem],
+    summary="Linhas do catálogo (Pátio), servidas pela própria Fiscalização",
+)
+def catalogo_linhas(usuario: LeituraFiscalizacao, db: DbSession, incluir_inativas: bool = Query(False)):
+    """Existe aqui — e não em GET /linhas (app/routers/linhas.py) — porque
+    o fiscal não tem acesso ao módulo Pátio, e a Fiscalização não pode
+    depender do RBAC de outro módulo pra saber que linhas existem. Somente
+    leitura: quem cria/edita linha continua sendo o Pátio; nenhuma FK nova
+    é criada, esta consulta é só leitura do catálogo por código (regra de
+    fronteira do módulo, §5 do desenho)."""
+    query = select(Linha)
+    if not incluir_inativas:
+        query = query.where(Linha.ativa.is_(True))
+    return db.execute(query.order_by(Linha.codigo)).scalars().all()
+
+
+# ============================================================================
+# CATÁLOGO DE PONTOS
 # ============================================================================
 
 @router.get("/pontos", response_model=list[PontoRead], summary="Pontos com suas linhas — só ativos por padrão")

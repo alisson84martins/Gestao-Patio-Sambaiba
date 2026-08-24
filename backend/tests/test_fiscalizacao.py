@@ -31,10 +31,12 @@ from app.core.config import FUSO_OPERACAO
 from app.core.database import Base, get_db
 from app.main import app
 from app.models.cadastro import Funcao, Funcionario, FuncionarioFuncao
+from app.models.catalogos import Linha
 from app.models.fiscalizacao import (
     Baita, EventoTurno, LinhaCoordenador, ObservacaoTurno, PartidaProgramada, Ponto, PontoLinha,
     RegistroPartida, Turno, TurnoLinha,
 )
+from app.models.enums import SetorEnum
 from app.models.portaria import RecolhidaAnormal
 from app.routers import fiscalizacao as fiscalizacao_router_mod
 from app.services.fechamento_fiscal import calcular_fechamento_linha, montar_fechamento
@@ -61,7 +63,7 @@ _TABELAS = [
     Funcionario.__table__, Funcao.__table__, FuncionarioFuncao.__table__,
     Ponto.__table__, PontoLinha.__table__, Turno.__table__, TurnoLinha.__table__,
     PartidaProgramada.__table__, RegistroPartida.__table__, EventoTurno.__table__, ObservacaoTurno.__table__,
-    Baita.__table__, RecolhidaAnormal.__table__, LinhaCoordenador.__table__,
+    Baita.__table__, RecolhidaAnormal.__table__, LinhaCoordenador.__table__, Linha.__table__,
 ]
 
 _PERMISSOES = {
@@ -102,6 +104,9 @@ def ambiente():
             setup.add(Funcionario(id=f.id, re=f.re, nome=f.nome, status="ATIVO"))
         setup.add(Ponto(codigo="PQ_TESTE", nome="Ponto Teste", terminal="TP", ativo=True))
         setup.add(PontoLinha(ponto_codigo="PQ_TESTE", linha_codigo="1726-10", ativo=True))
+        setup.add(Linha(id=uuid4(), codigo="1726-10", nome="Linha 1726-10", setor=SetorEnum.E2, ativa=True))
+        setup.add(Linha(id=uuid4(), codigo="2032-10", nome="Linha 2032-10", setor=SetorEnum.AR2, ativa=True))
+        setup.add(Linha(id=uuid4(), codigo="9999-10", nome="Linha 9999-10 (inativa)", setor=SetorEnum.E2, ativa=False))
         setup.commit()
 
     def _get_db_teste():
@@ -205,6 +210,36 @@ class _DatetimeFixo(datetime):
 def _congelar_relogio(monkeypatch, momento_sp: datetime) -> None:
     fixo = type("_DatetimeFixoInstancia", (_DatetimeFixo,), {"_fixo_utc": momento_sp.astimezone(timezone.utc)})
     monkeypatch.setattr(fiscalizacao_router_mod, "datetime", fixo)
+
+
+# ============================================================================
+# CATÁLOGO DE LINHAS — GET /fiscalizacao/catalogo/linhas
+# ============================================================================
+
+def test_catalogo_linhas_devolve_so_ativas_ordenadas(ambiente):
+    _como(ambiente, "FISCAL")
+    resp = ambiente["http"].get("/fiscalizacao/catalogo/linhas")
+    assert resp.status_code == 200, resp.text
+    codigos = [item["codigo"] for item in resp.json()]
+    assert codigos == ["1726-10", "2032-10"]
+    assert "9999-10" not in codigos
+
+
+def test_catalogo_linhas_incluir_inativas_devolve_tambem_a_inativa(ambiente):
+    _como(ambiente, "FISCAL")
+    resp = ambiente["http"].get("/fiscalizacao/catalogo/linhas?incluir_inativas=true")
+    assert resp.status_code == 200, resp.text
+    codigos = [item["codigo"] for item in resp.json()]
+    assert "9999-10" in codigos
+
+
+def test_fiscal_sem_painel_le_catalogo_de_linhas(ambiente):
+    # O endpoint existe justamente pra isto: FISCAL não tem
+    # fiscalizacao_painel, mas tem leitura em fiscalizacao — o catálogo
+    # precisa estar acessível pra ele mesmo assim (D37/D38 dependem disto).
+    _como(ambiente, "FISCAL")
+    resp = ambiente["http"].get("/fiscalizacao/catalogo/linhas")
+    assert resp.status_code == 200, resp.text
 
 
 # ============================================================================
