@@ -24,6 +24,7 @@ const PAGINA_INICIAL = {
     PATIO: 'patio.html',
     COORDENADORIA: 'ocorrencias.html',   // ainda não existe — Etapa 6
     FISCALIZACAO: 'fiscal-painel.html',   // painel do coordenador (Bloco E)
+    FISCALIZACAO_FISCAL: 'fiscal.html',   // registro do fiscal em campo (Bloco D)
     ADMINISTRACAO: 'cadastros.html',
     // 🔴 Sem isto (e sem 'PORTARIA' em PAGINAS_PRONTAS logo abaixo), o
     // controlador loga e cai em modulos.html?indisponivel=PORTARIA — porque
@@ -32,15 +33,19 @@ const PAGINA_INICIAL = {
     PORTARIA: 'portaria.html',
 };
 
-const PAGINAS_PRONTAS = new Set(['PATIO', 'ADMINISTRACAO', 'COORDENADORIA', 'PORTARIA']);
+const PAGINAS_PRONTAS = new Set(['PATIO', 'ADMINISTRACAO', 'COORDENADORIA', 'PORTARIA', 'FISCALIZACAO']);
 
 // Módulos cuja página inicial depende do acesso da pessoa. FISCALIZACAO tem
-// dois blocos: o painel do coordenador (E, pronto em fiscal-painel.html) e o
-// registro do fiscal em campo (D, fiscal.html — ainda não existe). Quem não
-// tem `fiscalizacao_painel` continua caindo no aviso de "em construção", em
-// vez de abrir o painel e levar 403 em toda chamada.
+// duas portas: quem tem `fiscalizacao_painel` (o coordenador) aterrissa no
+// painel (Bloco E); quem só tem escrita em `fiscalizacao` (o fiscal)
+// aterrissa em fiscal.html (Bloco D). Quem tem os dois vai para o painel.
+// Sem nenhum dos dois, cai no aviso de indisponível, como antes.
 const PAGINA_CONDICIONAL = {
-    FISCALIZACAO: () => (podeLer('fiscalizacao_painel') ? PAGINA_INICIAL.FISCALIZACAO : null),
+    FISCALIZACAO: () => {
+        if (podeLer('fiscalizacao_painel')) return PAGINA_INICIAL.FISCALIZACAO;
+        if (podeEscrever('fiscalizacao')) return PAGINA_INICIAL.FISCALIZACAO_FISCAL;
+        return null;
+    },
 };
 
 function _dadosSessao() {

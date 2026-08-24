@@ -37,6 +37,7 @@ const PAGINAS = {
     'ocorrencia-form.html':        { modulo: 'COORDENADORIA', ativo: 'ocorrencias.html' },
     'pre-ocorrencias.html':        { modulo: 'COORDENADORIA' },
     'fiscal-painel.html':          { modulo: 'FISCALIZACAO' },
+    'fiscal.html':                 { modulo: 'FISCALIZACAO' },
     'portaria.html':               { modulo: 'PORTARIA' },
     'portaria-veiculos.html':      { modulo: 'PORTARIA' },
     'portaria-consulta.html':      { modulo: 'PORTARIA' },
@@ -72,9 +73,12 @@ const LINKS = [
     { href: 'portaria-recolhida.html', texto: 'Recolhida', recurso: 'recolhida_anormal', modulo: 'PORTARIA' },
     // Fiscalização, Bloco E (migration 030) — painel do coordenador. O
     // fiscal não tem fiscalizacao_painel (D — só registra, não vê
-    // agregado), então nunca vê este link. fiscal.html (Bloco D) ainda
-    // não existe e não entra aqui.
+    // agregado), então nunca vê este link.
     { href: 'fiscal-painel.html', texto: 'Fiscalização', recurso: 'fiscalizacao_painel', modulo: 'FISCALIZACAO' },
+    // Fiscalização, Bloco D — registro do fiscal em campo. O coordenador
+    // tem `fiscalizacao_painel`, não `fiscalizacao` (D — ele acompanha,
+    // não registra), então cada um vê só o link que é dele.
+    { href: 'fiscal.html', texto: 'Registro do fiscal', recurso: 'fiscalizacao', modulo: 'FISCALIZACAO' },
 ];
 
 export function initNav() {
