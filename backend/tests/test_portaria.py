@@ -314,6 +314,75 @@ def test_controlador_cadastra_veiculo_nasce_pendente(ambiente):
     assert resp.json()["situacao"] == "PENDENTE"
 
 
+# ─── 1b — Bloco D (migration 035): dono com função de gestão nasce
+#          AUTORIZADO direto, sem passar por PENDENTE, e grava histórico ──
+
+def test_veiculo_de_gestor_nasce_autorizado_e_grava_historico(ambiente):
+    with Session(ambiente["engine"]) as db:
+        funcao = Funcao(
+            id=uuid4(), codigo="ENCARREGADO", nome="Encarregado", categoria="OPERACAO",
+            ativo=True, veiculo_auto_autorizado=True,
+        )
+        db.add(funcao)
+        db.add(FuncionarioFuncao(id=uuid4(), funcionario_id=_DONO_A.id, funcao_id=funcao.id, ativo=True))
+        db.commit()
+
+    _como(ambiente, "CONTROLADOR")
+    resp = ambiente["http"].post("/portaria/veiculos", json={
+        "propriedade": "PARTICULAR", "funcionario_id": str(_DONO_A.id), "placa": "ABC1D23",
+    })
+    assert resp.status_code == 201, resp.text
+    corpo = resp.json()
+    assert corpo["situacao"] == "AUTORIZADO"
+    assert corpo["situacao_motivo"] == "Autorização automática por função de gestão"
+    assert corpo["situacao_por"] == str(_DONO_A.id)  # gestor responde pelo próprio carro
+
+    with Session(ambiente["engine"]) as db:
+        hist = db.execute(
+            select(VeiculoSituacaoHist).where(VeiculoSituacaoHist.veiculo_id == UUID(corpo["id"]))
+        ).scalars().all()
+    assert len(hist) == 1
+    assert hist[0].situacao_de is None
+    assert hist[0].situacao_para == "AUTORIZADO"
+
+
+def test_veiculo_de_funcao_sem_auto_autorizacao_continua_pendente(ambiente):
+    """Confirma que a função ENCARREGADO da migration 035 só libera quando a
+    coluna é TRUE — uma função qualquer, sem o flag, não muda nada (D6 continua)."""
+    with Session(ambiente["engine"]) as db:
+        funcao = Funcao(
+            id=uuid4(), codigo="MOTORISTA", nome="Motorista", categoria="OPERACAO",
+            ativo=True, veiculo_auto_autorizado=False,
+        )
+        db.add(funcao)
+        db.add(FuncionarioFuncao(id=uuid4(), funcionario_id=_DONO_B.id, funcao_id=funcao.id, ativo=True))
+        db.commit()
+
+    _como(ambiente, "CONTROLADOR")
+    resp = ambiente["http"].post("/portaria/veiculos", json={
+        "propriedade": "PARTICULAR", "funcionario_id": str(_DONO_B.id), "placa": "BBB2222",
+    })
+    assert resp.status_code == 201, resp.text
+    assert resp.json()["situacao"] == "PENDENTE"
+
+
+def test_busca_funcionario_portaria_expoe_auto_autorizado(ambiente):
+    with Session(ambiente["engine"]) as db:
+        funcao = Funcao(
+            id=uuid4(), codigo="GERENTE_GERAL", nome="Gerente Geral", categoria="GESTAO",
+            ativo=True, veiculo_auto_autorizado=True,
+        )
+        db.add(funcao)
+        db.add(FuncionarioFuncao(id=uuid4(), funcionario_id=_DONO_A.id, funcao_id=funcao.id, ativo=True))
+        db.commit()
+
+    _como(ambiente, "CONTROLADOR")
+    resp = ambiente["http"].get("/portaria/funcionarios/busca", params={"q": _DONO_A.re})
+    assert resp.status_code == 200, resp.text
+    achado = next(f for f in resp.json() if f["id"] == str(_DONO_A.id))
+    assert achado["auto_autorizado"] is True
+
+
 # ─── 2 — 🔴 o teste mais importante: PATCH cadastral rejeita situacao ──
 
 def test_patch_cadastral_rejeita_situacao(ambiente):

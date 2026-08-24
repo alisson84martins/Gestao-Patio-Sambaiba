@@ -44,6 +44,10 @@ class Funcao(Base):
     nivel: Mapped[int] = mapped_column(SmallInteger, nullable=False, default=5)
     ativo: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     descricao: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    # Bloco D (migration 035): TRUE = veículo PARTICULAR de quem tem esta
+    # função nasce AUTORIZADO na portaria, sem passar por PENDENTE. Regra é
+    # dado, não lista chumbada em routers/portaria_veiculos.py.
+    veiculo_auto_autorizado: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     criado_em: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )

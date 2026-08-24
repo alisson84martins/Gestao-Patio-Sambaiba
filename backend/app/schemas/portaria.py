@@ -186,11 +186,16 @@ class FuncionarioPortariaBusca(BaseModel):
     (app/routers/funcionarios.py) é gated por `exige("ocorrencia")` — recurso
     que o CONTROLADOR_ACESSO não tem — e de propósito não devolve `id`
     (FuncionarioBusca vira RE+nome snapshot em ocorrência, nunca FK). Aqui o
-    id é o próprio propósito do endpoint. Nunca cpf/rg/cnh/telefone."""
+    id é o próprio propósito do endpoint. Nunca cpf/rg/cnh/telefone.
+
+    `auto_autorizado` (Bloco D) é só o booleano — ⛔ sem o nome da função nem
+    qualquer outro dado da pessoa. O controlador não precisa saber o cargo de
+    ninguém, só se o carro que está cadastrando entra liberado."""
 
     id: UUID
     re: str
     nome: str
+    auto_autorizado: bool = False
 
 
 class BloquearPorReRequest(BaseModel):

@@ -617,6 +617,7 @@ function initNovoVeiculo() {
         document.getElementById('nv-propriedade').value = 'PARTICULAR';
         document.getElementById('nv-re-dono').value = '';
         document.getElementById('nv-dono-nome').textContent = '';
+        document.getElementById('nv-dono-auto-aviso').style.display = 'none';
         document.getElementById('nv-tipo').value = 'CARRO';
         document.getElementById('nv-cor').value = '';
         document.getElementById('nv-marca-modelo').value = '';
@@ -648,8 +649,10 @@ function atualizarCamposPropriedadeNv() {
 async function resolverDonoPorRe() {
     const re = document.getElementById('nv-re-dono').value.trim();
     const nomeEl = document.getElementById('nv-dono-nome');
+    const avisoEl = document.getElementById('nv-dono-auto-aviso');
     donoResolvidoId = null;
     nomeEl.textContent = '';
+    avisoEl.style.display = 'none';
     if (re.length < 2) return;
     try {
         const resultados = await apiGet(`/portaria/funcionarios/busca?q=${encodeURIComponent(re)}`);
@@ -658,6 +661,9 @@ async function resolverDonoPorRe() {
             donoResolvidoId = exato.id;
             nomeEl.textContent = exato.nome;
             nomeEl.style.color = 'var(--accent3)';
+            // Bloco D: dono com função de gestão (funcao.veiculo_auto_autorizado)
+            // não passa por PENDENTE — avisar antes de salvar.
+            avisoEl.style.display = exato.auto_autorizado ? 'block' : 'none';
         } else if (resultados.length > 0) {
             nomeEl.textContent = `${resultados.length} funcionário(s) encontrados — digite o RE completo`;
             nomeEl.style.color = 'var(--muted)';

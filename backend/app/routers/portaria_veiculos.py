@@ -21,7 +21,7 @@ from sqlalchemy.orm import Session
 from app.core.database import get_db
 from app.core.deps import exige
 from app.core.placa import placa_valida
-from app.models.cadastro import Funcionario
+from app.models.cadastro import Funcao, Funcionario, FuncionarioFuncao
 from app.models.portaria import Credencial, EmpresaTerceira, VeiculoPortaria, VeiculoSituacaoHist
 from app.schemas.portaria import (
     BloquearPorReRequest, BloquearPorReResponse, CredencialEmitirRequest,
@@ -41,6 +41,25 @@ LeituraCadastro = Annotated[Funcionario, Depends(exige("veiculo_portaria"))]
 EscritaCadastro = Annotated[Funcionario, Depends(exige("veiculo_portaria", escrever=True))]
 LeituraAutorizacao = Annotated[Funcionario, Depends(exige("autorizacao_veicular"))]
 EscritaAutorizacao = Annotated[Funcionario, Depends(exige("autorizacao_veicular", escrever=True))]
+
+
+# Bloco D (migration 035): quem tem função com veiculo_auto_autorizado=TRUE
+# responde pelo próprio carro — veículo PARTICULAR nasce AUTORIZADO. Regra é
+# dado (funcao.veiculo_auto_autorizado), este helper só lê.
+def _funcionarios_auto_autorizados(funcionario_ids: set[UUID], db: Session) -> set[UUID]:
+    if not funcionario_ids:
+        return set()
+    return set(
+        db.execute(
+            select(FuncionarioFuncao.funcionario_id)
+            .join(Funcao, Funcao.id == FuncionarioFuncao.funcao_id)
+            .where(
+                FuncionarioFuncao.funcionario_id.in_(funcionario_ids),
+                FuncionarioFuncao.ativo.is_(True),
+                Funcao.veiculo_auto_autorizado.is_(True),
+            )
+        ).scalars().all()
+    )
 
 
 # ============================================================================
@@ -75,7 +94,11 @@ def buscar_funcionario_portaria(
         .order_by(Funcionario.nome)
         .limit(10)
     ).scalars().all()
-    return [FuncionarioPortariaBusca(id=f.id, re=f.re, nome=f.nome) for f in funcionarios]
+    autorizados = _funcionarios_auto_autorizados({f.id for f in funcionarios}, db)
+    return [
+        FuncionarioPortariaBusca(id=f.id, re=f.re, nome=f.nome, auto_autorizado=f.id in autorizados)
+        for f in funcionarios
+    ]
 
 
 @router.get("/veiculos", response_model=list[VeiculoRead], summary="Lista veículos cadastrados")
@@ -111,7 +134,7 @@ def listar_veiculos(
     "/veiculos",
     response_model=VeiculoRead,
     status_code=status.HTTP_201_CREATED,
-    summary="Cadastra veículo — nasce PENDENTE, quem cadastra não autoriza (D6)",
+    summary="Cadastra veículo — PENDENTE, salvo dono com função de gestão (D6, Bloco D)",
 )
 def cadastrar_veiculo(payload: VeiculoCreate, usuario: EscritaCadastro, db: Annotated[Session, Depends(get_db)]):
     if payload.funcionario_id and db.get(Funcionario, payload.funcionario_id) is None:
@@ -124,6 +147,17 @@ def cadastrar_veiculo(payload: VeiculoCreate, usuario: EscritaCadastro, db: Anno
     if exige_hodometro is None:
         exige_hodometro = payload.propriedade == "EMPRESA"
 
+    # Bloco D (migration 035): dono PARTICULAR com função de gestão responde
+    # pelo próprio carro — nasce AUTORIZADO em vez de PENDENTE. Continua
+    # sendo o único valor inicial decidido aqui; PATCH /veiculos/{id} (dados
+    # cadastrais) e PATCH /veiculos/{id}/situacao (D6) não mudam.
+    agora = datetime.now(timezone.utc)
+    auto_autorizado = (
+        payload.propriedade == "PARTICULAR"
+        and payload.funcionario_id is not None
+        and payload.funcionario_id in _funcionarios_auto_autorizados({payload.funcionario_id}, db)
+    )
+
     novo = VeiculoPortaria(
         propriedade=payload.propriedade,
         funcionario_id=payload.funcionario_id,
@@ -133,12 +167,30 @@ def cadastrar_veiculo(payload: VeiculoCreate, usuario: EscritaCadastro, db: Anno
         marca_modelo=payload.marca_modelo,
         cor=payload.cor,
         exige_hodometro=exige_hodometro,
-        situacao="PENDENTE",
+        situacao="AUTORIZADO" if auto_autorizado else "PENDENTE",
         observacao=payload.observacao,
         placa_atipica=not placa_valida(payload.placa),
         criado_por=usuario.id,
     )
+    if auto_autorizado:
+        novo.situacao_por = payload.funcionario_id
+        novo.situacao_em = agora
+        novo.situacao_motivo = "Autorização automática por função de gestão"
+
     db.add(novo)
+    db.flush()
+
+    if auto_autorizado:
+        # Auditoria não pode ter buraco só porque a autorização foi
+        # automática — mesmo histórico que o PATCH /situacao grava.
+        db.add(VeiculoSituacaoHist(
+            veiculo_id=novo.id,
+            situacao_de=None,
+            situacao_para="AUTORIZADO",
+            motivo=novo.situacao_motivo,
+            decidido_por=payload.funcionario_id,
+        ))
+
     db.commit()
     db.refresh(novo)
     return veiculo_read(novo, db)
