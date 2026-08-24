@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<!--
+  Sistema de Gestão Operacional Sambaíba — V3
+  Suite Fiscalização — Registro do fiscal em campo (Bloco D)
+  Desenvolvido por Alisson Martins
+  © 2026 — Todos os direitos reservados
+-->
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="theme-color" content="#0a0a0a">
+    <title>Fiscal — Fiscalização — Sambaíba V3</title>
+
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700;800&family=Barlow+Condensed:wght@400;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="assets/css/style.css">
+</head>
+<body>
+
+<header class="app-header">
+    <div class="app-header-brand">
+        <img class="app-header-logo" src="assets/img/sambaiba-logo.jpg" alt="Eu amo Sambaíba">
+        <div class="app-header-titles">
+            <div class="app-header-empresa">Sambaíba</div>
+            <div class="app-header-title">FISCALIZAÇÃO</div>
+        </div>
+    </div>
+
+    <div class="app-header-user">
+        <div class="app-user-info">
+            <div class="app-user-name" id="user-name">—</div>
+            <div class="app-user-meta" id="user-meta">—</div>
+        </div>
+        <button class="btn-logout" id="btn-logout" title="Sair">Sair</button>
+    </div>
+</header>
+
+<nav class="app-nav"></nav>
+<script type="module" src="./assets/js/nav.js"></script>
+
+<main class="patio-main">
+
+    <!-- D3 — o medidor de prontidão, sempre visível quando há turno aberto -->
+    <div class="fis-prontidao" id="fis-prontidao" style="display:none"></div>
+
+    <div id="fis-erro" style="display:none;color:var(--accent);font-size:0.85rem;margin-bottom:10px"></div>
+
+    <!-- ================================================================ -->
+    <!-- ABERTURA DE TURNO — três toques (D37/D8/D11)                       -->
+    <!-- ================================================================ -->
+    <section id="fis-abertura">
+
+        <div id="fis-passo-ponto">
+            <h2 class="patio-section-title" style="margin-bottom:10px">Escolha o ponto</h2>
+            <div id="fis-lista-pontos"><div class="patio-loading">Carregando…</div></div>
+            <button type="button" class="btn btn-ghost btn-full" id="fis-btn-novo-ponto">+ Cadastrar ponto</button>
+        </div>
+
+        <div id="fis-passo-periodo" style="display:none">
+            <h2 class="patio-section-title" style="margin-bottom:10px">Período</h2>
+            <div class="fis-btn-grande-row">
+                <button type="button" class="fis-btn-grande" data-periodo="1">1º</button>
+                <button type="button" class="fis-btn-grande" data-periodo="2">2º</button>
+            </div>
+        </div>
+
+        <div id="fis-passo-linhas" style="display:none">
+            <h2 class="patio-section-title" style="margin-bottom:10px">Linhas de hoje</h2>
+            <p style="color:var(--muted);font-size:0.8rem;margin-bottom:10px">Todas marcadas por padrão — toque pra desmarcar as que você não vai cobrir.</p>
+            <div class="recolhida-chips fis-linhas-checklist" id="fis-linhas-checklist"></div>
+            <button type="button" class="btn btn-primary btn-full" id="fis-btn-abrir-turno">Abrir turno</button>
+        </div>
+
+    </section>
+
+    <!-- ================================================================ -->
+    <!-- TURNO ABERTO — abas por linha (D11)                                -->
+    <!-- ================================================================ -->
+    <section id="fis-turno" style="display:none">
+        <div class="oc-tabs" id="fis-tabs"></div>
+        <div id="fis-tab-panels"></div>
+
+        <div class="fis-rodape-fixo">
+            <button type="button" class="btn btn-primary btn-full" id="fis-btn-anormalidade" style="margin-top:0">+ ANORMALIDADE</button>
+            <div class="fis-acoes-secundarias">
+                <button type="button" class="btn btn-ghost" id="fis-btn-observacao">+ OBSERVAÇÃO</button>
+                <button type="button" class="btn btn-ghost" id="fis-btn-fechar-turno">FECHAR TURNO</button>
+            </div>
+        </div>
+    </section>
+
+</main>
+
+<!-- ===================================================================== -->
+<!-- MODAL — cadastrar ponto (D37)                                          -->
+<!-- ===================================================================== -->
+<div class="modal-overlay" id="fis-modal-ponto">
+    <div class="modal">
+        <button type="button" class="modal-close" id="fis-modal-ponto-fechar" aria-label="Fechar">&times;</button>
+        <div class="modal-title">Cadastrar ponto</div>
+        <div class="form-group">
+            <label class="form-label" for="fis-ponto-codigo">Código</label>
+            <input type="text" class="form-input" id="fis-ponto-codigo" placeholder="ex.: PQ_TERMINAL">
+        </div>
+        <div class="form-group">
+            <label class="form-label" for="fis-ponto-nome">Nome</label>
+            <input type="text" class="form-input" id="fis-ponto-nome" placeholder="ex.: Terminal Sacomã">
+        </div>
+        <div class="form-group">
+            <label class="form-label">Terminal</label>
+            <div class="recolhida-chips" id="fis-ponto-terminal">
+                <button type="button" class="recolhida-chip active" data-terminal="TP">TP</button>
+                <button type="button" class="recolhida-chip" data-terminal="TS">TS</button>
+            </div>
+        </div>
+        <div class="form-group">
+            <label class="form-label" for="fis-ponto-linhas">Linhas (uma por linha de texto)</label>
+            <textarea class="form-input form-textarea" id="fis-ponto-linhas" rows="4" placeholder="1726-10&#10;2032-10"></textarea>
+        </div>
+        <div id="fis-ponto-erro" style="display:none;color:var(--accent);font-size:0.85rem;margin-bottom:8px"></div>
+        <div class="btn-modal-stack">
+            <button type="button" class="btn btn-primary btn-full" id="fis-ponto-salvar">Cadastrar</button>
+            <button type="button" class="btn btn-ghost btn-full" id="fis-ponto-cancelar">Cancelar</button>
+        </div>
+    </div>
+</div>
+
+<!-- ===================================================================== -->
+<!-- MODAL — anormalidade (a tela mais usada do módulo)                     -->
+<!-- ===================================================================== -->
+<div class="modal-overlay" id="fis-modal-anormalidade">
+    <div class="modal">
+        <button type="button" class="modal-close" id="fis-modal-anormalidade-fechar" aria-label="Fechar">&times;</button>
+        <div class="modal-title">Anormalidade — linha <span id="fis-anorm-linha-label"></span></div>
+
+        <div class="form-group">
+            <label class="form-label">Tipo</label>
+            <div class="fis-motivo-grid" id="fis-anorm-motivos">
+                <button type="button" class="fis-motivo-btn" data-motivo="FALTA_OPERADORES">FALTA DE<br>OPERADORES</button>
+                <button type="button" class="fis-motivo-btn" data-motivo="RA">R.A</button>
+                <button type="button" class="fis-motivo-btn" data-motivo="SOS">S.O.S</button>
+                <button type="button" class="fis-motivo-btn" data-motivo="ATRASO_GARAGEM">ATRASO DE<br>GARAGEM</button>
+                <button type="button" class="fis-motivo-btn" data-motivo="TROCA_OPERACIONAL">TROCA<br>OPERACIONAL</button>
+                <button type="button" class="fis-motivo-btn" data-motivo="VIAGEM_EXTRA">VIAGEM<br>EXTRA</button>
+                <button type="button" class="fis-motivo-btn" data-motivo="OUTRO" style="grid-column:1/-1">OUTRO</button>
+            </div>
+        </div>
+
+        <div class="form-group">
+            <label class="form-label" for="fis-anorm-hora">Hora</label>
+            <input type="time" class="form-input" id="fis-anorm-hora">
+        </div>
+
+        <div class="form-group">
+            <label class="form-label" for="fis-anorm-tabela">Tabela (opcional)</label>
+            <input type="number" class="form-input" id="fis-anorm-tabela" min="1" inputmode="numeric" placeholder="ex.: 8">
+        </div>
+
+        <div class="form-group" id="fis-anorm-viagem-campo">
+            <label class="form-label">Custou viagem?</label>
+            <div class="fis-viagem-row">
+                <button type="button" class="fis-viagem-btn fis-viagem-sim" data-viagem="sim">Sim, viagem perdida</button>
+                <button type="button" class="fis-viagem-btn fis-viagem-nao" data-viagem="nao">Não, só ocorrência</button>
+            </div>
+        </div>
+
+        <div class="form-group" id="fis-anorm-prefixo-campo" style="display:none">
+            <label class="form-label" for="fis-anorm-prefixo">Prefixo</label>
+            <input type="text" class="form-input" id="fis-anorm-prefixo" inputmode="numeric" placeholder="ex.: 1721">
+        </div>
+
+        <div class="form-group" id="fis-anorm-re-campo" style="display:none">
+            <label class="form-label" for="fis-anorm-re">RE do operador</label>
+            <input type="text" class="form-input" id="fis-anorm-re" inputmode="numeric">
+        </div>
+
+        <div class="form-group">
+            <label class="form-label" for="fis-anorm-observacao">Observação<span id="fis-anorm-obs-obrigatoria" style="display:none;color:var(--accent)"> (obrigatória)</span></label>
+            <textarea class="form-input form-textarea" id="fis-anorm-observacao" rows="2"></textarea>
+        </div>
+
+        <div id="fis-anorm-erro" style="display:none;color:var(--accent);font-size:0.85rem;margin-bottom:8px"></div>
+        <div class="btn-modal-stack">
+            <button type="button" class="btn btn-primary btn-full" id="fis-anorm-salvar">Registrar</button>
+            <button type="button" class="btn btn-ghost btn-full" id="fis-anorm-cancelar">Cancelar</button>
+        </div>
+    </div>
+</div>
+
+<!-- ===================================================================== -->
+<!-- MODAL — observação livre (D5, escape hatch)                            -->
+<!-- ===================================================================== -->
+<div class="modal-overlay" id="fis-modal-observacao">
+    <div class="modal">
+        <button type="button" class="modal-close" id="fis-modal-observacao-fechar" aria-label="Fechar">&times;</button>
+        <div class="modal-title">Observação</div>
+        <div class="form-group">
+            <label class="form-label" for="fis-obs-linha">Linha (opcional)</label>
+            <select class="form-select" id="fis-obs-linha"></select>
+        </div>
+        <div class="form-group">
+            <label class="form-label" for="fis-obs-tabela">Tabela (opcional)</label>
+            <input type="number" class="form-input" id="fis-obs-tabela" min="1" inputmode="numeric">
+        </div>
+        <div class="form-group">
+            <label class="form-label" for="fis-obs-hora">Hora (opcional)</label>
+            <input type="time" class="form-input" id="fis-obs-hora">
+        </div>
+        <div class="form-group">
+            <label class="form-label" for="fis-obs-texto">Texto</label>
+            <textarea class="form-input form-textarea" id="fis-obs-texto" rows="3" autofocus></textarea>
+        </div>
+        <div id="fis-obs-erro" style="display:none;color:var(--accent);font-size:0.85rem;margin-bottom:8px"></div>
+        <div class="btn-modal-stack">
+            <button type="button" class="btn btn-primary btn-full" id="fis-obs-salvar">Salvar</button>
+            <button type="button" class="btn btn-ghost btn-full" id="fis-obs-cancelar">Cancelar</button>
+        </div>
+    </div>
+</div>
+
+<!-- ===================================================================== -->
+<!-- MODAL — fechar turno (a folha do fechamento)                           -->
+<!-- ===================================================================== -->
+<div class="modal-overlay" id="fis-modal-fechar">
+    <div class="modal">
+        <button type="button" class="modal-close" id="fis-modal-fechar-fechar" aria-label="Fechar">&times;</button>
+        <div class="modal-title">Fechar turno</div>
+
+        <div class="fis-prontidao" id="fis-fechar-prontidao" style="position:static"></div>
+
+        <h3 class="patio-section-title" style="font-size:14px;margin:16px 0 8px">Contagem por linha</h3>
+        <div id="fis-fechar-contagem"></div>
+
+        <h3 class="patio-section-title" style="font-size:14px;margin:16px 0 8px">Sua refeição (D15)</h3>
+        <div class="oc-grid" style="margin-bottom:8px">
+            <div class="form-group">
+                <label class="form-label" for="fis-fechar-refeicao-inicio">Início</label>
+                <input type="time" class="form-input" id="fis-fechar-refeicao-inicio">
+            </div>
+            <div class="form-group">
+                <label class="form-label" for="fis-fechar-refeicao-fim">Fim</label>
+                <input type="time" class="form-input" id="fis-fechar-refeicao-fim">
+            </div>
+        </div>
+
+        <h3 class="patio-section-title" style="font-size:14px;margin:16px 0 8px">BAITA e ANTI-BAITA (D13)</h3>
+        <div id="fis-fechar-baita"></div>
+
+        <h3 class="patio-section-title" style="font-size:14px;margin:16px 0 8px">Pastas TP/TS (D14)</h3>
+        <div class="form-group">
+            <label class="form-label" for="fis-fechar-pastas">Prefixo do carro (opcional)</label>
+            <input type="text" class="form-input" id="fis-fechar-pastas" inputmode="numeric">
+        </div>
+
+        <div id="fis-fechar-erro" style="display:none;color:var(--accent);font-size:0.85rem;margin:8px 0"></div>
+        <button type="button" class="btn btn-primary btn-full" id="fis-fechar-gerar">GERAR FECHAMENTO</button>
+
+        <div id="fis-fechar-mensagens" style="margin-top:16px"></div>
+
+        <div class="btn-modal-stack">
+            <button type="button" class="btn btn-primary btn-full" id="fis-fechar-concluir" style="display:none">Concluir — turno fechado</button>
+            <button type="button" class="btn btn-ghost btn-full" id="fis-fechar-cancelar">Fechar esta janela</button>
+        </div>
+    </div>
+</div>
+
+<script type="module" src="./assets/js/fiscal.page.js"></script>
+</body>
+</html>

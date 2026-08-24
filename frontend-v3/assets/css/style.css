@@ -3628,3 +3628,265 @@ body.modal-open {
     color: #0a0a0a;
     font-weight: 700;
 }
+
+/* ============================================================
+   FISCALIZAÇÃO — tela do fiscal (Bloco D)
+   Regra de ouro: marcar cabe num toque, com uma mão, sem tirar o
+   olho da rua. Alvo de toque mínimo 44×44px em tudo abaixo, nada
+   depende de :hover, testado em 360/390/414px.
+   ============================================================ */
+
+.fis-prontidao {
+    position: sticky;
+    top: 0;
+    z-index: 5;
+    padding: 10px 14px;
+    border-radius: 8px;
+    font-size: 13px;
+    font-family: var(--mono);
+    margin-bottom: 14px;
+    border: 1px solid var(--border);
+    background: var(--surface2);
+    color: var(--text);
+}
+
+.fis-prontidao-pronto {
+    background: rgba(16, 185, 129, 0.12);
+    border-color: var(--accent3);
+    color: var(--accent3);
+}
+
+.fis-prontidao-pendente {
+    background: rgba(204, 31, 31, 0.12);
+    border-color: var(--accent);
+    color: var(--text);
+}
+
+.fis-ponto-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    min-height: 56px;
+    padding: 12px 16px;
+    margin-bottom: 8px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    cursor: pointer;
+}
+
+.fis-ponto-item:active { background: var(--surface2); }
+.fis-ponto-nome { font-weight: 700; }
+.fis-ponto-sub { color: var(--muted); font-size: 12px; font-family: var(--mono); }
+
+.fis-btn-grande-row {
+    display: flex;
+    gap: 10px;
+    margin: 10px 0 18px;
+}
+
+.fis-btn-grande {
+    flex: 1;
+    min-height: 56px;
+    border-radius: 10px;
+    border: 1px solid var(--border);
+    background: var(--surface2);
+    color: var(--text);
+    font-family: var(--display);
+    font-weight: 800;
+    font-size: 20px;
+    letter-spacing: 0.5px;
+    cursor: pointer;
+}
+
+.fis-btn-grande.active {
+    background: var(--accent3);
+    border-color: var(--accent3);
+    color: #0a0a0a;
+}
+
+.fis-linhas-checklist .recolhida-chip {
+    min-height: 44px;
+    display: inline-flex;
+    align-items: center;
+}
+
+.fis-tab-badge {
+    display: inline-block;
+    min-width: 18px;
+    padding: 1px 5px;
+    margin-left: 6px;
+    border-radius: 999px;
+    background: var(--accent);
+    color: #fff;
+    font-size: 11px;
+    font-weight: 800;
+}
+
+.fis-card-horario {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 14px;
+    margin-bottom: 10px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+}
+
+.fis-card-horario.fis-atrasada {
+    border-color: var(--accent);
+    background: rgba(204, 31, 31, 0.08);
+}
+
+.fis-card-info { flex: 1; min-width: 0; }
+
+.fis-card-hora {
+    font-family: var(--mono);
+    font-size: 26px;
+    font-weight: 800;
+    line-height: 1;
+}
+
+.fis-card-horario.fis-atrasada .fis-card-hora { color: var(--accent2); }
+
+.fis-card-meta { color: var(--muted); font-size: 12px; font-family: var(--mono); margin-top: 2px; }
+
+.fis-card-acoes { display: flex; gap: 8px; flex-shrink: 0; }
+
+.fis-btn-resultado {
+    min-width: 76px;
+    min-height: 44px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: var(--surface2);
+    color: var(--text);
+    font-family: var(--display);
+    font-weight: 700;
+    font-size: 13px;
+    text-transform: uppercase;
+    cursor: pointer;
+}
+
+.fis-btn-resultado.fis-saiu.active {
+    background: var(--accent3);
+    border-color: var(--accent3);
+    color: #0a0a0a;
+}
+
+.fis-btn-resultado.fis-nao-saiu.active {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: #fff;
+}
+
+.fis-registro-item {
+    padding: 12px 14px;
+    margin-bottom: 8px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+}
+
+.fis-rodape-fixo {
+    position: sticky;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    padding: 10px 0 4px;
+    margin-top: 16px;
+    background: linear-gradient(to top, var(--bg) 65%, transparent);
+    z-index: 6;
+}
+
+.fis-rodape-fixo .btn { min-height: 56px; font-size: 16px; }
+
+.fis-acoes-secundarias {
+    display: flex;
+    gap: 10px;
+    margin: 12px 0 24px;
+}
+
+.fis-acoes-secundarias .btn { flex: 1; min-height: 48px; }
+
+.fis-motivo-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 8px;
+    margin-top: 8px;
+}
+
+.fis-motivo-btn {
+    min-height: 52px;
+    padding: 8px;
+    border-radius: 10px;
+    border: 1px solid var(--border);
+    background: var(--surface2);
+    color: var(--text);
+    font-family: var(--display);
+    font-weight: 700;
+    font-size: 13px;
+    text-align: center;
+    cursor: pointer;
+}
+
+.fis-motivo-btn.active {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: #fff;
+}
+
+.fis-viagem-row { display: flex; gap: 10px; margin-top: 8px; }
+
+.fis-viagem-btn {
+    flex: 1;
+    min-height: 52px;
+    border-radius: 10px;
+    border: 1px solid var(--border);
+    background: var(--surface2);
+    color: var(--text);
+    font-family: var(--display);
+    font-weight: 700;
+    font-size: 13px;
+    cursor: pointer;
+}
+
+.fis-viagem-btn.fis-viagem-sim.active {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: #fff;
+}
+
+.fis-viagem-btn.fis-viagem-nao.active {
+    background: var(--accent3);
+    border-color: var(--accent3);
+    color: #0a0a0a;
+}
+
+.fis-campo-leitura {
+    min-height: 44px;
+    display: flex;
+    align-items: center;
+    padding: 10px 12px;
+    background: var(--surface2);
+    border-radius: 8px;
+    font-family: var(--mono);
+}
+
+.fis-campo-fonte {
+    color: var(--muted);
+    font-size: 11px;
+    font-family: var(--display);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-top: 2px;
+}
+
+.fis-linha-fechamento {
+    padding: 14px;
+    margin-bottom: 14px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+}
