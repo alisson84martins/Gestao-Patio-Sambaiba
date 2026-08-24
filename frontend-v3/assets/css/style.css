@@ -3630,6 +3630,67 @@ body.modal-open {
 }
 
 /* ============================================================
+   SELETOR DE LINHAS DO CATÁLOGO (linhas.seletor.js) — compartilhado
+   entre fiscal.html (cadastro de ponto, várias linhas) e
+   fiscal-painel.html (Minhas linhas, uma linha). Mesma regra de toque
+   44×44px, rolagem própria dentro do modal (não depende do scroll do
+   .modal em volta).
+   ============================================================ */
+.linhas-seletor-lista {
+    max-height: 45vh;
+    max-height: 45dvh;
+    overflow-y: auto;
+    margin-top: 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 6px;
+}
+
+.linhas-seletor-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-height: 44px;
+    padding: 8px 12px;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    color: var(--text);
+    font-family: var(--display);
+    text-align: left;
+    cursor: pointer;
+}
+
+.linhas-seletor-item.active {
+    background: var(--accent3);
+    border-color: var(--accent3);
+    color: #0a0a0a;
+    font-weight: 700;
+}
+
+.linhas-seletor-codigo {
+    font-family: var(--mono);
+    font-weight: 700;
+    flex-shrink: 0;
+}
+
+.linhas-seletor-nome {
+    color: var(--muted);
+    font-size: 12px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.linhas-seletor-item.active .linhas-seletor-nome {
+    color: #0a0a0a;
+    opacity: 0.75;
+}
+
+/* ============================================================
    FISCALIZAÇÃO — tela do fiscal (Bloco D)
    Regra de ouro: marcar cabe num toque, com uma mão, sem tirar o
    olho da rua. Alvo de toque mínimo 44×44px em tudo abaixo, nada
