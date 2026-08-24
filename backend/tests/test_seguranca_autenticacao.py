@@ -251,12 +251,12 @@ class _FakeResultAdmin:
 
 
 def test_endpoint_de_troca_de_senha_existe_no_path_esperado():
-    rota = [
-        r for r in app.routes
-        if getattr(r, "path", "") == "/funcionarios/{funcionario_id}/login/senha"
-    ]
-    assert len(rota) == 1
-    assert "PATCH" in rota[0].methods
+    """⚠️ Pelo OpenAPI, não por app.routes — ver a nota do mesmo assunto em
+    test_fiscalizacao.py::test_app_registra_rotas_fiscalizacao: o FastAPI
+    novo não expande mais include_router() dentro de app.routes."""
+    operacoes = app.openapi()["paths"].get("/funcionarios/{funcionario_id}/login/senha")
+    assert operacoes is not None
+    assert "patch" in operacoes
 
 
 def test_trocar_senha_autoatendimento_com_senha_atual_correta_funciona():
