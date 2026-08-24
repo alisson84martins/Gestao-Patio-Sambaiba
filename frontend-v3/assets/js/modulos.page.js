@@ -8,7 +8,7 @@
  */
 
 import { requireAuth, getCurrentUser, logout } from './auth.js';
-import { modulos, paginaModulo } from './sessao.js';
+import { modulos, paginaModulo, setModuloAtual } from './sessao.js';
 
 if (!requireAuth()) throw new Error('Não autenticado');
 
@@ -58,6 +58,11 @@ function renderCards() {
         const card = document.createElement('a');
         card.className = 'modulo-card';
         card.href = paginaModulo(m.modulo);
+        // Grava a escolha ANTES de navegar — antes só o login gravava
+        // (destinoAposLogin), então quem trocava de módulo por aqui saía
+        // com moduloAtual() apontando pro módulo antigo, e a barra de
+        // navegação (nav.js) filtrava errado até o próximo login.
+        card.addEventListener('click', () => setModuloAtual(m.modulo));
 
         const nome = document.createElement('div');
         nome.className = 'modulo-card-nome';

@@ -6,7 +6,15 @@
  * duplicava, mais o <script> inline que só cuidava de revelar "Cadastros"
  * pra ADMIN — ele não escalava pras 4 funções que agora existem.
  *
- * Um link só aparece se a pessoa tiver leitura no recurso correspondente.
+ * Um link só aparece se a pessoa tiver leitura no recurso correspondente
+ * E o link pertencer ao módulo da PÁGINA ATUAL — não ao módulo salvo em
+ * localStorage (moduloAtual()), que envelhece: quem abre uma página por
+ * favorito/link direto não passou por modulos.html nem pela troca de
+ * módulo, então localStorage podia estar apontando pro módulo errado (ou
+ * vazio) e a barra saía com os 16 links de quem tem tudo (ADMIN), quebrando
+ * em duas linhas. Derivar do próprio arquivo HTML aberto é sempre
+ * verdadeiro, nunca fica desatualizado.
+ *
  * Quem tem mais de um módulo ganha um link extra pra voltar à tela de
  * seleção e trocar.
  */
@@ -14,38 +22,59 @@
 import { podeEscrever, podeLer, modulos } from './sessao.js';
 import './modal.util.js';
 
+// Página -> módulo dono da barra nesta tela. Cobre toda página que
+// renderiza <nav class="app-nav"> (conferido em 23/08: 16 páginas, exatas
+// às deste mapa). `ativo` é só pra páginas que não têm link próprio na
+// LINKS abaixo mas devem acender o link de outra — caso de
+// ocorrencia-form.html, que abre a partir de "Ocorrências".
+const PAGINAS = {
+    'patio.html':                  { modulo: 'PATIO' },
+    'remanejamento.html':          { modulo: 'PATIO' },
+    'alertas.html':                { modulo: 'PATIO' },
+    'manutencao.html':             { modulo: 'PATIO' },
+    'importacao.html':             { modulo: 'PATIO' },
+    'ocorrencias.html':            { modulo: 'COORDENADORIA' },
+    'ocorrencia-form.html':        { modulo: 'COORDENADORIA', ativo: 'ocorrencias.html' },
+    'pre-ocorrencias.html':        { modulo: 'COORDENADORIA' },
+    'fiscal-painel.html':          { modulo: 'FISCALIZACAO' },
+    'portaria.html':               { modulo: 'PORTARIA' },
+    'portaria-veiculos.html':      { modulo: 'PORTARIA' },
+    'portaria-consulta.html':      { modulo: 'PORTARIA' },
+    'portaria-recolhida.html':     { modulo: 'PORTARIA' },
+    'cadastros.html':              { modulo: 'ADMINISTRACAO' },
+    'permissoes.html':             { modulo: 'ADMINISTRACAO' },
+};
+
 const LINKS = [
-    { href: 'patio.html', texto: 'Pátio', recurso: 'alocacao' },
-    { href: 'remanejamento.html', texto: 'Remanejamento', recurso: 'alocacao' },
-    { href: 'alertas.html', texto: 'Alertas', recurso: 'alerta' },
-    { href: 'manutencao.html', texto: 'Manutenção', recurso: 'manutencao' },
-    { href: 'importacao.html', texto: 'Importação', recurso: 'escala' },
-    { href: 'ocorrencias.html', texto: 'Ocorrências', recurso: 'ocorrencia' },
+    { href: 'patio.html', texto: 'Pátio', recurso: 'alocacao', modulo: 'PATIO' },
+    { href: 'remanejamento.html', texto: 'Remanejamento', recurso: 'alocacao', modulo: 'PATIO' },
+    { href: 'alertas.html', texto: 'Alertas', recurso: 'alerta', modulo: 'PATIO' },
+    { href: 'manutencao.html', texto: 'Manutenção', recurso: 'manutencao', modulo: 'PATIO' },
+    { href: 'importacao.html', texto: 'Importação', recurso: 'escala', modulo: 'PATIO' },
+    { href: 'ocorrencias.html', texto: 'Ocorrências', recurso: 'ocorrencia', modulo: 'COORDENADORIA' },
     // CCO só tem pode_escrever em pre_ocorrencia (abre/roteia, nunca lê
     // conteúdo — decisão 4) — qualquerAcesso mostra o link pra quem tem
     // ler OU escrever, não só ler como os outros.
-    { href: 'pre-ocorrencias.html', texto: 'Pré-ocorrências', recurso: 'pre_ocorrencia', qualquerAcesso: true },
-    { href: 'cadastros.html', texto: 'Cadastros', recurso: 'usuarios' },
-    { href: 'permissoes.html', texto: 'Permissões', recurso: 'usuarios' },
+    { href: 'pre-ocorrencias.html', texto: 'Pré-ocorrências', recurso: 'pre_ocorrencia', qualquerAcesso: true, modulo: 'COORDENADORIA' },
+    { href: 'cadastros.html', texto: 'Cadastros', recurso: 'usuarios', modulo: 'ADMINISTRACAO' },
+    { href: 'permissoes.html', texto: 'Permissões', recurso: 'usuarios', modulo: 'ADMINISTRACAO' },
     // Módulo Portaria (migration 024) — cada link só aparece com podeLer()
     // no recurso, igual aos demais. Não usar qualquerAcesso aqui: esse
     // parâmetro existe pro CCO, que escreve sem ler; não é o caso do
     // controlador de acesso.
-    { href: 'portaria.html', texto: 'Portaria', recurso: 'acesso_veicular' },
-    { href: 'portaria-veiculos.html', texto: 'Veículos', recurso: 'veiculo_portaria' },
-    { href: 'portaria-consulta.html', texto: 'Histórico', recurso: 'acesso_veicular' },
-    // Bloco F (migration 026) — os dois usam o mesmo recurso mas servem
-    // gente diferente: Recolhida é o registro do controlador, Fila é a
-    // avaliação da manutenção (+ análise gerencial, se a pessoa tiver
-    // recolhida_gerencial). Rótulos registrados como pergunta em aberto no
-    // handoff — ver §4.2 do prompt.
-    { href: 'portaria-recolhida.html', texto: 'Recolhida', recurso: 'recolhida_anormal' },
-    { href: 'manutencao-recolhidas.html', texto: 'Fila de Recolhidas', recurso: 'recolhida_anormal' },
+    { href: 'portaria.html', texto: 'Portaria', recurso: 'acesso_veicular', modulo: 'PORTARIA' },
+    { href: 'portaria-veiculos.html', texto: 'Veículos', recurso: 'veiculo_portaria', modulo: 'PORTARIA' },
+    { href: 'portaria-consulta.html', texto: 'Histórico', recurso: 'acesso_veicular', modulo: 'PORTARIA' },
+    // Bloco F (migration 026) — registro do controlador. A avaliação da
+    // manutenção virou aba "RA" dentro de manutencao.html (Fase 3 do
+    // prompt de 23/08) — "Fila de Recolhidas" não é mais página própria,
+    // por isso não tem entrada aqui.
+    { href: 'portaria-recolhida.html', texto: 'Recolhida', recurso: 'recolhida_anormal', modulo: 'PORTARIA' },
     // Fiscalização, Bloco E (migration 030) — painel do coordenador. O
     // fiscal não tem fiscalizacao_painel (D — só registra, não vê
     // agregado), então nunca vê este link. fiscal.html (Bloco D) ainda
     // não existe e não entra aqui.
-    { href: 'fiscal-painel.html', texto: 'Fiscalização', recurso: 'fiscalizacao_painel' },
+    { href: 'fiscal-painel.html', texto: 'Fiscalização', recurso: 'fiscalizacao_painel', modulo: 'FISCALIZACAO' },
 ];
 
 export function initNav() {
@@ -53,6 +82,8 @@ export function initNav() {
     if (!nav) return;
 
     const paginaAtual = location.pathname.split('/').pop() || 'patio.html';
+    const paginaAtiva = PAGINAS[paginaAtual]?.ativo ?? paginaAtual;
+    const moduloDaPagina = PAGINAS[paginaAtual]?.modulo ?? null;
     nav.innerHTML = '';
 
     for (const link of LINKS) {
@@ -60,9 +91,14 @@ export function initNav() {
             ? (podeLer(link.recurso) || podeEscrever(link.recurso))
             : podeLer(link.recurso);
         if (!temAcesso) continue;
+        // Só filtra por módulo quando a página atual está mapeada. Página
+        // fora do mapa (esquecimento, página nova) cai no comportamento de
+        // antes — mostra todo link com acesso, sem filtrar. Melhor
+        // mostrar link demais do que deixar alguém sem navegação.
+        if (moduloDaPagina && link.modulo !== moduloDaPagina) continue;
         const a = document.createElement('a');
         a.href = link.href;
-        a.className = 'app-nav-link' + (link.href === paginaAtual ? ' active' : '');
+        a.className = 'app-nav-link' + (link.href === paginaAtiva ? ' active' : '');
         a.textContent = link.texto;
         nav.appendChild(a);
     }
