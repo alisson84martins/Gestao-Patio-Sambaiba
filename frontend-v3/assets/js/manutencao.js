@@ -168,12 +168,32 @@ function setFooter(online, msg) {
 /* ------------------------------------------------------------------ */
 
 function initFiltros() {
-    document.querySelectorAll('.filtro-btn').forEach(btn => {
+    document.querySelectorAll('.filtro-btn[data-filtro]').forEach(btn => {
         btn.addEventListener('click', () => {
-            document.querySelectorAll('.filtro-btn').forEach(b => b.classList.remove('active'));
+            document.querySelectorAll('.filtro-btn[data-filtro]').forEach(b => b.classList.remove('active'));
             btn.classList.add('active');
             filtroAtivo = btn.dataset.filtro;
             renderFichas(fichas);
+        });
+    });
+}
+
+/* ------------------------------------------------------------------ */
+/*  ABAS — Fichas / RA                                                  */
+/* ------------------------------------------------------------------ */
+/**
+ * Alterna entre as abas (mesmo padrão .oc-tabs/.oc-tab-section de
+ * ocorrencia-form.html e portaria-veiculos.html). A aba RA é gerenciada
+ * (mostrada/escondida, carregada) por manutencao.recolhidas.js — aqui só
+ * troca qual <section> fica visível.
+ */
+function initTabs() {
+    document.querySelectorAll('#manut-tabs .filtro-btn[data-tab]').forEach(btn => {
+        btn.addEventListener('click', () => {
+            document.querySelectorAll('#manut-tabs .filtro-btn[data-tab]').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            document.querySelectorAll('.oc-tab-section').forEach(s => s.classList.remove('active'));
+            document.getElementById(`tab-${btn.dataset.tab}`).classList.add('active');
         });
     });
 }
@@ -607,6 +627,7 @@ async function carregarFichas() {
 const POLL_INTERVALO_MS = 30_000;
 
 initHeader();
+initTabs();
 initFiltros();
 initModalNova();
 initModalAtualizar();

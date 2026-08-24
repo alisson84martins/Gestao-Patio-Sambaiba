@@ -40,34 +40,81 @@
 <script type="module" src="./assets/js/nav.js"></script>
 
 <main class="patio-main">
-    <!-- KPIs: contadores por status -->
-    <section class="stats-bar" aria-label="Indicadores de manutenção">
-        <div class="stat-card stat-card-warn">
-            <div class="stat-label">Abertas</div>
-            <div class="stat-value" id="stat-abertas">0</div>
-        </div>
-        <div class="stat-card">
-            <div class="stat-label">Em Andamento</div>
-            <div class="stat-value" id="stat-andamento">0</div>
-        </div>
-        <div class="stat-card">
-            <div class="stat-label">Concluídas</div>
-            <div class="stat-value" id="stat-concluidas">0</div>
-        </div>
-    </section>
 
-    <!-- Filtros + botão nova ficha -->
-    <div class="remanejo-filtros">
-        <button class="filtro-btn active" data-filtro="todas">Todas</button>
-        <button class="filtro-btn" data-filtro="aberta">Abertas</button>
-        <button class="filtro-btn" data-filtro="em_andamento">Em Andamento</button>
-        <button class="filtro-btn" data-filtro="concluida">Concluídas</button>
-        <button class="btn btn-primary" id="btn-nova-ficha" style="margin-left:auto">+ Nova Ficha</button>
+    <!-- Abas: Fichas (comportamento de sempre) e RA (Fase 4/23-08 — a Fila -->
+    <!-- de Recolhidas deixou de ser página própria e virou aba daqui).    -->
+    <!-- "RA" nasce escondida — manutencao.recolhidas.js revela pra quem   -->
+    <!-- tem leitura em recolhida_anormal; quem não tem, nunca vê a aba.   -->
+    <div class="oc-tabs" id="manut-tabs">
+        <button type="button" class="filtro-btn active" data-tab="fichas">Fichas</button>
+        <button type="button" class="filtro-btn" id="tab-btn-ra" data-tab="ra" style="display:none">RA</button>
     </div>
 
-    <!-- Lista de fichas -->
-    <section id="manut-lista" aria-live="polite">
-        <div class="patio-loading">Carregando fichas…</div>
+    <!-- ================================================================ -->
+    <!-- ABA FICHAS — tudo que a tela mostrava antes das abas               -->
+    <!-- ================================================================ -->
+    <section class="oc-tab-section active" id="tab-fichas">
+        <!-- KPIs: contadores por status -->
+        <section class="stats-bar" aria-label="Indicadores de manutenção">
+            <div class="stat-card stat-card-warn">
+                <div class="stat-label">Abertas</div>
+                <div class="stat-value" id="stat-abertas">0</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Em Andamento</div>
+                <div class="stat-value" id="stat-andamento">0</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Concluídas</div>
+                <div class="stat-value" id="stat-concluidas">0</div>
+            </div>
+        </section>
+
+        <!-- Filtros + botão nova ficha -->
+        <div class="remanejo-filtros">
+            <button class="filtro-btn active" data-filtro="todas">Todas</button>
+            <button class="filtro-btn" data-filtro="aberta">Abertas</button>
+            <button class="filtro-btn" data-filtro="em_andamento">Em Andamento</button>
+            <button class="filtro-btn" data-filtro="concluida">Concluídas</button>
+            <button class="btn btn-primary" id="btn-nova-ficha" style="margin-left:auto">+ Nova Ficha</button>
+        </div>
+
+        <!-- Lista de fichas -->
+        <section id="manut-lista" aria-live="polite">
+            <div class="patio-loading">Carregando fichas…</div>
+        </section>
+    </section>
+
+    <!-- ================================================================ -->
+    <!-- ABA RA — recolhidas anormais (Bloco F + G da Portaria). Avaliação -->
+    <!-- (AGUARDANDO) e encerramento (AVALIADA) — o fechamento do ciclo    -->
+    <!-- que faltava (migration 032).                                     -->
+    <!-- ================================================================ -->
+    <section class="oc-tab-section" id="tab-ra">
+
+        <div class="portaria-contador">
+            <div class="portaria-contador-numero" id="rec-contador-numero">—</div>
+            <div class="portaria-contador-label">Aguardando ação da manutenção</div>
+        </div>
+
+        <section class="portaria-secao">
+            <div class="portaria-secao-titulo">Em aberto</div>
+            <div id="rec-lista-abertas"><div class="patio-loading">Carregando…</div></div>
+        </section>
+
+        <section class="portaria-secao portaria-secao-apagada">
+            <div class="portaria-secao-titulo">Encerradas hoje</div>
+            <div id="rec-lista-encerradas"><div class="patio-loading">Carregando…</div></div>
+        </section>
+
+        <!-- Visão gerencial — só aparece se a API devolver os campos      -->
+        <!-- (recurso recolhida_gerencial); não é só esconder na tela.     -->
+        <section class="portaria-secao" id="secao-gerencial" style="display:none">
+            <div class="portaria-secao-titulo">Análise — melhoria de processo e de frota</div>
+            <p class="portaria-ficha-linha" style="margin-bottom:12px">O dado é do veículo, não da pessoa — serve pra encontrar padrão de operação e necessidade de treinamento.</p>
+            <div id="gerencial-agregados"></div>
+        </section>
+
     </section>
 </main>
 
@@ -166,6 +213,80 @@
     </div>
 </div>
 
+<!-- ========================================================= -->
+<!-- Avaliação (aba RA) — LIBERADO (com prazo) ou RETIDO.       -->
+<!-- ========================================================= -->
+<div class="modal-overlay" id="modal-avaliacao">
+    <div class="modal">
+        <button type="button" class="modal-close" id="fechar-avaliacao">✕</button>
+        <div class="modal-title">Avaliar recolhida</div>
+
+        <div class="portaria-ficha-placa" id="aval-prefixo">—</div>
+        <div class="portaria-ficha-linha" id="aval-linha"></div>
+        <div class="portaria-ficha-linha" id="aval-defeito"></div>
+        <div class="portaria-ficha-linha" id="aval-relato"></div>
+        <div class="portaria-ficha-linha" id="aval-ficha" style="color:var(--muted);margin-top:6px"></div>
+
+        <div style="display:flex;gap:8px;margin:16px 0 10px">
+            <button type="button" class="btn btn-primary" id="btn-liberado" style="flex:1">LIBERADO</button>
+            <button type="button" class="btn btn-danger" id="btn-retido" style="flex:1">RETIDO</button>
+        </div>
+
+        <div id="aval-prazo-wrap" style="display:none;margin-bottom:10px">
+            <label class="form-label">Prazo</label>
+            <div class="recolhida-chips" id="aval-prazo-atalhos">
+                <button type="button" class="recolhida-chip" data-min="15">15 min</button>
+                <button type="button" class="recolhida-chip" data-min="30">30 min</button>
+                <button type="button" class="recolhida-chip" data-min="60">1h</button>
+                <button type="button" class="recolhida-chip" data-min="120">2h</button>
+                <button type="button" class="recolhida-chip" data-min="outro">Outro</button>
+            </div>
+            <input type="text" inputmode="numeric" class="form-input" id="aval-prazo-input"
+                   placeholder="Minutos" style="display:none;margin-top:8px">
+        </div>
+
+        <div class="form-group">
+            <label class="form-label" for="aval-observacao">Observação (opcional)</label>
+            <textarea class="form-input form-textarea" id="aval-observacao" rows="2"></textarea>
+        </div>
+
+        <div id="aval-erro" style="display:none;color:var(--accent);font-size:0.85rem;margin-bottom:10px"></div>
+
+        <button type="button" class="btn btn-primary btn-full" id="btn-confirmar-avaliacao" style="display:none">Confirmar</button>
+        <button type="button" class="btn btn-ghost btn-full btn-modal-stack" id="btn-cancelar-avaliacao">Cancelar</button>
+    </div>
+</div>
+
+<!-- ========================================================= -->
+<!-- Encerramento (aba RA) — migration 032: fecha o ciclo que a -->
+<!-- avaliação deixava em aberto. Sem defeito / Serviço feito.  -->
+<!-- ========================================================= -->
+<div class="modal-overlay" id="modal-encerramento">
+    <div class="modal">
+        <button type="button" class="modal-close" id="fechar-encerramento">✕</button>
+        <div class="modal-title">Encerrar recolhida</div>
+
+        <div class="portaria-ficha-placa" id="enc-prefixo">—</div>
+        <div class="portaria-ficha-linha" id="enc-linha"></div>
+        <div class="portaria-ficha-linha" id="enc-defeito"></div>
+        <div class="portaria-ficha-linha" id="enc-avaliacao" style="color:var(--muted);margin-top:6px"></div>
+
+        <div class="form-group" style="margin-top:14px">
+            <label class="form-label" for="enc-relato">Descrição (opcional)</label>
+            <textarea class="form-input form-textarea" id="enc-relato" rows="2"></textarea>
+        </div>
+
+        <div id="enc-erro" style="display:none;color:var(--accent);font-size:0.85rem;margin-bottom:10px"></div>
+
+        <div style="display:flex;gap:8px;margin:6px 0 10px">
+            <button type="button" class="btn btn-primary" id="btn-sem-defeito" style="flex:1">Sem defeito</button>
+            <button type="button" class="btn btn-primary" id="btn-servico-feito" style="flex:1">Serviço feito</button>
+        </div>
+        <button type="button" class="btn btn-ghost btn-full btn-modal-stack" id="btn-cancelar-encerramento">Cancelar</button>
+    </div>
+</div>
+
 <script type="module" src="./assets/js/manutencao.js"></script>
+<script type="module" src="./assets/js/manutencao.recolhidas.js"></script>
 </body>
 </html>
