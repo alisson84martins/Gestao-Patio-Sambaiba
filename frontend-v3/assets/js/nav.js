@@ -41,7 +41,11 @@ const PAGINAS = {
     'portaria.html':               { modulo: 'PORTARIA' },
     'portaria-veiculos.html':      { modulo: 'PORTARIA' },
     'portaria-consulta.html':      { modulo: 'PORTARIA' },
-    'portaria-recolhida.html':     { modulo: 'PORTARIA' },
+    // Bloco C (2026-08-24) — Recolhida virou botão dentro de portaria.html,
+    // não tem mais link próprio na barra (ver LINKS). `ativo` mantém o link
+    // "Portaria" aceso quando esta página está aberta, mesmo padrão de
+    // ocorrencia-form.html acima.
+    'portaria-recolhida.html':     { modulo: 'PORTARIA', ativo: 'portaria.html' },
     'cadastros.html':              { modulo: 'ADMINISTRACAO' },
     'permissoes.html':             { modulo: 'ADMINISTRACAO' },
 };
@@ -66,11 +70,9 @@ const LINKS = [
     { href: 'portaria.html', texto: 'Portaria', recurso: 'acesso_veicular', modulo: 'PORTARIA' },
     { href: 'portaria-veiculos.html', texto: 'Veículos', recurso: 'veiculo_portaria', modulo: 'PORTARIA' },
     { href: 'portaria-consulta.html', texto: 'Histórico', recurso: 'acesso_veicular', modulo: 'PORTARIA' },
-    // Bloco F (migration 026) — registro do controlador. A avaliação da
-    // manutenção virou aba "RA" dentro de manutencao.html (Fase 3 do
-    // prompt de 23/08) — "Fila de Recolhidas" não é mais página própria,
-    // por isso não tem entrada aqui.
-    { href: 'portaria-recolhida.html', texto: 'Recolhida', recurso: 'recolhida_anormal', modulo: 'PORTARIA' },
+    // Bloco C (2026-08-24) — Recolhida saiu daqui e virou botão dentro de
+    // portaria.html (id btn-recolhida, em portaria.page.js). Continua
+    // mapeada em PAGINAS acima, só não tem mais link de barra próprio.
     // Fiscalização, Bloco E (migration 030) — painel do coordenador. O
     // fiscal não tem fiscalizacao_painel (D — só registra, não vê
     // agregado), então nunca vê este link.

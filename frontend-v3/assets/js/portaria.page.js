@@ -23,6 +23,7 @@ import { apiGet, apiPost, ApiError } from './api.js';
 import { escapeHtml } from './escape.js';
 import { POLLING_INTERVAL_MS } from './config.js';
 import { aplicarMascara } from './mascaras.js';
+import { podeEscrever } from './sessao.js';
 
 if (!requireAuth()) {
     throw new Error('Sessão não autenticada — interrompendo carga da página');
@@ -817,6 +818,16 @@ async function processarCodigoLido(codigo) {
     }
 }
 
+// ─── Bloco C — Recolhida virou botão (saiu da barra de navegação) ──────
+function initRecolhida() {
+    if (!podeEscrever('recolhida_anormal')) return;
+    const btn = document.getElementById('btn-recolhida');
+    btn.style.display = '';
+    btn.addEventListener('click', () => {
+        window.location.href = 'portaria-recolhida.html';
+    });
+}
+
 // ─── Polling da lista "dentro agora" ────────────────────────────────────
 function startPolling() {
     if (pollHandle) return;
@@ -835,6 +846,7 @@ initConfirmacao();
 initEntradaAvulsa();
 initCadastroRapido();
 initTerceiro();
+initRecolhida();
 initLeitorQr();
 carregarDentro();
 startPolling();
