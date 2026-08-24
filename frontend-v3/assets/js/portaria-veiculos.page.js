@@ -426,6 +426,7 @@ async function renderCredencial() {
     const img = document.getElementById('ficha-qr-img');
     const btnGerar = document.getElementById('btn-gerar-qr');
     const btnReemitir = document.getElementById('btn-reemitir-qr');
+    const btnImprimir = document.getElementById('btn-imprimir-qr-ficha');
 
     if (credencialImgUrl) {
         URL.revokeObjectURL(credencialImgUrl);
@@ -437,12 +438,14 @@ async function renderCredencial() {
         img.style.display = 'none';
         btnGerar.style.display = 'block';
         btnReemitir.style.display = 'none';
+        btnImprimir.style.display = 'none';
         return;
     }
 
     status.textContent = `QR ativo — emitido em ${fmtDataHora(credencialAtual.emitida_em)}.`;
     btnGerar.style.display = 'none';
     btnReemitir.style.display = 'block';
+    btnImprimir.style.display = 'block';
 
     credencialImgUrl = await buscarImagemQr(fichaVeiculoAtual.id);
     if (credencialImgUrl) {
@@ -453,8 +456,28 @@ async function renderCredencial() {
     }
 }
 
+async function abrirEtiquetas(ids) {
+    const token = localStorage.getItem(TOKEN_KEY);
+    try {
+        const resp = await fetch(`${API_BASE_URL}/portaria/credenciais/etiquetas?ids=${encodeURIComponent(ids)}`, {
+            headers: token ? { Authorization: `Bearer ${token}` } : {},
+        });
+        if (!resp.ok) throw new Error('Falha ao gerar etiquetas');
+        const blob = await resp.blob();
+        const url = URL.createObjectURL(blob);
+        window.open(url, '_blank');
+        setTimeout(() => URL.revokeObjectURL(url), 60000);
+    } catch (err) {
+        alert('Não foi possível abrir as etiquetas: ' + err.message);
+    }
+}
+
 function initFichaQr() {
     document.getElementById('btn-gerar-qr').addEventListener('click', () => emitirCredencial(null));
+    document.getElementById('btn-imprimir-qr-ficha').addEventListener('click', () => {
+        if (!fichaVeiculoAtual) return;
+        abrirEtiquetas(fichaVeiculoAtual.id);
+    });
     document.getElementById('btn-reemitir-qr').addEventListener('click', () => {
         document.getElementById('ficha-qr-motivo').value = '';
         document.getElementById('ficha-qr-erro').style.display = 'none';
@@ -497,22 +520,9 @@ function atualizarBarraImpressao() {
 }
 
 function initImprimirEtiquetas() {
-    document.getElementById('btn-imprimir-etiquetas').addEventListener('click', async () => {
+    document.getElementById('btn-imprimir-etiquetas').addEventListener('click', () => {
         if (selecionados.size === 0) return;
-        const token = localStorage.getItem(TOKEN_KEY);
-        const ids = Array.from(selecionados).join(',');
-        try {
-            const resp = await fetch(`${API_BASE_URL}/portaria/credenciais/etiquetas?ids=${encodeURIComponent(ids)}`, {
-                headers: token ? { Authorization: `Bearer ${token}` } : {},
-            });
-            if (!resp.ok) throw new Error('Falha ao gerar etiquetas');
-            const blob = await resp.blob();
-            const url = URL.createObjectURL(blob);
-            window.open(url, '_blank');
-            setTimeout(() => URL.revokeObjectURL(url), 60000);
-        } catch (err) {
-            alert('Não foi possível abrir as etiquetas: ' + err.message);
-        }
+        abrirEtiquetas(Array.from(selecionados).join(','));
     });
 }
 

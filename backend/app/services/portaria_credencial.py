@@ -6,6 +6,18 @@ routers/portaria_veiculos.py.
 
 🔴 O código do QR é um token opaco (secrets.token_urlsafe) — nunca placa, RE,
 nome ou URL. Ver comentário de portaria.credencial.codigo na migration 025.
+
+🔄 Reversão de 2026-08-24 (decisão do Alisson): a etiqueta volta a trazer o
+RE do dono, abaixo da placa, em corpo pequeno (~8pt). A regra original deste
+módulo dizia "nunca RE, nome ou CPF impresso no adesivo" — motivo de
+privacidade. Duas razões operacionais levaram à reversão: (1) identificar o
+dono de um carro mal estacionado dentro do pátio sem precisar caminhar até a
+guarita; (2) entregar 40 etiquetas de uma tacada sem trocar o adesivo de
+dono na hora de distribuir. Nome e CPF continuam banidos do adesivo — RE é
+identificador funcional interno, não dado pessoal sensível. Veículo de
+EMPRESA/terceira não tem dono pessoa física; a etiqueta desse continua só
+com a placa. ⛔ O QR em si não muda: o conteúdo codificado continua sendo o
+token opaco — nunca o RE (QR com RE dentro seria crachá clonável por foto).
 """
 import html
 import io
@@ -48,14 +60,19 @@ def gerar_svg_inline(codigo: str) -> str:
     return doc[inicio:] if inicio != -1 else doc
 
 
-def montar_html_etiquetas(itens: list[tuple[VeiculoPortaria, Credencial]]) -> str:
+def montar_html_etiquetas(itens: list[tuple[VeiculoPortaria, Credencial, str | None]]) -> str:
     """HTML autocontido (CSS embutido, sem dependência externa) para
-    impressão em A4. Abaixo do QR, só a placa em texto — ⛔ nunca RE, nome
-    ou CPF impresso no adesivo (§1.4 do prompt)."""
+    impressão em A4. Abaixo do QR, placa + RE do dono (reversão de
+    2026-08-24, ver docstring do módulo) — ⛔ nunca nome ou CPF impresso no
+    adesivo (§1.4 do prompt). `re_dono` vem `None` para veículo de
+    EMPRESA/terceira (não tem dono pessoa física) — a etiqueta sai só com a
+    placa, como antes da reversão."""
     etiquetas = "".join(
         f'<div class="etq"><div class="qr">{gerar_svg_inline(cred.codigo)}</div>'
-        f'<div class="placa">{html.escape(veiculo.placa)}</div></div>'
-        for veiculo, cred in itens
+        f'<div class="placa">{html.escape(veiculo.placa)}</div>'
+        + (f'<div class="re">RE {html.escape(re_dono)}</div>' if re_dono else "")
+        + "</div>"
+        for veiculo, cred, re_dono in itens
     )
     if not etiquetas:
         etiquetas = '<p class="vazio">Nenhuma credencial ativa para os veículos selecionados.</p>'
@@ -87,6 +104,12 @@ def montar_html_etiquetas(itens: list[tuple[VeiculoPortaria, Credencial]]) -> st
     font-weight: bold;
     font-size: 14pt;
     letter-spacing: 1px;
+  }}
+  .re {{
+    margin-top: 1mm;
+    font-family: Arial, sans-serif;
+    font-size: 8pt;
+    color: #444;
   }}
   .vazio {{ font-family: Arial, sans-serif; }}
   @media print {{

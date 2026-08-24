@@ -317,7 +317,7 @@ def revogar_credencial(
 @router.get(
     "/credenciais/etiquetas",
     response_class=HTMLResponse,
-    summary="HTML de impressão das etiquetas selecionadas — grade A4, só a placa embaixo do QR",
+    summary="HTML de impressão das etiquetas selecionadas — grade A4, placa + RE do dono embaixo do QR",
 )
 def etiquetas_credenciais(
     usuario: LeituraCadastro,
@@ -334,7 +334,8 @@ def etiquetas_credenciais(
         except ValueError:
             continue
 
-    itens: list[tuple[VeiculoPortaria, Credencial]] = []
+    veiculos: list[VeiculoPortaria] = []
+    credenciais: dict[UUID, Credencial] = {}
     for veiculo_id in veiculo_ids:
         veiculo = db.get(VeiculoPortaria, veiculo_id)
         if veiculo is None:
@@ -344,7 +345,24 @@ def etiquetas_credenciais(
         ).scalar_one_or_none()
         if credencial is None:
             continue
-        itens.append((veiculo, credencial))
+        veiculos.append(veiculo)
+        credenciais[veiculo_id] = credencial
+
+    # Reversão de 2026-08-24 (ver docstring de services/portaria_credencial.py):
+    # a etiqueta volta a trazer o RE do dono. Só existe dono pessoa física em
+    # veiculo PARTICULAR — EMPRESA/terceira fica sem (None), etiqueta só com placa.
+    funcionario_ids = {v.funcionario_id for v in veiculos if v.propriedade == "PARTICULAR" and v.funcionario_id}
+    res_por_funcionario: dict[UUID, str] = {}
+    if funcionario_ids:
+        for funcionario_id, re in db.execute(
+            select(Funcionario.id, Funcionario.re).where(Funcionario.id.in_(funcionario_ids))
+        ):
+            res_por_funcionario[funcionario_id] = re
+
+    itens: list[tuple[VeiculoPortaria, Credencial, str | None]] = [
+        (veiculo, credenciais[veiculo.id], res_por_funcionario.get(veiculo.funcionario_id))
+        for veiculo in veiculos
+    ]
 
     return HTMLResponse(content=montar_html_etiquetas(itens))
 

@@ -726,8 +726,9 @@ def test_credencial_svg_e_etiquetas_respondem_conteudo_esperado(ambiente):
     assert etiquetas.status_code == 200, etiquetas.text
     assert "text/html" in etiquetas.headers["content-type"]
     assert "ABC1D23" in etiquetas.text
-    # ⛔ Nada de RE, nome ou CPF impresso na etiqueta (§1.4).
-    assert _DONO_A.re not in etiquetas.text
+    # Reversão de 2026-08-24 (§1.4 revisto): RE do dono passa a sair na
+    # etiqueta, abaixo da placa. Nome e CPF continuam banidos do adesivo.
+    assert _DONO_A.re in etiquetas.text
     assert _DONO_A.nome not in etiquetas.text
 
 
