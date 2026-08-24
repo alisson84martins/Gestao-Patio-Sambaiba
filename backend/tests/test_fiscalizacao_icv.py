@@ -1,4 +1,4 @@
-"""Módulo Fiscalização — Bloco E: ICV, bacia e painel do coordenador.
+"""Módulo Fiscalização — Bloco E: ICV, linha_coordenador e painel do coordenador.
 
 Testes escritos JUNTO de cada bloco (não represados para o fim — ver
 _handoff-claude/PROMPT-fiscalizacao-bloco-E-icv.md, instrução extra do
@@ -40,19 +40,19 @@ from app.core.database import Base, get_db
 from app.main import app
 from app.models.cadastro import Funcionario
 from app.models.fiscalizacao import (
-    AcaoCoordenacao, Bacia, BaciaLinha, EventoTurno, IcvApurado, PartidaProgramada,
-    Ponto, RegistroPartida, Turno,
+    AcaoCoordenacao, EventoTurno, IcvApurado, LinhaCoordenador, Parametro,
+    PartidaProgramada, Ponto, RegistroPartida, Turno,
 )
 from app.routers import fiscalizacao as fiscalizacao_router_mod
 from app.services.icv import (
-    _tipo_dia, calcular_icv_bacia_dia, calcular_icv_linha_dia, montar_placar_linha,
+    _tipo_dia, calcular_icv_coordenador_dia, calcular_icv_linha_dia, montar_placar_linha,
     ranking_prioridade,
 )
 
 sqlite3.register_adapter(_uuid_mod.UUID, lambda u: u.hex)
 
 _TABELAS = [
-    Funcionario.__table__, Bacia.__table__, BaciaLinha.__table__,
+    Funcionario.__table__, LinhaCoordenador.__table__, Parametro.__table__,
     IcvApurado.__table__, AcaoCoordenacao.__table__,
     Ponto.__table__, Turno.__table__, PartidaProgramada.__table__,
     RegistroPartida.__table__, EventoTurno.__table__,
@@ -80,51 +80,56 @@ def db():
 # SQLAlchemy (UniqueConstraint — os CHECK ficam só na migration SQL)
 # ============================================================================
 
-def test_bacia_meta_icv_default_98(db):
-    """D29 — meta_icv tem DEFAULT 98.00 no schema, não hardcoded em cada
-    INSERT do código de aplicação."""
-    b = Bacia(codigo="BACIA_TESTE", nome="Bacia Teste")
-    db.add(b)
-    db.commit()
-    db.refresh(b)
-    assert float(b.meta_icv) == 98.00
-
-
-def test_bacia_linha_unique_por_linha_vigencia_inicio(db):
-    """A UNIQUE real (linha_codigo, vigencia_inicio) — não deixa duas
-    vigências abrirem no mesmo dia para a mesma linha (ver "DESVIO" no
-    cabeçalho da migration 030: não é UNIQUE(bacia_codigo, linha_codigo))."""
-    db.add(Bacia(codigo="B1", nome="Bacia 1"))
-    db.commit()
-    db.add(BaciaLinha(bacia_codigo="B1", linha_codigo="0000-00", vigencia_inicio=date(2026, 8, 1)))
+def test_parametro_guarda_meta_e_aceitavel(db):
+    """D29 — 98 e 95 vivem em fiscalizacao.parametro e em nenhum outro
+    lugar. A tabela é chave/valor e vale para a operação inteira: a meta
+    não pertence a agrupamento nenhum, e foi por isso que ela saiu de
+    dentro da antiga tabela `bacia` (decisão de 23/08)."""
+    db.add(Parametro(chave="icv_meta", valor=98.00, descricao="Meta de ICV"))
+    db.add(Parametro(chave="icv_aceitavel", valor=95.00, descricao="Corte de aceitável"))
     db.commit()
 
-    db.add(BaciaLinha(bacia_codigo="B1", linha_codigo="0000-00", vigencia_inicio=date(2026, 8, 1)))
+    valores = {p.chave: float(p.valor) for p in db.query(Parametro).all()}
+    assert valores == {"icv_meta": 98.00, "icv_aceitavel": 95.00}
+
+
+def test_linha_coordenador_unique_por_linha_e_periodo(db):
+    """A UNIQUE real (linha_codigo, periodo): uma linha tem UM dono por
+    período. ⛔ Sem vigência, de propósito — trocar de coordenador é um
+    UPDATE, e nenhum número se perde porque o histórico do ICV é por linha
+    e por dia (icv_apurado)."""
+    dono = Funcionario(id=uuid4(), re="90001", nome="Coordenador Um", status="ATIVO")
+    db.add(dono)
+    db.commit()
+
+    db.add(LinhaCoordenador(linha_codigo="0000-00", funcionario_id=dono.id, periodo="1"))
+    db.commit()
+
+    db.add(LinhaCoordenador(linha_codigo="0000-00", funcionario_id=dono.id, periodo="1"))
     with pytest.raises(IntegrityError):
         db.commit()
     db.rollback()
 
 
-def test_bacia_linha_mesma_linha_troca_de_bacia_com_vigencia(db):
-    """D21 — a mesma linha pode aparecer em DUAS bacias diferentes, em
-    vigências que não se sobrepõem (o caso real: 1726-10 mudou de bacia
-    entre 26/05 e 19-21/08/2026). O schema tem que aceitar isso sem erro."""
-    db.add(Bacia(codigo="B1", nome="Bacia 1"))
-    db.add(Bacia(codigo="B2", nome="Bacia 2"))
+def test_linha_coordenador_mesma_linha_dois_periodos_pessoas_diferentes(db):
+    """🔑 O que a planilha da gerência escreve como um nome composto de
+    bacia não são duas pessoas dividindo linhas: são os dois PERÍODOS da
+    MESMA linha, cada um com seu coordenador. O schema aceita isso sem
+    erro — e é o motivo de `periodo` ser a mesma dimensão de turno.periodo
+    (D8), nunca MANHA/TARDE."""
+    primeiro = Funcionario(id=uuid4(), re="90002", nome="Coordenador Primeiro", status="ATIVO")
+    segundo = Funcionario(id=uuid4(), re="90003", nome="Coordenador Segundo", status="ATIVO")
+    db.add_all([primeiro, segundo])
     db.commit()
-    db.add(BaciaLinha(
-        bacia_codigo="B1", linha_codigo="0000-00",
-        vigencia_inicio=date(2026, 5, 26), vigencia_fim=date(2026, 8, 18),
-    ))
-    db.add(BaciaLinha(
-        bacia_codigo="B2", linha_codigo="0000-00",
-        vigencia_inicio=date(2026, 8, 19), vigencia_fim=None,
-    ))
+
+    db.add(LinhaCoordenador(linha_codigo="0000-00", funcionario_id=primeiro.id, periodo="1"))
+    db.add(LinhaCoordenador(linha_codigo="0000-00", funcionario_id=segundo.id, periodo="2"))
     db.commit()  # não pode levantar
 
-    linhas = db.query(BaciaLinha).filter_by(linha_codigo="0000-00").all()
-    assert len(linhas) == 2
-    assert {l.bacia_codigo for l in linhas} == {"B1", "B2"}
+    vinculos = db.query(LinhaCoordenador).filter_by(linha_codigo="0000-00").all()
+    assert len(vinculos) == 2
+    assert {v.periodo for v in vinculos} == {"1", "2"}
+    assert {v.funcionario_id for v in vinculos} == {primeiro.id, segundo.id}
 
 
 def test_icv_apurado_unique_linha_data_referencia(db):
@@ -347,10 +352,10 @@ def test_upload_icv_coordenador_importa(ambiente):
         assert registro.programadas == 100
         assert registro.realizadas_tp_ts == 50
         assert registro.realizadas_ts_tp == 45
-        # D21 — a coluna BACIA alimenta bacia_linha da vigência.
-        vinculo = db.execute(select(BaciaLinha).where(BaciaLinha.linha_codigo == "0000-00")).scalar_one()
-        assert vinculo.vigencia_inicio == date(2026, 8, 19)
-        assert vinculo.vigencia_fim is None
+        # A coluna BACIA da planilha vira SNAPSHOT em icv_apurado.bacia_texto
+        # — ⛔ nunca entidade, nunca vínculo. O agrupamento de verdade é
+        # linha_coordenador, mantido à mão pelo próprio coordenador (D38).
+        assert registro.bacia_texto == "BACIA TESTE"
 
 
 def test_upload_icv_formato_de_maio_recusado(ambiente):
@@ -543,16 +548,18 @@ def test_upload_icv_50mb_retorna_413(ambiente):
 # do prompt); escolhidos só para provar a matemática.
 # ============================================================================
 
-def test_d22_bacia_ponderado_nao_e_media_simples(db):
+def test_d22_coordenador_ponderado_nao_e_media_simples(db):
     """A prova de que a média simples não voltou por acidente: uma linha
     grande (248 programadas) perto de 89% e uma pequena (13 programadas)
     perto de 92% — a média simples dos dois percentuais esconde o volume
-    da linha grande."""
+    da linha grande. ⛔ AVG(percentual) é bug, não simplificação."""
     hoje = date(2026, 8, 19)
-    db.add(Bacia(codigo="B1", nome="Bacia Teste"))
+    dono = Funcionario(id=uuid4(), re="90010", nome="Coordenador Ponderado", status="ATIVO")
+    db.add(dono)
+    db.add(Parametro(chave="icv_meta", valor=98.00, descricao="Meta de ICV"))
     db.commit()
-    db.add(BaciaLinha(bacia_codigo="B1", linha_codigo="LINHA_A", vigencia_inicio=date(2026, 1, 1)))
-    db.add(BaciaLinha(bacia_codigo="B1", linha_codigo="LINHA_B", vigencia_inicio=date(2026, 1, 1)))
+    db.add(LinhaCoordenador(linha_codigo="LINHA_A", funcionario_id=dono.id, periodo="1"))
+    db.add(LinhaCoordenador(linha_codigo="LINHA_B", funcionario_id=dono.id, periodo="1"))
     db.add(IcvApurado(
         id=uuid4(), linha_codigo="LINHA_A", data_referencia=hoje,
         programadas=248, realizadas_tp_ts=110, realizadas_ts_tp=110,  # 220/248 = 88,71%
@@ -563,7 +570,7 @@ def test_d22_bacia_ponderado_nao_e_media_simples(db):
     ))
     db.commit()
 
-    resultado = calcular_icv_bacia_dia(db, "B1", hoje)
+    resultado = calcular_icv_coordenador_dia(db, dono.id, hoje)
 
     icv_a, icv_b = 220 / 248 * 100, 12 / 13 * 100
     media_simples = round((icv_a + icv_b) / 2, 2)
@@ -573,7 +580,7 @@ def test_d22_bacia_ponderado_nao_e_media_simples(db):
     ponderado_esperado = round(232 / 261 * 100, 2)
     assert resultado["icv_ponderado"] == ponderado_esperado
     assert resultado["icv_ponderado"] != media_simples  # 🔴 este assert é o ponto do teste
-    assert resultado["meta_icv"] == 98.00
+    assert resultado["icv_meta"] == 98.00
 
 
 def test_d23_ranking_ordena_por_perda_absoluta_nao_percentual(db):
@@ -797,9 +804,8 @@ def test_acao_coordenacao_criar_e_listar(ambiente):
 
 def test_placar_evolucao_sete_dias_e_semana_anterior(db):
     hoje = date(2026, 8, 21)
-    db.add(Bacia(codigo="B1", nome="Bacia Teste", meta_icv=98.0))
+    db.add(Parametro(chave="icv_meta", valor=98.00, descricao="Meta de ICV"))
     db.commit()
-    db.add(BaciaLinha(bacia_codigo="B1", linha_codigo="1726-10", vigencia_inicio=date(2026, 1, 1)))
 
     # Hoje e 7 dias atrás (a "semana anterior") têm dado; o resto do
     # intervalo de 7 dias fica sem dado (icv None), pra provar que a
@@ -829,10 +835,11 @@ def test_placar_evolucao_sete_dias_e_semana_anterior(db):
     assert len(dias_sem_dado) == 6
 
 
-def test_placar_sem_bacia_meta_nula_sem_erro(db):
-    """Linha sem bacia cadastrada — meta_icv sai None, não quebra."""
+def test_placar_sem_parametro_meta_nula_sem_erro(db):
+    """Banco sem `icv_meta` em fiscalizacao.parametro — meta_icv sai None,
+    não quebra e ⛔ não inventa 98 dentro do código (D29)."""
     hoje = date(2026, 8, 21)
-    placar = montar_placar_linha(db, "SEM-BACIA", hoje)
+    placar = montar_placar_linha(db, "SEM-COORDENADOR", hoje)
     assert placar["meta_icv"] is None
     assert placar["icv_semana_anterior"] is None
     assert len(placar["evolucao"]) == 7
