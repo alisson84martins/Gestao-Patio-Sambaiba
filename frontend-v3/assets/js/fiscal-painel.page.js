@@ -1,26 +1,30 @@
 /*
- * fiscal-painel.page.js — Painel do coordenador (Bloco E do módulo Fiscalização)
+ * fiscal-painel.page.js — Painel do coordenador (Fiscalização)
  * -------------------------------------------------------------------------------
- * Ordem na tela, de cima para baixo — o que decide primeiro (§6 do prompt):
- *   1. A bacia hoje: ICV ponderado (D22), meta ao lado (D29)
- *   2. Cascata agora (D24) — vazio = nada na tela
- *   3. Ranking por perda absoluta (D23), com divergência de denominador (D28)
- *   4. A linha aberta (clique numa linha do ranking): horários do dia, quatro
- *      estados (D12), reaproveita GET /fiscalizacao/painel/{linha} do Bloco B
- *   5. Ações da coordenação (D26): registrar e listar
- *   6. Motivos livres mais frequentes (D27)
- * + importação da planilha de ICV (D20/D25/D28, §5) — sem seção numerada no
- *   prompt, mas é o jeito de o coordenador colocar dado na tela.
+ * D39 — a tela abre no AO VIVO das linhas do coordenador logado, não no ICV.
+ * Ordem na tela, de cima para baixo:
+ *   1. Agora na rua — o que os fiscais registraram hoje nas minhas linhas
+ *   2. Turnos abertos — quem está em campo e há quanto tempo não registra nada
+ *   3. Minhas linhas (D38, D40) — atribuir/remover, com convite quando vazio
+ *   4. ICV do dia (D22 ponderado, D29 meta) — sem seletor de bacia
+ *   5. Ranking por perda absoluta (D23, D28) → abre a linha (D12) ao tocar
+ *   6. Cascata agora (D24) — vazio = nada na tela
+ *   7. Ações da coordenação (D26)
+ *   8. Motivos livres mais frequentes (D27)
+ *   + importação da planilha de ICV (D20/D25/D28, §5)
+ * A lógica do Bloco E (ICV, ponderação D22, perda absoluta D23) não muda —
+ * só a ordem e a origem do dado (linhas do coordenador, não bacia).
  *
  * Polling no padrão do Pátio (config.js::POLLING_INTERVAL_MS). Molde:
  * portaria-consulta.page.js + patio.page.js.
  */
 
 import { requireAuth, getCurrentUser, logout } from './auth.js';
-import { apiGet, apiPost, ApiError } from './api.js';
+import { apiDelete, apiGet, apiPost, ApiError } from './api.js';
 import { API_BASE_URL, TOKEN_KEY, POLLING_INTERVAL_MS } from './config.js';
 import { podeEscrever } from './sessao.js';
 import { escapeHtml } from './escape.js';
+import { dataLocalISO } from './data.util.js';
 import { imprimirPlacarLinha } from './fiscal-placar.imprimir.js';
 
 if (!requireAuth()) {
@@ -29,6 +33,8 @@ if (!requireAuth()) {
 
 let pollHandle = null;
 let linhaAberta = null;
+let minhasLinhasCache = [];
+let periodoNovaLinha = '1';
 
 // ─── Header ─────────────────────────────────────────────────────────────
 function initHeader() {
@@ -45,16 +51,8 @@ function initHeader() {
 }
 
 // ─── Helpers ────────────────────────────────────────────────────────────
-function hojeISO() {
-    return new Date().toISOString().slice(0, 10);
-}
-
 function dataSelecionada() {
-    return document.getElementById('fp-data').value || hojeISO();
-}
-
-function baciaSelecionada() {
-    return document.getElementById('fp-bacia').value || null;
+    return document.getElementById('fp-data').value || dataLocalISO();
 }
 
 function fmtPercentual(v) {
@@ -75,80 +73,177 @@ function ignoravel(err) {
     return err instanceof ApiError && err.status === 401;
 }
 
-// ─── 0. Catálogo de bacias ──────────────────────────────────────────────
-async function carregarBacias() {
-    const select = document.getElementById('fp-bacia');
-    try {
-        const bacias = await apiGet('/fiscalizacao/bacias');
-        if (bacias.length === 0) {
-            select.innerHTML = '<option value="">Nenhuma bacia cadastrada</option>';
-            return;
-        }
-        select.innerHTML = bacias.map(b => `<option value="${escapeHtml(b.codigo)}">${escapeHtml(b.nome)}</option>`).join('');
-    } catch (err) {
-        if (ignoravel(err)) return;
-        exibirErro('Erro ao carregar bacias: ' + err.message);
-    }
-}
+// ─── 1. Agora na rua (D39) ───────────────────────────────────────────────
+const TIPO_LABEL = {
+    FALTA_OPERADORES: 'Falta de operadores', RA: 'R.A', SOS: 'S.O.S',
+    ATRASO_GARAGEM: 'Atraso de garagem', TROCA_OPERACIONAL: 'Troca operacional',
+    VIAGEM_EXTRA: 'Viagem extra', OUTRO: 'Outro', REALIZADA: 'Saiu',
+};
 
-// ─── 1. A bacia hoje (D22, D29) ─────────────────────────────────────────
-async function carregarBaciaResumo() {
-    const bacia = baciaSelecionada();
-    const cardIcv = document.getElementById('fp-icv-ponderado').closest('.stat-card');
-    if (!bacia) {
-        document.getElementById('fp-icv-ponderado').textContent = '—';
-        document.getElementById('fp-meta').textContent = '—';
-        document.getElementById('fp-totais').textContent = '—';
-        cardIcv.classList.remove('stat-card-warn');
-        return;
-    }
-    try {
-        const dados = await apiGet(`/fiscalizacao/icv/bacia/${encodeURIComponent(bacia)}?data=${dataSelecionada()}`);
-        document.getElementById('fp-icv-ponderado').textContent = fmtPercentual(dados.icv_ponderado);
-        document.getElementById('fp-meta').textContent = `${Number(dados.meta_icv).toFixed(2)}%`;
-        document.getElementById('fp-totais').textContent = `${dados.realizadas} / ${dados.programadas}`;
-        // Comparação sempre contra a meta (D29) — o corte de cor da planilha
-        // (~94,3%) não é a meta e não entra aqui.
-        const abaixoDaMeta = dados.icv_ponderado !== null && dados.icv_ponderado < dados.meta_icv;
-        cardIcv.classList.toggle('stat-card-warn', abaixoDaMeta);
-    } catch (err) {
-        if (ignoravel(err)) return;
-        exibirErro('Erro ao carregar a bacia: ' + err.message);
-    }
-}
-
-// ─── 2. Cascata agora (D24) ─────────────────────────────────────────────
-async function carregarCascata() {
-    const secao = document.getElementById('fp-secao-cascata');
-    const lista = document.getElementById('fp-cascata-lista');
+async function carregarAoVivo() {
+    const lista = document.getElementById('fp-ao-vivo-lista');
     try {
         const params = new URLSearchParams({ data: dataSelecionada() });
-        const itens = await apiGet(`/fiscalizacao/icv/cascata?${params}`);
+        const itens = await apiGet(`/fiscalizacao/painel/ao-vivo?${params}`);
         if (itens.length === 0) {
-            secao.style.display = 'none';
-            lista.innerHTML = '';
+            lista.innerHTML = '<div class="oc-vazio">Nenhum registro hoje nas suas linhas.</div>';
             return;
         }
-        secao.style.display = '';
         lista.innerHTML = itens.map(i => `
-            <div>
-                <span class="remanejo-badge badge-atrasado">CASCATA</span>
-                Linha ${escapeHtml(i.linha_codigo)} — ${i.quantidade} perdas na faixa das
-                ${String(i.faixa_hora).padStart(2, '0')}h
+            <div class="portaria-item" style="cursor:default">
+                <div>
+                    <div class="portaria-item-placa">${escapeHtml(i.linha_codigo)}${i.numero_tabela ? ` · Tabela ${i.numero_tabela}` : ''}</div>
+                    <div class="portaria-item-sub">${escapeHtml(TIPO_LABEL[i.tipo] || i.tipo)}${i.custou_viagem ? ' · viagem perdida' : ''} · ${escapeHtml(i.ponto_codigo)} · RE ${escapeHtml(i.fiscal_re)}</div>
+                </div>
+                <div class="portaria-item-hora">${i.minutos_atras <= 0 ? 'agora' : `há ${i.minutos_atras} min`}</div>
             </div>
         `).join('');
     } catch (err) {
         if (ignoravel(err)) return;
+        exibirErro('Erro ao carregar o ao vivo: ' + err.message);
     }
 }
 
-// ─── 3. Ranking por perda absoluta (D23, D28) ───────────────────────────
+// ─── 2. Turnos abertos (D39) ─────────────────────────────────────────────
+async function carregarTurnosAbertos() {
+    const corpo = document.getElementById('fp-turnos-corpo');
+    try {
+        const params = new URLSearchParams({ data: dataSelecionada() });
+        const itens = await apiGet(`/fiscalizacao/painel/turnos?${params}`);
+        if (itens.length === 0) {
+            corpo.innerHTML = '<tr><td colspan="7" class="oc-vazio">Nenhum turno aberto hoje.</td></tr>';
+            return;
+        }
+        corpo.innerHTML = itens.map(t => `
+            <tr>
+                <td>${escapeHtml(t.fiscal_nome)} <span style="color:var(--muted)">RE ${escapeHtml(t.fiscal_re)}</span></td>
+                <td>${escapeHtml(t.ponto_codigo)}</td>
+                <td>${escapeHtml(t.terminal)}</td>
+                <td>${escapeHtml(t.periodo)}º</td>
+                <td>${escapeHtml((t.linhas || []).join(', ') || '—')}</td>
+                <td>${t.aberto_em ? new Date(t.aberto_em).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) : '—'}</td>
+                <td>${(t.minutos_sem_registrar === null || t.minutos_sem_registrar === undefined) ? '—' : `${t.minutos_sem_registrar} min`}</td>
+            </tr>
+        `).join('');
+    } catch (err) {
+        if (ignoravel(err)) return;
+        corpo.innerHTML = '';
+        exibirErro('Erro ao carregar turnos abertos: ' + err.message);
+    }
+}
+
+// ─── 3. Minhas linhas (D38, D40) ─────────────────────────────────────────
+async function carregarMinhasLinhas() {
+    const lista = document.getElementById('fp-minhas-linhas-lista');
+    try {
+        minhasLinhasCache = await apiGet('/fiscalizacao/minhas-linhas');
+        if (minhasLinhasCache.length === 0) {
+            lista.innerHTML = '<div class="oc-vazio">Você ainda não tem linhas atribuídas.</div>' +
+                '<button type="button" class="btn btn-primary" id="fp-btn-atribuir-primeira" style="margin-top:8px">+ Atribuir linha</button>';
+            document.getElementById('fp-btn-atribuir-primeira')?.addEventListener('click', abrirModalLinhas);
+            return;
+        }
+        lista.innerHTML = minhasLinhasCache.map(l =>
+            `<span class="recolhida-chip active" style="cursor:default;display:inline-block;margin:0 6px 6px 0">${escapeHtml(l.linha_codigo)} · ${escapeHtml(l.periodo)}º período</span>`
+        ).join('');
+    } catch (err) {
+        if (ignoravel(err)) return;
+        lista.innerHTML = `<div class="oc-vazio" style="color:var(--accent)">Erro: ${escapeHtml(err.message)}</div>`;
+    }
+}
+
+function renderModalLinhas() {
+    const el = document.getElementById('fp-modal-linhas-lista');
+    if (minhasLinhasCache.length === 0) {
+        el.innerHTML = '<div class="oc-vazio">Nenhuma linha atribuída ainda.</div>';
+        return;
+    }
+    el.innerHTML = minhasLinhasCache.map(l => `
+        <div class="portaria-item" style="cursor:default">
+            <div class="portaria-item-placa">${escapeHtml(l.linha_codigo)} · ${escapeHtml(l.periodo)}º período</div>
+            <button type="button" class="btn-acao-lista" data-remover-linha="${escapeHtml(l.linha_codigo)}" data-remover-periodo="${escapeHtml(l.periodo)}" title="Remover">✕</button>
+        </div>
+    `).join('');
+    el.querySelectorAll('[data-remover-linha]').forEach(btn => {
+        btn.addEventListener('click', () => removerMinhaLinha(btn.dataset.removerLinha, btn.dataset.removerPeriodo));
+    });
+}
+
+function abrirModalLinhas() {
+    document.getElementById('fp-modal-linhas-erro').style.display = 'none';
+    document.getElementById('fp-nova-linha-codigo').value = '';
+    renderModalLinhas();
+    document.getElementById('fp-modal-linhas').classList.add('open');
+}
+
+function fecharModalLinhas() {
+    document.getElementById('fp-modal-linhas').classList.remove('open');
+}
+
+function initPeriodoNovaLinha() {
+    document.querySelectorAll('#fp-nova-linha-periodo .recolhida-chip').forEach(btn => {
+        btn.addEventListener('click', () => {
+            periodoNovaLinha = btn.dataset.periodo;
+            document.querySelectorAll('#fp-nova-linha-periodo .recolhida-chip').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+        });
+    });
+}
+
+async function adicionarMinhaLinha() {
+    const erro = document.getElementById('fp-modal-linhas-erro');
+    erro.style.display = 'none';
+    const linha = document.getElementById('fp-nova-linha-codigo').value.trim();
+    if (!linha) {
+        erro.textContent = 'Digite o código da linha.';
+        erro.style.display = 'block';
+        return;
+    }
+    try {
+        await apiPost('/fiscalizacao/minhas-linhas', { linha_codigo: linha, periodo: periodoNovaLinha });
+        document.getElementById('fp-nova-linha-codigo').value = '';
+        await carregarMinhasLinhas();
+        renderModalLinhas();
+        await carregarTudo();
+    } catch (err) {
+        erro.textContent = err.message;
+        erro.style.display = 'block';
+    }
+}
+
+async function removerMinhaLinha(linha, periodo) {
+    try {
+        await apiDelete(`/fiscalizacao/minhas-linhas/${encodeURIComponent(linha)}?periodo=${encodeURIComponent(periodo)}`);
+        await carregarMinhasLinhas();
+        renderModalLinhas();
+        await carregarTudo();
+    } catch (err) {
+        exibirErro('Erro ao remover linha: ' + err.message);
+    }
+}
+
+// ─── 4. ICV do dia (D22, D29) — sem bacia, direto do coordenador logado ──
+async function carregarIcvDoDia() {
+    const cardIcv = document.getElementById('fp-icv-ponderado').closest('.stat-card');
+    try {
+        const dados = await apiGet(`/fiscalizacao/icv/coordenador?data=${dataSelecionada()}`);
+        document.getElementById('fp-icv-ponderado').textContent = fmtPercentual(dados.icv_ponderado);
+        document.getElementById('fp-meta').textContent = fmtPercentual(dados.icv_meta);
+        document.getElementById('fp-totais').textContent = `${dados.realizadas} / ${dados.programadas}`;
+        // Comparação sempre contra a meta (D29) — nunca o corte de aceitável.
+        const abaixoDaMeta = dados.icv_ponderado !== null && dados.icv_meta !== null && dados.icv_ponderado < dados.icv_meta;
+        cardIcv.classList.toggle('stat-card-warn', abaixoDaMeta);
+    } catch (err) {
+        if (ignoravel(err)) return;
+        exibirErro('Erro ao carregar o ICV do dia: ' + err.message);
+    }
+}
+
+// ─── 5. Ranking por perda absoluta (D23, D28) ────────────────────────────
 async function carregarRanking() {
     const corpo = document.getElementById('fp-ranking-corpo');
     try {
         const params = new URLSearchParams({ data: dataSelecionada() });
-        const bacia = baciaSelecionada();
-        if (bacia) params.set('bacia_codigo', bacia);
         const itens = await apiGet(`/fiscalizacao/icv/ranking?${params}`);
         if (itens.length === 0) {
             corpo.innerHTML = '<tr><td colspan="6" class="oc-vazio">Nenhum dado de ICV para esta data.</td></tr>';
@@ -179,7 +274,7 @@ async function carregarRanking() {
     }
 }
 
-// ─── 4. A linha aberta (D12) ────────────────────────────────────────────
+// ─── A linha aberta (D12), revelada ao tocar numa linha do ranking ──────
 const ESTADO_LABEL = { REALIZADA: 'Saiu', PERDIDA: 'Não saiu', ATRASADA: 'Atrasada', AGUARDANDO: 'Aguardando' };
 const ESTADO_BADGE = { PERDIDA: 'badge-atrasado', ATRASADA: 'badge-urgente' };
 
@@ -205,7 +300,7 @@ async function carregarPainelLinha() {
         corpo.innerHTML = dados.partidas.map(p => `
             <tr>
                 <td>${fmtHora(p.horario_programado)}</td>
-                <td>${p.numero_tabela}</td>
+                <td>${p.numero_tabela ?? '—'}</td>
                 <td>${escapeHtml(p.terminal)}</td>
                 <td><span class="remanejo-badge ${ESTADO_BADGE[p.estado] || ''}">${ESTADO_LABEL[p.estado] || p.estado}</span></td>
                 <td>${escapeHtml(p.motivo || '—')}</td>
@@ -232,11 +327,36 @@ async function imprimirPlacar() {
     }
 }
 
-// ─── 5. Ações da coordenação (D26) ──────────────────────────────────────
+// ─── 6. Cascata agora (D24) ───────────────────────────────────────────────
+async function carregarCascata() {
+    const secao = document.getElementById('fp-secao-cascata');
+    const lista = document.getElementById('fp-cascata-lista');
+    try {
+        const params = new URLSearchParams({ data: dataSelecionada() });
+        const itens = await apiGet(`/fiscalizacao/icv/cascata?${params}`);
+        if (itens.length === 0) {
+            secao.style.display = 'none';
+            lista.innerHTML = '';
+            return;
+        }
+        secao.style.display = '';
+        lista.innerHTML = itens.map(i => `
+            <div>
+                <span class="remanejo-badge badge-atrasado">CASCATA</span>
+                Linha ${escapeHtml(i.linha_codigo)} — ${i.quantidade} perdas na faixa das
+                ${String(i.faixa_hora).padStart(2, '0')}h
+            </div>
+        `).join('');
+    } catch (err) {
+        if (ignoravel(err)) return;
+    }
+}
+
+// ─── 7. Ações da coordenação (D26) ───────────────────────────────────────
 async function carregarAcoes() {
     const lista = document.getElementById('fp-acoes-lista');
     if (!linhaAberta) {
-        lista.innerHTML = '<div class="oc-vazio">Selecione uma linha no ranking para ver as ações.</div>';
+        lista.innerHTML = '<div class="oc-vazio">Toque numa linha do ranking para ver as ações.</div>';
         return;
     }
     try {
@@ -296,14 +416,17 @@ async function salvarAcao() {
     }
 }
 
-// ─── 6. Motivos livres mais frequentes (D27) ────────────────────────────
+// ─── 8. Motivos livres mais frequentes (D27) ─────────────────────────────
 async function carregarMotivosLivres() {
     const lista = document.getElementById('fp-motivos-lista');
     try {
         const fim = dataSelecionada();
-        const inicio = new Date(`${fim}T00:00:00`);
-        inicio.setDate(inicio.getDate() - 6);
-        const params = new URLSearchParams({ data_inicio: inicio.toISOString().slice(0, 10), data_fim: fim });
+        // 🔴 Antes convertia a data pra UTC pra montar o início da janela de
+        // 7 dias — a armadilha do fuso fazia a janela pegar 8 dias depois
+        // das 21h. dataLocalISO() monta a data sem passar por UTC.
+        const inicioDate = new Date(`${fim}T00:00:00`);
+        inicioDate.setDate(inicioDate.getDate() - 6);
+        const params = new URLSearchParams({ data_inicio: dataLocalISO(inicioDate), data_fim: fim });
         const itens = await apiGet(`/fiscalizacao/icv/motivos-livres?${params}`);
         if (itens.length === 0) {
             lista.innerHTML = '<div class="oc-vazio">Nenhum motivo livre nos últimos 7 dias.</div>';
@@ -369,7 +492,7 @@ async function importarIcv() {
         if (resp.erros.length) partes.push(`${resp.erros.length} erro(s)`);
         resultado.textContent = `Data ${resp.data_referencia} — ${partes.join(' · ')}`;
         input.value = '';
-        await Promise.all([carregarBacias(), carregarBaciaResumo(), carregarRanking(), carregarCascata()]);
+        await Promise.all([carregarIcvDoDia(), carregarRanking(), carregarCascata()]);
     } catch (err) {
         resultado.textContent = 'Erro: ' + err.message;
     }
@@ -379,9 +502,11 @@ async function importarIcv() {
 async function carregarTudo() {
     ocultarErroSeVazio();
     await Promise.all([
-        carregarBaciaResumo(),
-        carregarCascata(),
+        carregarAoVivo(),
+        carregarTurnosAbertos(),
+        carregarIcvDoDia(),
         carregarRanking(),
+        carregarCascata(),
         carregarMotivosLivres(),
         linhaAberta ? carregarPainelLinha() : Promise.resolve(),
         linhaAberta ? carregarAcoes() : Promise.resolve(),
@@ -416,10 +541,15 @@ function aplicarPermissaoEscrita() {
 async function iniciar() {
     initHeader();
     aplicarPermissaoEscrita();
-    document.getElementById('fp-data').value = hojeISO();
+    document.getElementById('fp-data').value = dataLocalISO();
 
-    document.getElementById('fp-bacia').addEventListener('change', carregarTudo);
     document.getElementById('fp-data').addEventListener('change', carregarTudo);
+
+    document.getElementById('fp-btn-editar-linhas').addEventListener('click', abrirModalLinhas);
+    document.getElementById('fp-modal-linhas-fechar').addEventListener('click', fecharModalLinhas);
+    document.getElementById('fp-modal-linhas-concluir').addEventListener('click', fecharModalLinhas);
+    document.getElementById('fp-nova-linha-adicionar').addEventListener('click', adicionarMinhaLinha);
+    initPeriodoNovaLinha();
 
     document.getElementById('fp-btn-nova-acao').addEventListener('click', abrirModalAcao);
     document.getElementById('fp-modal-acao-fechar').addEventListener('click', fecharModalAcao);
@@ -429,7 +559,7 @@ async function iniciar() {
     document.getElementById('fp-icv-btn-upload').addEventListener('click', importarIcv);
     document.getElementById('fp-btn-imprimir-placar').addEventListener('click', imprimirPlacar);
 
-    await carregarBacias();
+    await carregarMinhasLinhas();
     await carregarTudo();
     iniciarPolling();
 }

@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!--
   Sistema de Gestão Operacional Sambaíba — V3
-  Suite Fiscalização — Painel do coordenador (Bloco E)
+  Suite Fiscalização — Painel do coordenador (Bloco D §6 — abre no ao vivo)
   Desenvolvido por Alisson Martins
   © 2026 — Todos os direitos reservados
 -->
@@ -40,9 +40,7 @@
 
 <main class="patio-main">
 
-    <!-- Filtros: bacia + data -->
     <div class="remanejo-filtros" style="flex-wrap:wrap">
-        <select class="form-select" id="fp-bacia" style="max-width:260px"></select>
         <input type="date" class="form-input" id="fp-data" style="max-width:160px">
         <span id="fp-poll-status" style="color:var(--muted);font-size:0.75rem;margin-left:auto">—</span>
     </div>
@@ -51,10 +49,51 @@
 
     <div class="patio-content">
 
-        <!-- 1. A bacia hoje (D22 ponderado, D29 meta, D20 duas fontes) -->
+        <!-- 1. AGORA NA RUA (D39) — o que os fiscais registraram hoje nas -->
+        <!-- linhas do coordenador logado, mais recente em cima.           -->
         <section class="patio-section">
-            <div class="patio-section-title">A bacia hoje</div>
-            <div class="stats-bar" id="fp-stats-bacia" style="grid-template-columns:repeat(3,1fr)">
+            <div class="patio-section-title">Agora na rua</div>
+            <div id="fp-ao-vivo-lista" style="display:flex;flex-direction:column;gap:6px"></div>
+        </section>
+
+        <!-- 2. TURNOS ABERTOS (D39) — quem está em campo, cobrindo quais -->
+        <!-- linhas, e há quanto tempo não registra nada.                  -->
+        <section class="patio-section">
+            <div class="patio-section-title">Turnos abertos</div>
+            <div class="portaria-tabela-wrap">
+                <table class="portaria-tabela">
+                    <thead>
+                        <tr>
+                            <th>Fiscal</th>
+                            <th>Ponto</th>
+                            <th>Terminal</th>
+                            <th>Período</th>
+                            <th>Linhas</th>
+                            <th>Aberto às</th>
+                            <th>Sem registrar</th>
+                        </tr>
+                    </thead>
+                    <tbody id="fp-turnos-corpo">
+                        <tr><td colspan="7" class="oc-vazio">Carregando…</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </section>
+
+        <!-- 3. MINHAS LINHAS (D38, D40) -->
+        <section class="patio-section">
+            <div class="patio-section-title" style="display:flex;justify-content:space-between;align-items:center">
+                <span>Minhas linhas</span>
+                <button type="button" class="btn btn-ghost" id="fp-btn-editar-linhas" style="text-transform:none;letter-spacing:normal">Editar</button>
+            </div>
+            <div id="fp-minhas-linhas-lista"><div class="patio-loading">Carregando…</div></div>
+        </section>
+
+        <!-- 4. ICV do dia (D22 ponderado, D29 meta, D20 duas fontes) —     -->
+        <!-- direto nas linhas do coordenador logado, sem seletor de bacia. -->
+        <section class="patio-section">
+            <div class="patio-section-title">ICV do dia</div>
+            <div class="stats-bar" id="fp-stats-icv" style="grid-template-columns:repeat(3,1fr)">
                 <div class="stat-card">
                     <div class="stat-label">ICV ponderado</div>
                     <div class="stat-value" id="fp-icv-ponderado">—</div>
@@ -70,13 +109,7 @@
             </div>
         </section>
 
-        <!-- 2. Cascata agora (D24) — vazio = nada na tela -->
-        <section class="patio-section" id="fp-secao-cascata" style="display:none">
-            <div class="patio-section-title">⚠️ Cascata agora</div>
-            <div id="fp-cascata-lista" style="display:flex;flex-direction:column;gap:6px"></div>
-        </section>
-
-        <!-- 3. Ranking por perda absoluta (D23), com divergência (D28) -->
+        <!-- 5. Ranking por perda absoluta (D23), com divergência (D28) -->
         <section class="patio-section">
             <div class="patio-section-title">Ranking por perda absoluta</div>
             <div class="portaria-tabela-wrap">
@@ -98,7 +131,8 @@
             </div>
         </section>
 
-        <!-- 4. A linha aberta — horários do dia, quatro estados (D12) -->
+        <!-- A linha aberta — horários do dia, quatro estados (D12), -->
+        <!-- revelada ao tocar numa linha do ranking. -->
         <section class="patio-section" id="fp-secao-linha" style="display:none">
             <div class="patio-section-title" style="display:flex;justify-content:space-between;align-items:center">
                 <span>Linha <span id="fp-linha-codigo"></span> — horários do dia</span>
@@ -121,7 +155,13 @@
             </div>
         </section>
 
-        <!-- 5. Ações da coordenação (D26) -->
+        <!-- 6. Cascata agora (D24) — vazio = nada na tela -->
+        <section class="patio-section" id="fp-secao-cascata" style="display:none">
+            <div class="patio-section-title">⚠️ Cascata agora</div>
+            <div id="fp-cascata-lista" style="display:flex;flex-direction:column;gap:6px"></div>
+        </section>
+
+        <!-- 7. Ações da coordenação (D26) -->
         <section class="patio-section">
             <div class="patio-section-title">Ações da coordenação</div>
             <div style="display:flex;justify-content:flex-end;margin-bottom:4px">
@@ -130,7 +170,7 @@
             <div id="fp-acoes-lista" style="display:flex;flex-direction:column;gap:8px"></div>
         </section>
 
-        <!-- 6. Motivos livres mais frequentes (D27) -->
+        <!-- 8. Motivos livres mais frequentes (D27) -->
         <section class="patio-section">
             <div class="patio-section-title">Motivos livres mais frequentes (7 dias)</div>
             <div id="fp-motivos-lista" style="display:flex;flex-direction:column;gap:6px"></div>
@@ -148,6 +188,31 @@
 
     </div>
 </main>
+
+<!-- Modal — editar minhas linhas (D38, D40) -->
+<div class="modal-overlay" id="fp-modal-linhas">
+    <div class="modal">
+        <button type="button" class="modal-close" id="fp-modal-linhas-fechar" aria-label="Fechar">&times;</button>
+        <div class="modal-title">Minhas linhas</div>
+        <div id="fp-modal-linhas-lista" style="display:flex;flex-direction:column;gap:8px;margin-bottom:16px"></div>
+        <div class="form-group">
+            <label class="form-label" for="fp-nova-linha-codigo">Linha</label>
+            <input type="text" class="form-input" id="fp-nova-linha-codigo" placeholder="ex.: 1726-10">
+        </div>
+        <div class="form-group">
+            <label class="form-label">Período</label>
+            <div class="recolhida-chips" id="fp-nova-linha-periodo">
+                <button type="button" class="recolhida-chip active" data-periodo="1">1º</button>
+                <button type="button" class="recolhida-chip" data-periodo="2">2º</button>
+            </div>
+        </div>
+        <div id="fp-modal-linhas-erro" style="display:none;color:var(--accent);font-size:0.85rem;margin-bottom:8px"></div>
+        <div class="btn-modal-stack">
+            <button type="button" class="btn btn-primary btn-full" id="fp-nova-linha-adicionar">+ Adicionar linha</button>
+            <button type="button" class="btn btn-ghost btn-full" id="fp-modal-linhas-concluir">Concluído</button>
+        </div>
+    </div>
+</div>
 
 <!-- Modal — registrar ação da coordenação (D26) -->
 <div class="modal-overlay" id="fp-modal-acao">
