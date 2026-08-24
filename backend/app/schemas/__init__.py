@@ -29,7 +29,8 @@ from app.schemas.portaria import (
     CredencialRevogarRequest, EmpresaTerceiraCreate, EmpresaTerceiraRead,
     MovimentoCreate, MovimentoCreateResponse, MovimentoRead,
     PortariaDentroResponse, RecolhidaAnaliseResponse, RecolhidaAvaliacaoRequest,
-    RecolhidaCreate, RecolhidaGerencialRead, RecolhidaRead, ResolverPrefixoResponse,
+    RecolhidaCreate, RecolhidaEncerramentoRequest, RecolhidaGerencialRead,
+    RecolhidaRead, ResolverPrefixoResponse,
     ResolverReResponse, VeiculoCreate, VeiculoDivergenciaRead, VeiculoRead,
     VeiculoSituacaoHistRead, VeiculoSituacaoUpdate, VeiculoUpdate,
 )

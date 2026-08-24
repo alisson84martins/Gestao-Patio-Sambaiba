@@ -26,6 +26,14 @@ treinamento — o dado é do VEÍCULO, não da pessoa.
 🔧 BLOCO H: todo RE motorista/cobrador digitado alimenta o pré-cadastro
 de pessoas (services/pre_cadastro.py) — nunca cria acesso ao sistema,
 nunca bloqueia o registro da recolhida.
+
+🔧 MIGRATION 032 — ENCERRAMENTO: fecha o ciclo que a avaliação deixava em
+aberto pra sempre. Dois passos de propósito (avaliar != encerrar, são
+momentos diferentes na operação real): a avaliação diz se o carro volta,
+o encerramento diz se havia defeito de verdade. PATCH /encerramento exige
+status=AVALIADA (409 fora disso) e espelha o desfecho na ficha_manutencao
+que a própria recolhida abriu, quando existe (services/manutencao_recolhida.py
+— regra número um: ficha_id nulo não impede o encerramento).
 """
 from collections import Counter
 from datetime import date, datetime, timedelta, timezone
@@ -46,10 +54,11 @@ from app.models.pessoas import Motorista
 from app.models.portaria import RecolhidaAnormal
 from app.schemas.portaria import (
     ContagemPendentesResponse, RecolhidaAnaliseItem, RecolhidaAnaliseResponse,
-    RecolhidaAvaliacaoRequest, RecolhidaCreate, RecolhidaGerencialRead, RecolhidaRead,
-    ResolverPrefixoResponse, StatusRecolhida, normalizar_re,
+    RecolhidaAvaliacaoRequest, RecolhidaCreate, RecolhidaEncerramentoRequest,
+    RecolhidaGerencialRead, RecolhidaRead, ResolverPrefixoResponse, StatusRecolhida,
+    normalizar_re,
 )
-from app.services.manutencao_recolhida import abrir_ficha_de_recolhida
+from app.services.manutencao_recolhida import abrir_ficha_de_recolhida, encerrar_ficha_de_recolhida
 from app.services.pre_cadastro import registrar_pessoa_vista
 
 router = APIRouter(prefix="/portaria", tags=["portaria"])
@@ -175,15 +184,23 @@ def resolver_prefixo(
     )
 
 
+#  AGUARDANDO (falta avaliar) e AVALIADA (falta encerrar) — migration 032:
+# as duas ainda exigem ação da manutenção, então pendentes/contagem passam
+# a somar as duas. Antes só existia AGUARDANDO; ampliar aqui é seguro
+# porque nenhuma outra tela do sistema consome estes dois endpoints (só a
+# aba RA de manutencao.html) — não há leitor esperando a semântica antiga.
+_STATUS_PENDENTES = ("AGUARDANDO", "AVALIADA")
+
+
 @router.get(
     "/recolhidas/pendentes",
     response_model=list[RecolhidaRead],
-    summary="Fila da manutenção — AGUARDANDO primeiro, mais recente no topo",
+    summary="Fila da manutenção — AGUARDANDO (falta avaliar) + AVALIADA (falta encerrar), mais recente no topo",
 )
 def listar_pendentes(usuario: LeituraRecolhida, db: Annotated[Session, Depends(get_db)]):
     return db.execute(
         select(RecolhidaAnormal)
-        .where(RecolhidaAnormal.status == "AGUARDANDO")
+        .where(RecolhidaAnormal.status.in_(_STATUS_PENDENTES))
         .order_by(RecolhidaAnormal.momento.desc())
     ).scalars().all()
 
@@ -191,11 +208,11 @@ def listar_pendentes(usuario: LeituraRecolhida, db: Annotated[Session, Depends(g
 @router.get(
     "/recolhidas/contagem-pendentes",
     response_model=ContagemPendentesResponse,
-    summary="Total de AGUARDANDO — o alerta da fila",
+    summary="Total de AGUARDANDO + AVALIADA — o alerta da fila",
 )
 def contar_pendentes(usuario: LeituraRecolhida, db: Annotated[Session, Depends(get_db)]):
     total = len(db.execute(
-        select(RecolhidaAnormal.id).where(RecolhidaAnormal.status == "AGUARDANDO")
+        select(RecolhidaAnormal.id).where(RecolhidaAnormal.status.in_(_STATUS_PENDENTES))
     ).scalars().all())
     return ContagemPendentesResponse(total=total)
 
@@ -401,6 +418,57 @@ def avaliar_recolhida(
     recolhida.avaliado_por = usuario.id
     recolhida.avaliado_em = datetime.now(timezone.utc)
     recolhida.status = "AVALIADA"
+
+    db.commit()
+    db.refresh(recolhida)
+    return recolhida
+
+
+@router.patch(
+    "/recolhidas/{recolhida_id}/encerramento",
+    response_model=RecolhidaRead,
+    summary="Mecânico encerra: SEM_DEFEITO ou SERVICO_EXECUTADO — fecha o ciclo",
+)
+def encerrar_recolhida(
+    recolhida_id: UUID,
+    payload: RecolhidaEncerramentoRequest,
+    usuario: EscritaManutencao,
+    db: Annotated[Session, Depends(get_db)],
+):
+    recolhida = db.get(RecolhidaAnormal, recolhida_id)
+    if recolhida is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Recolhida não encontrada")
+
+    # Dois passos de propósito (§3.3 do prompt de 23/08): triagem
+    # (avaliação) e encerramento são momentos diferentes na operação real.
+    # Exige AVALIADA — cobre não só AGUARDANDO/ENCERRADA (as duas mensagens
+    # do prompt) como também DESCARTADA, valor previsto no CHECK da 026 mas
+    # sem endpoint nenhum que o grave hoje (nenhum leitor real a esperar).
+    if recolhida.status != "AVALIADA":
+        if recolhida.status == "AGUARDANDO":
+            raise HTTPException(status.HTTP_409_CONFLICT, detail="Avalie a recolhida antes de encerrar.")
+        if recolhida.status == "ENCERRADA":
+            raise HTTPException(status.HTTP_409_CONFLICT, detail="Recolhida já foi encerrada.")
+        raise HTTPException(
+            status.HTTP_409_CONFLICT, detail=f"Recolhida está {recolhida.status}, não pode ser encerrada.",
+        )
+
+    ficha_falhou_motivo = encerrar_ficha_de_recolhida(
+        db, ficha_id=recolhida.ficha_id, desfecho=payload.desfecho,
+    )
+    # Regra número um: nada do lado da ficha impede o encerramento da RA —
+    # só sobrescreve ficha_falhou_motivo quando a atualização falhou de
+    # verdade; sucesso ou ficha_id nulo (encerrar_ficha_de_recolhida
+    # devolve None nos dois casos) preserva o motivo que já existia desde o
+    # registro (ex.: "motivo COLISAO — não gera ordem de serviço").
+    if ficha_falhou_motivo is not None:
+        recolhida.ficha_falhou_motivo = ficha_falhou_motivo
+
+    recolhida.desfecho = payload.desfecho
+    recolhida.encerramento_relato = payload.encerramento_relato
+    recolhida.encerrado_por = usuario.id
+    recolhida.encerrado_em = datetime.now(timezone.utc)
+    recolhida.status = "ENCERRADA"
 
     db.commit()
     db.refresh(recolhida)

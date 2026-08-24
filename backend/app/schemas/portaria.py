@@ -368,8 +368,10 @@ class CredencialRevogarRequest(BaseModel):
 # motorista/cobrador também são recolhida anormal, e não abrem ficha.
 # ============================================================================
 
-StatusRecolhida = Literal["AGUARDANDO", "AVALIADA", "DESCARTADA"]
+StatusRecolhida = Literal["AGUARDANDO", "AVALIADA", "DESCARTADA", "ENCERRADA"]
 AvaliacaoRecolhida = Literal["LIBERADO", "RETIDO"]
+# Migration 032 — fechamento do ciclo. Só existe quando status=ENCERRADA.
+DesfechoRecolhida = Literal["SEM_DEFEITO", "SERVICO_EXECUTADO"]
 # PORTARIA = controlador digitou. ESCALA = sugestão da escala confirmada
 # sem alterar (só pro motorista — cobrador nunca tem sugestão). ⛔ Sem
 # valor MANUAL — §2.9-0 fechou o buraco que esse valor tentava cobrir.
@@ -433,6 +435,11 @@ class RecolhidaRead(ORMBase):
     avaliacao_relato: Optional[str] = None
     avaliado_por: Optional[UUID] = None
     avaliado_em: Optional[datetime] = None
+    # Fechamento do ciclo (migration 032) — só preenchido quando status=ENCERRADA.
+    desfecho: Optional[DesfechoRecolhida] = None
+    encerramento_relato: Optional[str] = None
+    encerrado_por: Optional[UUID] = None
+    encerrado_em: Optional[datetime] = None
     status: StatusRecolhida
     registrado_por: UUID
     criado_em: datetime
@@ -464,6 +471,16 @@ class RecolhidaAvaliacaoRequest(BaseModel):
         if self.avaliacao == "LIBERADO" and self.prazo_minutos is None:
             raise ValueError("prazo_minutos é obrigatório quando avaliacao=LIBERADO.")
         return self
+
+
+class RecolhidaEncerramentoRequest(BaseModel):
+    """PATCH /portaria/recolhidas/{id}/encerramento — recurso `manutencao`
+    escrever (mesmo de avaliar; quem avalia é quem encerra). Migration 032:
+    fechamento do ciclo, dois passos de propósito (avaliar != encerrar) —
+    ver router pra regra de status exigido."""
+
+    desfecho: DesfechoRecolhida
+    encerramento_relato: Optional[str] = None
 
 
 class ContagemPendentesResponse(BaseModel):

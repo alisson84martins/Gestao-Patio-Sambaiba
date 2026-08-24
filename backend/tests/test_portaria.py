@@ -1203,6 +1203,162 @@ def test_falha_no_pre_cadastro_nao_impede_registro_da_recolhida(ambiente, monkey
 
 
 # ============================================================================
+# BLOCO I (prompt "Barra por módulo + RA como aba da Manutenção", 23/08) —
+# encerramento da recolhida (migration 032, services/manutencao_recolhida.py
+# ::encerrar_ficha_de_recolhida).
+# ============================================================================
+
+def _criar_recolhida_avaliada(ambiente, *, prefixo, com_ficha=True):
+    """Registra e avalia (LIBERADO) uma recolhida, devolve (id, corpo da
+    avaliação). com_ficha=True cadastra ônibus+tipo de defeito primeiro
+    (motivo=DEFEITO default abre ficha automática); com_ficha=False usa
+    motivo=OUTRO (nunca gera ficha — mesmo caminho de FALTA_MOTORISTA/
+    COLISAO pro que importa aqui: ficha_id fica None)."""
+    if com_ficha:
+        _criar_onibus(ambiente["engine"], numero_frota=int(prefixo))
+        with Session(ambiente["engine"]) as db:
+            _criar_tipo_defeito(db, codigo="MEC_MOTOR")
+            db.commit()
+        payload = {"prefixo": prefixo, "tipo_defeito_codigo": "MEC_MOTOR"}
+    else:
+        payload = {"prefixo": prefixo, "motivo": "OUTRO"}
+
+    _como(ambiente, "CONTROLADOR")
+    criada = ambiente["http"].post("/portaria/recolhidas", json=payload)
+    assert criada.status_code == 201, criada.text
+    recolhida_id = criada.json()["id"]
+
+    _como(ambiente, "MECANICO")
+    avaliada = ambiente["http"].patch(
+        f"/portaria/recolhidas/{recolhida_id}/avaliacao",
+        json={"avaliacao": "LIBERADO", "prazo_minutos": 30},
+    )
+    assert avaliada.status_code == 200, avaliada.text
+    return recolhida_id, avaliada.json()
+
+
+# ─── I1 — encerrar SEM_DEFEITO: RA ENCERRADA, ficha CANCELADA ───────────
+
+def test_encerrar_sem_defeito_cancela_ficha(ambiente):
+    recolhida_id, avaliada = _criar_recolhida_avaliada(ambiente, prefixo="1740")
+    ficha_id = avaliada["ficha_id"]
+    assert ficha_id is not None
+
+    _como(ambiente, "MECANICO")
+    resp = ambiente["http"].patch(
+        f"/portaria/recolhidas/{recolhida_id}/encerramento",
+        json={"desfecho": "SEM_DEFEITO", "encerramento_relato": "Testado, sem defeito encontrado"},
+    )
+    assert resp.status_code == 200, resp.text
+    corpo = resp.json()
+    assert corpo["status"] == "ENCERRADA"
+    assert corpo["desfecho"] == "SEM_DEFEITO"
+    assert corpo["encerramento_relato"] == "Testado, sem defeito encontrado"
+
+    with Session(ambiente["engine"]) as db:
+        ficha = db.get(FichaManutencao, UUID(ficha_id))
+    assert ficha.status == StatusFichaEnum.CANCELADA
+
+
+# ─── I2 — encerrar SERVICO_EXECUTADO: RA ENCERRADA, ficha CONCLUIDA ─────
+
+def test_encerrar_servico_executado_conclui_ficha(ambiente):
+    recolhida_id, avaliada = _criar_recolhida_avaliada(ambiente, prefixo="1741")
+    ficha_id = avaliada["ficha_id"]
+
+    _como(ambiente, "MECANICO")
+    resp = ambiente["http"].patch(
+        f"/portaria/recolhidas/{recolhida_id}/encerramento",
+        json={"desfecho": "SERVICO_EXECUTADO"},
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["desfecho"] == "SERVICO_EXECUTADO"
+
+    with Session(ambiente["engine"]) as db:
+        ficha = db.get(FichaManutencao, UUID(ficha_id))
+    assert ficha.status == StatusFichaEnum.CONCLUIDA
+    # services/manutencao_recolhida.py grava concluida_em explicitamente —
+    # em produção o trigger fn_ficha_concluida_em faria o mesmo, mas o
+    # SQLite dos testes não tem trigger nenhum.
+    assert ficha.concluida_em is not None
+
+
+# ─── I3 — encerrar RA ainda AGUARDANDO -> 409 (avalie antes de encerrar) ─
+
+def test_encerrar_recolhida_aguardando_rejeitado_409(ambiente):
+    _como(ambiente, "CONTROLADOR")
+    criada = ambiente["http"].post("/portaria/recolhidas", json={"prefixo": "9988", "motivo": "OUTRO"})
+    recolhida_id = criada.json()["id"]
+
+    _como(ambiente, "MECANICO")
+    resp = ambiente["http"].patch(
+        f"/portaria/recolhidas/{recolhida_id}/encerramento",
+        json={"desfecho": "SEM_DEFEITO"},
+    )
+    assert resp.status_code == 409, resp.text
+
+
+# ─── I4 — encerrar RA já ENCERRADA -> 409 (não reencerra) ───────────────
+
+def test_encerrar_recolhida_ja_encerrada_rejeitado_409(ambiente):
+    recolhida_id, _ = _criar_recolhida_avaliada(ambiente, prefixo="9987", com_ficha=False)
+
+    _como(ambiente, "MECANICO")
+    primeiro = ambiente["http"].patch(
+        f"/portaria/recolhidas/{recolhida_id}/encerramento",
+        json={"desfecho": "SEM_DEFEITO"},
+    )
+    assert primeiro.status_code == 200, primeiro.text
+
+    segundo = ambiente["http"].patch(
+        f"/portaria/recolhidas/{recolhida_id}/encerramento",
+        json={"desfecho": "SEM_DEFEITO"},
+    )
+    assert segundo.status_code == 409, segundo.text
+
+
+# ─── I5 — 🔴 encerrar RA sem ficha_id: 200, encerra, sem explosão ───────
+# (regra número um — mesma que abrir_ficha_de_recolhida já respeita: nada
+# do lado da ficha pode travar o registro/encerramento da recolhida)
+
+def test_encerrar_recolhida_sem_ficha_encerra_sem_explosao(ambiente):
+    recolhida_id, avaliada = _criar_recolhida_avaliada(ambiente, prefixo="9986", com_ficha=False)
+    assert avaliada["ficha_id"] is None
+
+    _como(ambiente, "MECANICO")
+    resp = ambiente["http"].patch(
+        f"/portaria/recolhidas/{recolhida_id}/encerramento",
+        json={"desfecho": "SERVICO_EXECUTADO"},
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["status"] == "ENCERRADA"
+
+
+# ─── I6 — §3.5: contagem/pendentes passam a somar AGUARDANDO + AVALIADA ─
+# Decisão registrada no diff: as duas ainda exigem ação da manutenção
+# (avaliar ou encerrar), e nenhum outro consumidor depende da semântica
+# antiga (só AGUARDANDO) — ver comentário de _STATUS_PENDENTES no router.
+
+def test_contagem_e_pendentes_somam_aguardando_e_avaliada(ambiente):
+    _como(ambiente, "CONTROLADOR")
+    ambiente["http"].post("/portaria/recolhidas", json={"prefixo": "9985", "motivo": "OUTRO"})
+    id_avaliar = ambiente["http"].post(
+        "/portaria/recolhidas", json={"prefixo": "9984", "motivo": "OUTRO"}
+    ).json()["id"]
+
+    _como(ambiente, "MECANICO")
+    ambiente["http"].patch(f"/portaria/recolhidas/{id_avaliar}/avaliacao", json={"avaliacao": "RETIDO"})
+
+    contagem = ambiente["http"].get("/portaria/recolhidas/contagem-pendentes")
+    assert contagem.status_code == 200, contagem.text
+    assert contagem.json()["total"] == 2
+
+    pendentes = ambiente["http"].get("/portaria/recolhidas/pendentes")
+    assert pendentes.status_code == 200, pendentes.text
+    assert {item["status"] for item in pendentes.json()} == {"AGUARDANDO", "AVALIADA"}
+
+
+# ============================================================================
 # BLOCO A1 (prompt de ajustes 23/08) — base limpa de placa (D10 mantida)
 # ============================================================================
 

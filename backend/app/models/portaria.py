@@ -292,6 +292,18 @@ class RecolhidaAnormal(Base):
     )
     avaliado_em: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
 
+    # ── fechamento do ciclo — resposta da MANUTENÇÃO ao ENCERRAR (migration
+    # 032): diferente de avaliação (LIBERADO/RETIDO), que só diz se o carro
+    # volta — desfecho diz se havia defeito de verdade e efetivamente fecha
+    # a ficha que a recolhida abriu. Só preenchido quando status=ENCERRADA
+    # (CHECK ck_recolhida_desfecho_status).
+    desfecho: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
+    encerramento_relato: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    encerrado_por: Mapped[Optional[UUID]] = mapped_column(
+        PG_UUID(as_uuid=True), ForeignKey("funcionario.id"), nullable=True
+    )
+    encerrado_em: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+
     status: Mapped[str] = mapped_column(String(12), nullable=False, default="AGUARDANDO")
 
     registrado_por: Mapped[UUID] = mapped_column(
