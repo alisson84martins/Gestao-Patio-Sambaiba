@@ -202,6 +202,53 @@ def exige(recurso: str, escrever: bool = False) -> Callable:
     return checker
 
 
+def exige_qualquer(*recursos: str, escrever: bool = False) -> Callable:
+    """Como exige(), mas passa se a pessoa tiver o acesso pedido em QUALQUER
+    um dos recursos passados — 403 só quando nenhum bate.
+
+    Uso: um endpoint compartilhado por duas ‘pontas’ do RBAC que antes eram
+    um recurso só e foram separadas (ex.: migration 037 — Bloco I — separou
+    `recolhida_anormal`/registrar de `recolhida_tratativa`/tratar; GET
+    /portaria/recolhidas é lido pelas duas). Mesmo espírito do
+    `qualquerAcesso` do frontend (nav.js), agora do lado do backend.
+
+    Uso: Depends(exige_qualquer("recolhida_anormal", "recolhida_tratativa"))
+    """
+    def checker(
+        request: Request,
+        token: Annotated[str, Depends(oauth2_scheme)],
+        db: Annotated[Session, Depends(get_db)],
+    ) -> Funcionario:
+        func = get_current_funcionario(token, db)
+
+        rows = db.execute(
+            text(
+                "SELECT recurso, pode_ler, pode_escrever "
+                "FROM vw_acesso_efetivo "
+                "WHERE funcionario_id = :fid AND recurso = ANY(:recs)"
+            ),
+            {"fid": func.id, "recs": list(recursos)},
+        ).fetchall()
+
+        tem_acesso = any((row.pode_escrever if escrever else row.pode_ler) for row in rows)
+        if not tem_acesso:
+            # Loga só o primeiro recurso da lista — trilha mínima (migration
+            # 021), mesmo padrão de exige(); não é o dado que decide a
+            # negação (é a AUSÊNCIA de qualquer um deles).
+            registrar_log_acesso(
+                db, "NEGADO_403",
+                funcionario_id=func.id, recurso=recursos[0], ip=ip_do_request(request),
+            )
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Sem permissão para {'escrever em' if escrever else 'ler'} "
+                       + " ou ".join(recursos),
+            )
+        return func
+
+    return checker
+
+
 # ─── Aliases legados — mantidos para os 14 routers existentes não quebrarem ──
 # Após validação completa do RBAC, serão atualizados um a um para usar exige().
 

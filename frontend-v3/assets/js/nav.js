@@ -31,7 +31,10 @@ const PAGINAS = {
     'patio.html':                  { modulo: 'PATIO' },
     'remanejamento.html':          { modulo: 'PATIO' },
     'alertas.html':                { modulo: 'PATIO' },
-    'manutencao.html':             { modulo: 'PATIO' },
+    // Migration 037 (Bloco I, 24/08) — Manutenção saiu do Pátio, virou
+    // módulo próprio. Decisão consciente (ver cabeçalho da migration): o
+    // atalho não volta a aparecer na barra do Pátio.
+    'manutencao.html':             { modulo: 'MANUTENCAO' },
     'importacao.html':             { modulo: 'PATIO' },
     'ocorrencias.html':            { modulo: 'COORDENADORIA' },
     'ocorrencia-form.html':        { modulo: 'COORDENADORIA', ativo: 'ocorrencias.html' },
@@ -54,7 +57,6 @@ const LINKS = [
     { href: 'patio.html', texto: 'Pátio', recurso: 'alocacao', modulo: 'PATIO' },
     { href: 'remanejamento.html', texto: 'Remanejamento', recurso: 'alocacao', modulo: 'PATIO' },
     { href: 'alertas.html', texto: 'Alertas', recurso: 'alerta', modulo: 'PATIO' },
-    { href: 'manutencao.html', texto: 'Manutenção', recurso: 'manutencao', modulo: 'PATIO' },
     { href: 'importacao.html', texto: 'Importação', recurso: 'escala', modulo: 'PATIO' },
     { href: 'ocorrencias.html', texto: 'Ocorrências', recurso: 'ocorrencia', modulo: 'COORDENADORIA' },
     // CCO só tem pode_escrever em pre_ocorrencia (abre/roteia, nunca lê
@@ -81,6 +83,10 @@ const LINKS = [
     // tem `fiscalizacao_painel`, não `fiscalizacao` (D — ele acompanha,
     // não registra), então cada um vê só o link que é dele.
     { href: 'fiscal.html', texto: 'Registro do fiscal', recurso: 'fiscalizacao', modulo: 'FISCALIZACAO' },
+    // Módulo Manutenção (migration 037, Bloco I, 24/08) — saiu do Pátio,
+    // virou módulo próprio. UMA entrada só (decisão consciente, não
+    // duplicar "por conveniência" — ver cabeçalho da migration).
+    { href: 'manutencao.html', texto: 'Manutenção', recurso: 'manutencao', modulo: 'MANUTENCAO' },
 ];
 
 export function initNav() {

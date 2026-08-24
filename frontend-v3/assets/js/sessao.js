@@ -31,9 +31,14 @@ const PAGINA_INICIAL = {
     // funcao.modulo_padrao='PORTARIA' já foi gravado pela migration 024, e
     // paginaModulo() só resolve o que está em PAGINAS_PRONTAS (§4.4).
     PORTARIA: 'portaria.html',
+    // Migration 037 (Bloco I, 24/08) — Manutenção vira módulo próprio,
+    // separado do Pátio. 🔴 Mesma armadilha do comentário acima: sem isto
+    // (e sem 'MANUTENCAO' em PAGINAS_PRONTAS logo abaixo), o mecânico loga
+    // e cai em modulos.html?indisponivel=MANUTENCAO.
+    MANUTENCAO: 'manutencao.html',
 };
 
-const PAGINAS_PRONTAS = new Set(['PATIO', 'ADMINISTRACAO', 'COORDENADORIA', 'PORTARIA', 'FISCALIZACAO']);
+const PAGINAS_PRONTAS = new Set(['PATIO', 'ADMINISTRACAO', 'COORDENADORIA', 'PORTARIA', 'FISCALIZACAO', 'MANUTENCAO']);
 
 // Módulos cuja página inicial depende do acesso da pessoa. FISCALIZACAO tem
 // duas portas: quem tem `fiscalizacao_painel` (o coordenador) aterrissa no

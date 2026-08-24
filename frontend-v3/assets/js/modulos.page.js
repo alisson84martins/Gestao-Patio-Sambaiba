@@ -17,6 +17,7 @@ const NOMES_MODULO = {
     COORDENADORIA: 'Coordenadoria',
     FISCALIZACAO: 'Fiscalização',
     ADMINISTRACAO: 'Administração',
+    MANUTENCAO: 'Manutenção',
 };
 
 function initHeader() {

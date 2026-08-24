@@ -102,35 +102,48 @@ CREATE TABLE onibus (
 """
 
 # Pacote de permissões — migration 024 (§2.5, D6) + migration 026 (Bloco F,
-# §2.4): CONTROLADOR_ACESSO escreve recolhida_anormal mas NUNCA tem
-# recolhida_gerencial; MECANICO escreve recolhida_anormal e `manutencao`
-# (recurso já existente — a avaliação usa esse, não um recurso novo).
+# §2.4) + migration 037 (Bloco I, 24/08): REGISTRAR (recolhida_anormal, só
+# o controlador) e TRATAR (recolhida_tratativa, mecânico + gerência) viraram
+# recursos separados. CONTROLADOR_ACESSO escreve recolhida_anormal mas
+# NUNCA tem recolhida_gerencial nem recolhida_tratativa. MECANICO PERDEU
+# recolhida_anormal (é essa remoção que corrige o card PORTARIA que não
+# abria — ver cabeçalho da migration 037) e ganhou recolhida_tratativa
+# ler+escrever. `leitura_recolhida_ou_tratativa` é o par de GET /recolhidas
+# (histórico bruto), lido pelas duas pontas — ver LeituraRecolhidaOuTratativa
+# no router.
 _PERMISSOES = {
     "CONTROLADOR": {
         "leitura_acesso": True, "escrita_acesso": True,
         "leitura_cadastro": True, "escrita_cadastro": True,
         "leitura_autorizacao": True, "escrita_autorizacao": False,
         "leitura_recolhida": True, "escrita_recolhida": True,
-        "leitura_gerencial": False, "escrita_manutencao": False,
+        "leitura_gerencial": False,
+        "leitura_tratativa": False, "escrita_tratativa": False,
+        "leitura_recolhida_ou_tratativa": True,
     },
     "ENCARREGADO": {
         "leitura_acesso": True, "escrita_acesso": False,
         "leitura_cadastro": True, "escrita_cadastro": True,
         "leitura_autorizacao": True, "escrita_autorizacao": True,
         "leitura_recolhida": True, "escrita_recolhida": False,
-        "leitura_gerencial": True, "escrita_manutencao": False,
+        "leitura_gerencial": True,
+        "leitura_tratativa": True, "escrita_tratativa": False,
+        "leitura_recolhida_ou_tratativa": True,
     },
     "MECANICO": {
         "leitura_acesso": False, "escrita_acesso": False,
         "leitura_cadastro": False, "escrita_cadastro": False,
         "leitura_autorizacao": False, "escrita_autorizacao": False,
-        "leitura_recolhida": True, "escrita_recolhida": True,
-        "leitura_gerencial": False, "escrita_manutencao": True,
+        "leitura_recolhida": False, "escrita_recolhida": False,
+        "leitura_gerencial": False,
+        "leitura_tratativa": True, "escrita_tratativa": True,
+        "leitura_recolhida_ou_tratativa": True,
     },
     "ADMIN": {chave: True for chave in (
         "leitura_acesso", "escrita_acesso", "leitura_cadastro",
         "escrita_cadastro", "leitura_autorizacao", "escrita_autorizacao",
-        "leitura_recolhida", "escrita_recolhida", "leitura_gerencial", "escrita_manutencao",
+        "leitura_recolhida", "escrita_recolhida", "leitura_gerencial",
+        "leitura_tratativa", "escrita_tratativa", "leitura_recolhida_ou_tratativa",
     )},
 }
 _USUARIOS = {
@@ -179,7 +192,11 @@ def ambiente():
         "leitura_recolhida": _dependency_de(portaria_recolhidas_router_mod.LeituraRecolhida),
         "escrita_recolhida": _dependency_de(portaria_recolhidas_router_mod.EscritaRecolhida),
         "leitura_gerencial": _dependency_de(portaria_recolhidas_router_mod.LeituraGerencial),
-        "escrita_manutencao": _dependency_de(portaria_recolhidas_router_mod.EscritaManutencao),
+        "leitura_tratativa": _dependency_de(portaria_recolhidas_router_mod.LeituraTratativa),
+        "escrita_tratativa": _dependency_de(portaria_recolhidas_router_mod.EscritaTratativa),
+        "leitura_recolhida_ou_tratativa": _dependency_de(
+            portaria_recolhidas_router_mod.LeituraRecolhidaOuTratativa
+        ),
     }
 
     app.dependency_overrides[get_db] = _get_db_teste
@@ -887,7 +904,7 @@ def test_recolhida_com_prefixo_valido_cria_ficha_aberta(ambiente):
     assert "[Recolhida anormal]" in ficha.descricao
 
 
-# ─── 14 — controlador tentando avaliar -> 403 (sem manutencao escrever) ─
+# ─── 14 — controlador tentando avaliar -> 403 (sem recolhida_tratativa escrever) ─
 
 def test_controlador_avaliar_recolhida_nega_403(ambiente):
     _como(ambiente, "CONTROLADOR")
@@ -1356,6 +1373,65 @@ def test_contagem_e_pendentes_somam_aguardando_e_avaliada(ambiente):
     pendentes = ambiente["http"].get("/portaria/recolhidas/pendentes")
     assert pendentes.status_code == 200, pendentes.text
     assert {item["status"] for item in pendentes.json()} == {"AGUARDANDO", "AVALIADA"}
+
+
+# ============================================================================
+# MIGRATION 037 (Bloco I, 24/08) — REGISTRAR (recolhida_anormal, controlador)
+# separado de TRATAR (recolhida_tratativa, mecânico). Corrige o bug em que
+# MECANICO via o card PORTARIA na tela de seleção (tinha recolhida_anormal,
+# recurso do módulo PORTARIA) mas não conseguia abri-lo (sem
+# acesso_veicular) — ver cabeçalho da migration.
+# ============================================================================
+
+# ─── I7 — 🔴 mecânico não registra mais recolhida (perdeu recolhida_anormal) ─
+
+def test_mecanico_nao_registra_recolhida_pos_migration_037(ambiente):
+    _como(ambiente, "MECANICO")
+    resp = ambiente["http"].post("/portaria/recolhidas", json={"prefixo": "9979", "motivo": "OUTRO"})
+    assert resp.status_code == 403, resp.text
+
+
+# ─── I8 — mecânico continua avaliando/encerrando, agora via recolhida_tratativa ─
+# (mesmo comportamento do teste 15/I1, só provando que a permissão nova —
+# não mais `manutencao` — é o que autoriza)
+
+def test_mecanico_avalia_via_recolhida_tratativa(ambiente):
+    _como(ambiente, "CONTROLADOR")
+    recolhida_id = ambiente["http"].post("/portaria/recolhidas", json={
+        "prefixo": "9978", "motivo": "OUTRO",
+    }).json()["id"]
+
+    _como(ambiente, "MECANICO")
+    resp = ambiente["http"].patch(
+        f"/portaria/recolhidas/{recolhida_id}/avaliacao",
+        json={"avaliacao": "RETIDO"},
+    )
+    assert resp.status_code == 200, resp.text
+
+
+# ─── I9 — 🔴 a lacuna que este bloco corrige: GET /recolhidas ("Encerradas
+# hoje" da aba RA, manutencao.recolhidas.js) precisa continuar funcionando
+# pro mecânico mesmo SEM recolhida_anormal — é por isso que o endpoint usa
+# LeituraRecolhidaOuTratativa (exige_qualquer) em vez de só LeituraRecolhida.
+
+def test_mecanico_le_recolhidas_por_tratativa_sem_recolhida_anormal(ambiente):
+    _como(ambiente, "CONTROLADOR")
+    ambiente["http"].post("/portaria/recolhidas", json={"prefixo": "9977", "motivo": "OUTRO"})
+
+    _como(ambiente, "MECANICO")
+    resp = ambiente["http"].get("/portaria/recolhidas")
+    assert resp.status_code == 200, resp.text
+    assert any(item["prefixo"] == "9977" for item in resp.json())
+
+
+# ─── I10 — controlador continua lendo /recolhidas por recolhida_anormal ─
+# (sem recolhida_tratativa nenhuma — prova que o OR não exige as duas)
+
+def test_controlador_le_recolhidas_sem_recolhida_tratativa(ambiente):
+    _como(ambiente, "CONTROLADOR")
+    ambiente["http"].post("/portaria/recolhidas", json={"prefixo": "9976", "motivo": "OUTRO"})
+    resp = ambiente["http"].get("/portaria/recolhidas")
+    assert resp.status_code == 200, resp.text
 
 
 # ============================================================================

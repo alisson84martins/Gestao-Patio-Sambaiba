@@ -27,6 +27,13 @@ treinamento — o dado é do VEÍCULO, não da pessoa.
 de pessoas (services/pre_cadastro.py) — nunca cria acesso ao sistema,
 nunca bloqueia o registro da recolhida.
 
+🔧 MIGRATION 037 (Bloco I, 24/08) — REGISTRAR × TRATAR: avaliação e
+encerramento passam a exigir `recolhida_tratativa` (não mais `manutencao`,
+que é recurso do Pátio). `recolhida_anormal` continua sendo só quem
+REGISTRA (controlador) — GET /recolhidas aceita as duas (ver
+LeituraRecolhidaOuTratativa) porque a aba RA da manutenção usa o mesmo
+endpoint pra "Encerradas hoje".
+
 🔧 MIGRATION 032 — ENCERRAMENTO: fecha o ciclo que a avaliação deixava em
 aberto pra sempre. Dois passos de propósito (avaliar != encerrar, são
 momentos diferentes na operação real): a avaliação diz se o carro volta,
@@ -46,7 +53,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import FUSO_OPERACAO
 from app.core.database import get_db
-from app.core.deps import exige
+from app.core.deps import exige, exige_qualquer
 from app.models.cadastro import Funcionario
 from app.models.frota import Onibus
 from app.models.operacoes import Escala
@@ -66,9 +73,21 @@ router = APIRouter(prefix="/portaria", tags=["portaria"])
 LeituraRecolhida = Annotated[Funcionario, Depends(exige("recolhida_anormal"))]
 EscritaRecolhida = Annotated[Funcionario, Depends(exige("recolhida_anormal", escrever=True))]
 LeituraGerencial = Annotated[Funcionario, Depends(exige("recolhida_gerencial"))]
-# Avaliação usa o recurso `manutencao`, já existente — hoje só MECANICO e
-# ADMIN têm escrever (conferido em seeds/08). Nenhum recurso novo pra isso.
-EscritaManutencao = Annotated[Funcionario, Depends(exige("manutencao", escrever=True))]
+# 🔴 Migration 037 (Bloco I) — recolhida_tratativa é quem TRATA (mecânico
+# avalia/encerra), separado de recolhida_anormal, que é quem REGISTRA
+# (controlador). Antes disto a avaliação/encerramento exigiam `manutencao`
+# — um recurso do Pátio que também dava ao mecânico o card PORTARIA
+# inteiro na tela de seleção (bug corrigido pela mesma migration).
+LeituraTratativa = Annotated[Funcionario, Depends(exige("recolhida_tratativa"))]
+EscritaTratativa = Annotated[Funcionario, Depends(exige("recolhida_tratativa", escrever=True))]
+# GET /recolhidas (histórico bruto) é lido pelas DUAS pontas: o controlador
+# vê o que registrou (recolhida_anormal) e a aba RA da manutenção usa este
+# mesmo endpoint pra "Encerradas hoje" (recolhida_tratativa) — sem o OR
+# aqui, a separação REGISTRAR×TRATAR quebra essa lista pro mecânico, que
+# não tem mais recolhida_anormal depois da 037.
+LeituraRecolhidaOuTratativa = Annotated[
+    Funcionario, Depends(exige_qualquer("recolhida_anormal", "recolhida_tratativa"))
+]
 
 # §2.9-A: teto de sanidade pra sugestão de motorista pela escala — não
 # pescar escala velha de um ônibus que ficou parado.
@@ -197,7 +216,7 @@ _STATUS_PENDENTES = ("AGUARDANDO", "AVALIADA")
     response_model=list[RecolhidaRead],
     summary="Fila da manutenção — AGUARDANDO (falta avaliar) + AVALIADA (falta encerrar), mais recente no topo",
 )
-def listar_pendentes(usuario: LeituraRecolhida, db: Annotated[Session, Depends(get_db)]):
+def listar_pendentes(usuario: LeituraTratativa, db: Annotated[Session, Depends(get_db)]):
     return db.execute(
         select(RecolhidaAnormal)
         .where(RecolhidaAnormal.status.in_(_STATUS_PENDENTES))
@@ -210,7 +229,7 @@ def listar_pendentes(usuario: LeituraRecolhida, db: Annotated[Session, Depends(g
     response_model=ContagemPendentesResponse,
     summary="Total de AGUARDANDO + AVALIADA — o alerta da fila",
 )
-def contar_pendentes(usuario: LeituraRecolhida, db: Annotated[Session, Depends(get_db)]):
+def contar_pendentes(usuario: LeituraTratativa, db: Annotated[Session, Depends(get_db)]):
     total = len(db.execute(
         select(RecolhidaAnormal.id).where(RecolhidaAnormal.status.in_(_STATUS_PENDENTES))
     ).scalars().all())
@@ -383,7 +402,7 @@ def registrar_recolhida(
     summary="Histórico com filtros (status, data)",
 )
 def listar_recolhidas(
-    usuario: LeituraRecolhida,
+    usuario: LeituraRecolhidaOuTratativa,
     db: Annotated[Session, Depends(get_db)],
     status_filtro: Optional[StatusRecolhida] = Query(None, alias="status"),
     data: Optional[date] = None,
@@ -405,7 +424,7 @@ def listar_recolhidas(
 def avaliar_recolhida(
     recolhida_id: UUID,
     payload: RecolhidaAvaliacaoRequest,
-    usuario: EscritaManutencao,
+    usuario: EscritaTratativa,
     db: Annotated[Session, Depends(get_db)],
 ):
     recolhida = db.get(RecolhidaAnormal, recolhida_id)
@@ -432,7 +451,7 @@ def avaliar_recolhida(
 def encerrar_recolhida(
     recolhida_id: UUID,
     payload: RecolhidaEncerramentoRequest,
-    usuario: EscritaManutencao,
+    usuario: EscritaTratativa,
     db: Annotated[Session, Depends(get_db)],
 ):
     recolhida = db.get(RecolhidaAnormal, recolhida_id)

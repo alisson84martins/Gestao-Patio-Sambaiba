@@ -3,8 +3,10 @@
  * ----------------------------------------------------------------
  * Antes era página própria (manutencao-recolhidas.page.js / manutencao-
  * recolhidas.html) — virou aba da Manutenção (prompt de 23/08, Fase 4).
- * A aba só aparece pra quem tem leitura em `recolhida_anormal`; quem não
- * tem, nunca vê o botão nem carrega nada daqui (auto-guarda no init()).
+ * A aba só aparece pra quem tem leitura em `recolhida_tratativa` (migration
+ * 037, Bloco I — antes era `recolhida_anormal`, recurso que também dava ao
+ * mecânico o card PORTARIA inteiro na tela de seleção); quem não tem,
+ * nunca vê o botão nem carrega nada daqui (auto-guarda no init()).
  *
  * Duas listas em "Em aberto": AGUARDANDO (falta avaliar) e AVALIADA (falta
  * encerrar) — o backend já devolve as duas juntas em /recolhidas/pendentes
@@ -362,9 +364,11 @@ function startPolling() {
     }, POLLING_INTERVAL_MS);
 }
 
-// ─── Bootstrap — auto-guarda: quem não lê recolhida_anormal nem vê a aba ─
+// ─── Bootstrap — auto-guarda: quem não lê recolhida_tratativa nem vê a aba ─
 function init() {
-    if (!podeLer('recolhida_anormal')) return;
+    // Migration 037 (Bloco I) — recolhida_tratativa é quem TRATA (mecânico);
+    // recolhida_anormal continua sendo quem REGISTRA (controlador).
+    if (!podeLer('recolhida_tratativa')) return;
 
     const botaoAba = document.getElementById('tab-btn-ra');
     if (botaoAba) {
