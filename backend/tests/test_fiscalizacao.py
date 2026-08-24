@@ -17,6 +17,9 @@ import uuid as _uuid_mod
 from datetime import date, datetime, time, timedelta, timezone
 from uuid import UUID, uuid4
 
+import os
+from pathlib import Path
+
 import pytest
 from fastapi import HTTPException, status
 from fastapi.testclient import TestClient
@@ -672,13 +675,27 @@ def test_app_registra_rotas_fiscalizacao():
 # Bloco C — importação da grade (parser + endpoint)
 # ============================================================================
 
-_PASTA1_XLSX = (
-    r"C:\Users\aliss\OneDrive\Documentos\Projetos_dev\Gestao-Patio-Sambaiba"
-    r"\_handoff-claude\Coordenadoria_Sambaiba\analise-pre-juncao"
-    r"\Escalas Gerenciais\Pasta1.xlsx"
+# ⛔ Sem caminho de máquina de ninguém aqui: o repositório é público. A
+# planilha real da escala gerencial vive em _handoff-claude/, que está no
+# .gitignore — ou seja, ela NÃO acompanha o clone. Quem tiver o arquivo roda
+# estes quatro testes; quem não tiver, PULA. ⛔ Nunca falhar por ausência de
+# um arquivo que o repositório não distribui.
+_RAIZ_REPO = Path(__file__).resolve().parents[2]
+_PASTA1_XLSX = Path(os.environ.get("FISCALIZACAO_PASTA1_XLSX") or (
+    _RAIZ_REPO / "_handoff-claude" / "Coordenadoria_Sambaiba" / "analise-pre-juncao"
+    / "Escalas Gerenciais" / "Pasta1.xlsx"
+))
+
+_exige_planilha_real = pytest.mark.skipif(
+    not _PASTA1_XLSX.exists(),
+    reason=(
+        "planilha real da escala gerencial não encontrada — aponte "
+        "FISCALIZACAO_PASTA1_XLSX para ela, ou deixe-a em _handoff-claude/"
+    ),
 )
 
 
+@_exige_planilha_real
 def test_parser_conta_66_tp_e_66_ts_no_arquivo_real():
     import openpyxl
 
@@ -694,6 +711,7 @@ def test_parser_conta_66_tp_e_66_ts_no_arquivo_real():
     assert len(ts) == 66, f"esperado 66 partidas TS, veio {len(ts)}"
 
 
+@_exige_planilha_real
 def test_parser_classifica_periodo_por_tabela():
     import openpyxl
 
@@ -713,6 +731,7 @@ def test_parser_classifica_periodo_por_tabela():
     assert _classificar_periodo(time(23, 20), (term1, inicio2)) == "2"
 
 
+@_exige_planilha_real
 def test_upload_escala_endpoint_importa_arquivo_real(ambiente):
     _como(ambiente, "COORDENADOR")  # escrita_escala liberada
     with open(_PASTA1_XLSX, "rb") as arquivo:
@@ -733,6 +752,7 @@ def test_upload_escala_endpoint_importa_arquivo_real(ambiente):
     assert len(total) == 132
 
 
+@_exige_planilha_real
 def test_upload_escala_fiscal_sem_permissao_nega_403(ambiente):
     _como(ambiente, "FISCAL")
     with open(_PASTA1_XLSX, "rb") as arquivo:
