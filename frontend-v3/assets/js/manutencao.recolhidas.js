@@ -48,6 +48,7 @@ let recolhidaAvaliando = null;    // RecolhidaRead aberta no modal de avaliaçã
 let avaliacaoEscolhida = null;    // 'LIBERADO' | 'RETIDO'
 let prazoMinutos = null;
 let recolhidaEncerrando = null;   // RecolhidaRead aberta no modal de encerramento
+let ultimaContagemTotal = 0;      // último total de contagem-pendentes lido — reaproveitado pro rótulo da aba
 
 function abrirModal(id) { document.getElementById(id).classList.add('open'); }
 function fecharModal(id) { document.getElementById(id).classList.remove('open'); }
@@ -74,6 +75,14 @@ function hojeISO() {
     return `${ano}-${mes}-${dia}`;
 }
 
+// Rótulo do botão da aba: "RA (3)" com pendência, "RA" liso sem — reaproveita
+// a contagem já buscada em carregarAbertas(), nunca chama a API de novo.
+function atualizarLabelAbaRA(total) {
+    const botao = document.getElementById('tab-btn-ra');
+    if (!botao) return;
+    botao.textContent = total > 0 ? `RA (${total})` : 'RA';
+}
+
 // ─── Em aberto (AGUARDANDO + AVALIADA) + contador ───────────────────────
 async function carregarAbertas() {
     try {
@@ -81,7 +90,9 @@ async function carregarAbertas() {
             apiGet('/portaria/recolhidas/contagem-pendentes'),
             apiGet('/portaria/recolhidas/pendentes'),
         ]);
+        ultimaContagemTotal = contagem.total;
         document.getElementById('rec-contador-numero').textContent = String(contagem.total);
+        atualizarLabelAbaRA(contagem.total);
         renderAbertas(abertas);
     } catch (err) {
         if (err instanceof ApiError && err.status === 401) return;
@@ -364,6 +375,19 @@ function startPolling() {
     }, POLLING_INTERVAL_MS);
 }
 
+// A aba nasce escondida atrás de um rótulo mudo (RA, sem número) — o
+// Alisson passou dias achando que a manutenção não enxergava a recolhida.
+// Com pendência já contada no primeiro carregarTudo(), abre direto na RA
+// em vez de deixar o mecânico descobrir sozinho atrás da aba Fichas.
+// Sem pendência, comportamento de sempre: Fichas continua sendo a inicial.
+function abrirNaAbaRASePendente() {
+    if (ultimaContagemTotal <= 0) return;
+    document.querySelectorAll('#manut-tabs .filtro-btn[data-tab]').forEach(b => b.classList.remove('active'));
+    document.getElementById('tab-btn-ra')?.classList.add('active');
+    document.querySelectorAll('.oc-tab-section').forEach(s => s.classList.remove('active'));
+    document.getElementById('tab-ra')?.classList.add('active');
+}
+
 // ─── Bootstrap — auto-guarda: quem não lê recolhida_tratativa nem vê a aba ─
 function init() {
     // Migration 037 (Bloco I) — recolhida_tratativa é quem TRATA (mecânico);
@@ -378,7 +402,7 @@ function init() {
 
     initAvaliacao();
     initEncerramento();
-    carregarTudo();
+    carregarTudo().then(abrirNaAbaRASePendente);
     carregarGerencial();
     startPolling();
 }
