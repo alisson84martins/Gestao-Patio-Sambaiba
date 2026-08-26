@@ -286,7 +286,7 @@ def registrar_movimento(
     if veiculo is not None and veiculo.situacao in ("SUSPENSO", "BAIXADO"):
         if not (payload.observacao or "").strip():
             raise HTTPException(
-                status.HTTP_422_UNPROCESSABLE_ENTITY,
+                status.HTTP_422_UNPROCESSABLE_CONTENT,
                 detail=(
                     f"Veículo {veiculo.situacao} — observação é obrigatória "
                     "para registrar a passagem mesmo assim."

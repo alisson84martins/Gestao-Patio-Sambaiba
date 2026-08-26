@@ -205,7 +205,7 @@ async def upload_anexo(
     pre_oc = _carregar_ou_criar_pre_ocorrencia(db, autorizacao)
 
     if tipo not in ("CNH", "DOC_VEICULO", "OUTRO"):
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, detail=f"Tipo de anexo inválido: {tipo}")
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, detail=f"Tipo de anexo inválido: {tipo}")
 
     total_atual = db.execute(
         select(func.count()).select_from(PreOcorrenciaAnexo)

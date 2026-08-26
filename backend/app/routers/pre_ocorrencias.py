@@ -208,7 +208,7 @@ def abrir_autorizacao(
             ).scalar_one_or_none()
         else:
             raise HTTPException(
-                status.HTTP_422_UNPROCESSABLE_ENTITY,
+                status.HTTP_422_UNPROCESSABLE_CONTENT,
                 detail="CCO precisa informar o coordenador de destino (RE) — CCO só roteia, não é dono de pré-ocorrência.",
             )
         if coordenador is None:

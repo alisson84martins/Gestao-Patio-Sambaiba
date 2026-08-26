@@ -643,7 +643,7 @@ async def upload_anexo(
     _exige_autoria(oc, usuario, db)
 
     if tipo not in TIPOS_ANEXO:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, detail=f"Tipo de anexo inválido: {tipo}")
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, detail=f"Tipo de anexo inválido: {tipo}")
 
     if arquivo.content_type not in ANEXO_MIME_PERMITIDOS:
         raise HTTPException(

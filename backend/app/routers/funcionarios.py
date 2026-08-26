@@ -468,7 +468,7 @@ def criar_login(
 
     if not func.cpf or len(func.cpf) < 4:
         raise HTTPException(
-            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="CPF não cadastrado; cadastre-o antes de criar o login",
         )
 

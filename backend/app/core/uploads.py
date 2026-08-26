@@ -41,7 +41,7 @@ async def ler_upload_limitado(
             try:
                 if int(content_length) > limite_bytes:
                     raise HTTPException(
-                        status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                        status.HTTP_413_CONTENT_TOO_LARGE,
                         detail=f"Arquivo muito grande (máx {limite_bytes // (1024 * 1024)} MB)",
                     )
             except ValueError:
@@ -56,7 +56,7 @@ async def ler_upload_limitado(
         total += len(bloco)
         if total > limite_bytes:
             raise HTTPException(
-                status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                status.HTTP_413_CONTENT_TOO_LARGE,
                 detail=f"Arquivo muito grande (máx {limite_bytes // (1024 * 1024)} MB)",
             )
         blocos.append(bloco)

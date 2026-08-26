@@ -139,12 +139,12 @@ def _exige_linha_no_catalogo(db: Session, linhas: list[str]) -> None:
         linha = db.execute(select(Linha).where(Linha.codigo == codigo)).scalar_one_or_none()
         if linha is None:
             raise HTTPException(
-                status.HTTP_422_UNPROCESSABLE_ENTITY,
+                status.HTTP_422_UNPROCESSABLE_CONTENT,
                 detail=f"A linha {codigo} não existe no catálogo. Confira o código completo (ex.: 1726-10).",
             )
         if not linha.ativa:
             raise HTTPException(
-                status.HTTP_422_UNPROCESSABLE_ENTITY,
+                status.HTTP_422_UNPROCESSABLE_CONTENT,
                 detail=f"A linha {codigo} está inativa no catálogo.",
             )
 
@@ -344,13 +344,13 @@ def listar_pontos(usuario: LeituraFiscalizacao, db: DbSession, incluir_inativos:
 def criar_ponto(payload: PontoCreate, usuario: EscritaFiscalizacao, db: DbSession):
     codigo = payload.codigo.strip().upper()
     if not codigo:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Código do ponto não pode ser vazio.")
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Código do ponto não pode ser vazio.")
     if db.get(Ponto, codigo) is not None:
         raise HTTPException(status.HTTP_409_CONFLICT, detail=f"Já existe um ponto com o código '{codigo}'.")
 
     linhas = _normalizar_linhas(payload.linhas)
     if not linhas:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Informe ao menos uma linha.")
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Informe ao menos uma linha.")
     _exige_linha_no_catalogo(db, linhas)
 
     ponto = Ponto(codigo=codigo, nome=payload.nome.strip(), terminal=payload.terminal, ativo=True)
@@ -379,7 +379,7 @@ def atualizar_ponto(codigo: str, payload: PontoUpdate, usuario: EscritaFiscaliza
     if "linhas" in dados:
         linhas = _normalizar_linhas(dados["linhas"] or [])
         if not linhas:
-            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Informe ao menos uma linha.")
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Informe ao menos uma linha.")
         _exige_linha_no_catalogo(db, linhas)
         existentes = {
             pl.linha_codigo: pl
@@ -630,7 +630,7 @@ def remover_evento_avulso(turno_id: UUID, evento_id: UUID, usuario: EscritaFisca
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Evento não encontrado")
     if evento.registro_partida_id is not None:
         raise HTTPException(
-            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="Evento vinculado a uma partida — mude a resposta da partida para remover.",
         )
     db.delete(evento)

@@ -294,7 +294,7 @@ def emitir_credencial(
     if anterior is not None:
         if not (payload.motivo or "").strip():
             raise HTTPException(
-                status.HTTP_422_UNPROCESSABLE_ENTITY,
+                status.HTTP_422_UNPROCESSABLE_CONTENT,
                 detail="Já existe credencial ativa — motivo é obrigatório para reemitir (o adesivo antigo deixa de ser reconhecido).",
             )
         anterior.ativa = False

@@ -36,7 +36,7 @@ def register_exception_handlers(app: FastAPI) -> None:
                 "tipo": err.get("type", ""),
             })
         return _resposta_erro(
-            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
             "Dados inválidos",
             detalhes=detalhes,
         )

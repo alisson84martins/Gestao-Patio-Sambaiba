@@ -1,6 +1,6 @@
 """Endpoint de health check — confirma API, banco e modelos."""
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
 from fastapi import APIRouter, Depends
@@ -59,7 +59,7 @@ def health_detalhado(
         "status": "ok",
         "version": __version__,
         "environment": settings.environment,
-        "timestamp": datetime.utcnow().isoformat(),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
         "database": "unknown",
     }
     try:
