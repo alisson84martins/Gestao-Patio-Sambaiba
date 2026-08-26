@@ -1,7 +1,8 @@
 """Endpoints de visão consolidada do pátio."""
 from collections import defaultdict
-from datetime import date as date_type, datetime, timezone
+from datetime import date as date_type, datetime, time as time_type, timedelta, timezone
 from typing import Annotated, Any, Optional
+from zoneinfo import ZoneInfo
 import json as _json
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Query
@@ -9,28 +10,37 @@ from sqlalchemy import and_, select, text
 from sqlalchemy.orm import Session, aliased
 
 from app.core.database import get_db
-from app.core.deps import CurrentUser
+from app.core.deps import CurrentUser, exige
 from app.routers.alocacoes import get_data_servico
 from app.models import (
     Alerta,
     AlocacaoPatio,
     Escala,
     FichaManutencao,
+    Funcionario,
     Fila,
     Linha,
     Onibus,
+    RecolhidaAnormal,
     StatusFichaEnum,
     TipoFilaEnum,
     TipoDefeito,
 )
 from app.schemas.patio import (
     PatioFilaInfo,
+    PatioLiberadoItem,
     PatioOnibusInfo,
     PosicaoOnibus,
     RemanejamentoItem,
 )
 
 router = APIRouter(prefix="/patio", tags=["pátio (visão consolidada)"])
+
+# Gate do Bloco J, em constante de módulo (e não inline no decorator) pelo
+# mesmo motivo de routers/pre_cadastro.py: exige() devolve uma função nova a
+# cada chamada, e teste só consegue sobrescrever a dependência se houver uma
+# referência estável pra apontar.
+LeituraAlocacao = Annotated[Funcionario, Depends(exige("alocacao"))]
 
 
 @router.get("", response_model=list[PatioFilaInfo],
@@ -245,6 +255,137 @@ def remanejamento(
         )
         for r in db.execute(stmt).all()
     ]
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Bloco J — "Prontos para a frota": a Manutenção publica, o Pátio assina
+# ─────────────────────────────────────────────────────────────────────────────
+# Hoje o carro volta quebrado, a manutenção resolve, e o operador de pátio só
+# descobre por rádio ou olhando o pátio. Nesse intervalo é frota pronta e
+# parada. Este endpoint é o aviso — não uma tela nova de manutenção.
+#
+# 🔴 RBAC: `alocacao` LEITURA, ⛔ jamais `manutencao`. O ponto inteiro do bloco
+#    é o operador saber SEM ter acesso ao módulo da manutenção. Se algum dia
+#    alguém "consertar" isto trocando o recurso, o bloco perde a razão de ser.
+#
+# ⛔ Zero tabela, zero coluna, zero flag de "liberado" e zero "marcar como
+#    visto". Os dois fatos já existem no banco e o filtro 2 (carro ainda na
+#    fila MANUTENCAO) faz a baixa sozinho: quando o operador move o chip, o
+#    carro some do quadro porque a alocação mudou. O ato de alocar É a baixa.
+
+
+# Início do ciclo operacional corrente, em horário de Brasília.
+# get_data_servico() vira às 20h (ver routers/alocacoes.py) — então o ciclo
+# corrente começou às 20h do dia anterior à data de serviço. ⛔ Nunca
+# date.today(): às 22h de terça o pátio já opera a quarta, e um carro
+# liberado às 21h ficaria de fora do próprio quadro.
+_SP_PATIO = ZoneInfo("America/Sao_Paulo")
+
+
+def _inicio_ciclo_servico() -> datetime:
+    return datetime.combine(
+        get_data_servico() - timedelta(days=1), time_type(20, 0), tzinfo=_SP_PATIO
+    )
+
+
+_DESFECHO_LEGIVEL = {
+    "SEM_DEFEITO": "Sem defeito",
+    "SERVICO_EXECUTADO": "Serviço executado",
+}
+
+
+@router.get("/liberados", response_model=list[PatioLiberadoItem],
+            summary="Carros liberados pela manutenção e ainda parados na fila Manutenção")
+def patio_liberados(
+    user: LeituraAlocacao,
+    db: Annotated[Session, Depends(get_db)],
+):
+    """Carros que a manutenção liberou neste ciclo e que continuam na fila
+    MANUTENCAO do pátio — ou seja, prontos e ainda parados.
+
+    Duas origens, o mesmo significado para o pátio:
+      • recolhida anormal ENCERRADA (o mecânico fechou pela aba RA)
+      • ficha de manutenção CONCLUIDA
+
+    ⚠️ Avaliação `LIBERADO` da recolhida NÃO entra: é prognóstico ("esse
+    volta, prazo tal"), não fato consumado. Botar no quadro faria o operador
+    ir buscar carro que ainda está no elevador.
+    """
+    data_servico = get_data_servico()
+    inicio_ciclo = _inicio_ciclo_servico()
+
+    # Filtro 2 (o coração do bloco), aplicado igual nas duas consultas: o
+    # carro precisa estar AGORA numa fila de tipo MANUTENCAO.
+    def _com_filtro_de_patio(stmt, coluna_onibus_id):
+        return (
+            stmt
+            .join(Onibus, Onibus.id == coluna_onibus_id)
+            .join(AlocacaoPatio, and_(
+                AlocacaoPatio.onibus_id == Onibus.id,
+                AlocacaoPatio.ativa.is_(True),
+                AlocacaoPatio.data_referencia == data_servico,
+            ))
+            .join(Fila, and_(
+                Fila.id == AlocacaoPatio.fila_id,
+                Fila.tipo == TipoFilaEnum.MANUTENCAO,
+            ))
+        )
+
+    stmt_recolhida = _com_filtro_de_patio(
+        select(
+            Onibus.numero_frota,
+            RecolhidaAnormal.encerrado_em,
+            RecolhidaAnormal.desfecho,
+        ).select_from(RecolhidaAnormal),
+        RecolhidaAnormal.onibus_id,
+    ).where(
+        RecolhidaAnormal.status == "ENCERRADA",
+        RecolhidaAnormal.encerrado_em.is_not(None),
+        RecolhidaAnormal.encerrado_em >= inicio_ciclo,
+    )
+
+    stmt_ficha = _com_filtro_de_patio(
+        select(
+            Onibus.numero_frota,
+            FichaManutencao.concluida_em,
+            TipoDefeito.nome,
+        ).select_from(FichaManutencao),
+        FichaManutencao.onibus_id,
+    ).outerjoin(
+        TipoDefeito, TipoDefeito.id == FichaManutencao.tipo_defeito_id
+    ).where(
+        FichaManutencao.status == StatusFichaEnum.CONCLUIDA,
+        FichaManutencao.concluida_em.is_not(None),
+        FichaManutencao.concluida_em >= inicio_ciclo,
+        FichaManutencao.deletado_em.is_(None),
+    )
+
+    # ⚠️ Dedupe por carro: recolhida com motivo=DEFEITO abre ficha
+    # automaticamente e encerrá-la fecha a ficha — o mesmo carro sai nas duas
+    # consultas, com timestamps quase iguais. Sem isto, chip duplicado no
+    # quadro. Fica a liberação mais recente; em empate, a RECOLHIDA vence,
+    # que é o evento pelo qual o operador reconhece o carro.
+    por_carro: dict[int, PatioLiberadoItem] = {}
+
+    def _considerar(item: PatioLiberadoItem) -> None:
+        atual = por_carro.get(item.prefixo)
+        if atual is None or item.liberado_em > atual.liberado_em:
+            por_carro[item.prefixo] = item
+
+    for frota, concluida_em, defeito in db.execute(stmt_ficha).all():
+        _considerar(PatioLiberadoItem(
+            prefixo=frota, liberado_em=concluida_em, origem="FICHA",
+            detalhe=defeito or "Ficha concluída",
+        ))
+
+    for frota, encerrado_em, desfecho in db.execute(stmt_recolhida).all():
+        _considerar(PatioLiberadoItem(
+            prefixo=frota, liberado_em=encerrado_em, origem="RECOLHIDA",
+            detalhe=_DESFECHO_LEGIVEL.get(desfecho, desfecho) or "Recolhida encerrada",
+        ))
+
+    # Mais recente no topo — mesmo padrão da fila de RA.
+    return sorted(por_carro.values(), key=lambda i: i.liberado_em, reverse=True)
 
 
 # ─────────────────────────────────────────────────────────────────────────────

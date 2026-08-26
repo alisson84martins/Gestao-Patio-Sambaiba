@@ -1,6 +1,6 @@
 """Schemas específicos do endpoint /patio (visão consolidada)."""
 from datetime import datetime, time
-from typing import Optional
+from typing import Literal, Optional
 from uuid import UUID
 
 from pydantic import BaseModel
@@ -50,6 +50,21 @@ class RemanejamentoItem(BaseModel):
     tipo_defeito: Optional[str] = None
     status_ficha: Optional[StatusFichaEnum] = None
     ficha_aberta_em: Optional[datetime] = None
+
+
+class PatioLiberadoItem(BaseModel):
+    """Bloco J — um carro liberado pela manutenção e ainda parado na fila
+    MANUTENCAO. É uma VISTA, não um registro: nada aqui é gravado em lugar
+    nenhum. Os dois fatos de origem já vivem em portaria.recolhida_anormal
+    (ENCERRADA) e ficha_manutencao (CONCLUIDA) — ver routers/patio.py.
+
+    ⛔ Sem campo de "visto"/"avisado": o carro sai do quadro quando o
+    operador o move para outra fila, e é só isso que dá baixa."""
+
+    prefixo: int
+    liberado_em: datetime
+    origem: Literal["RECOLHIDA", "FICHA"]
+    detalhe: Optional[str] = None
 
 
 class PosicaoOnibus(BaseModel):
