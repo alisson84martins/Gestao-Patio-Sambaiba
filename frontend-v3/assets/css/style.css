@@ -3951,3 +3951,77 @@ body.modal-open {
     border: 1px solid var(--border);
     border-radius: 10px;
 }
+
+
+/* ------------------------------------------------------------
+   BLOCO J — "PRONTOS PARA A FROTA"
+   Mesmo desenho do painel Registrar Filas, trocando o vermelho pelo verde
+   (--accent3): ali é ação que o operador começa, aqui é fato que chega
+   até ele. Verde é o mesmo do "aguardando ação" da aba RA.
+   ------------------------------------------------------------ */
+.patio-liberados {
+    background: var(--surface);
+    border: 1px solid var(--accent3);
+    border-radius: 10px;
+    padding: 12px 14px;
+    margin-bottom: 14px;
+}
+
+.patio-liberados-titulo {
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--accent3);
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+    font-family: var(--mono);
+    margin-bottom: 10px;
+}
+
+.patio-liberados-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.liberado-chip {
+    background: rgba(16, 185, 129, 0.08);
+    border: 1px solid var(--accent3);
+    border-radius: 8px;
+    padding: 6px 14px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 1px;
+    font-family: var(--mono);
+    color: var(--text);
+    cursor: pointer;
+    transition: background 0.15s, transform 0.1s;
+}
+
+.liberado-chip:hover {
+    background: rgba(16, 185, 129, 0.18);
+    transform: translateY(-1px);
+}
+
+/* Quem só lê "alocacao" vê o quadro (a informação é dele) mas não move
+   carro — o chip continua visível, só não responde ao clique. */
+.liberado-chip.sem-acao {
+    cursor: default;
+}
+
+.liberado-chip.sem-acao:hover {
+    background: rgba(16, 185, 129, 0.08);
+    transform: none;
+}
+
+.liberado-chip-frota {
+    font-size: 19px;
+    font-weight: 800;
+    line-height: 1.15;
+}
+
+.liberado-chip-hora {
+    font-size: 10px;
+    color: var(--accent3);
+    letter-spacing: 0.5px;
+}

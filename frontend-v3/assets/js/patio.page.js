@@ -5,6 +5,8 @@
  *   1. Proteger a rota (só usuário logado).
  *   2. Buscar GET /patio a cada POLLING_INTERVAL_MS e renderizar.
  *   3. Atualizar barra de stats (Frota / Alocados / Manutenção / Presos).
+ *   3b. Bloco J: quadro "Prontos para a frota" — carros que a manutenção
+ *       liberou e que ainda estão parados na fila Manutenção.
  *   4. Mostrar status do polling (bolinha verde/vermelha + timestamp).
  *   5. Tratar erros de rede sem parar o polling.
  *
@@ -37,6 +39,8 @@ const elStatFrota      = document.getElementById('stat-frota');
 const elStatAlocados   = document.getElementById('stat-alocados');
 const elStatManutencao = document.getElementById('stat-manutencao');
 const elStatPresos     = document.getElementById('stat-presos');
+const elLiberados      = document.getElementById('patio-liberados');
+const elLiberadosChips = document.getElementById('patio-liberados-chips');
 const elPollDot    = document.getElementById('poll-dot');
 const elPollStatus = document.getElementById('poll-status');
 const elPollTime   = document.getElementById('poll-time');
@@ -44,6 +48,10 @@ const elPollTime   = document.getElementById('poll-time');
 // --- Estado interno ---
 let pollHandle = null;
 let lastFilas = [];
+// Bloco J — a contagem do cartão MANUTENÇÃO sem os "prontos", pra poder
+// recompor "12 · 3 prontos" sem depender da ordem em que as duas
+// atualizações caem no mesmo tick do polling.
+let statManutencaoBase = 0;
 
 // ============================================================
 // HEADER E LOGOUT
@@ -301,8 +309,101 @@ function updateStats(filas) {
 
     elStatFrota.textContent      = frota;
     elStatAlocados.textContent   = alocados;
+    statManutencaoBase = manutencao;
     elStatManutencao.textContent = manutencao;
     elStatPresos.textContent     = presos;
+}
+
+// ============================================================
+// BLOCO J — "PRONTOS PARA A FROTA"
+// ============================================================
+/*
+ * A manutenção publica o fato (recolhida ENCERRADA ou ficha CONCLUIDA), o
+ * pátio assina. O operador não precisa de acesso ao módulo Manutenção —
+ * precisa do aviso na tela em que ele já está o dia inteiro.
+ *
+ * ⛔ Sem estado novo. O carro sai do quadro quando deixa a fila Manutenção,
+ * e é o próprio ato de alocar que dá essa baixa — ver GET /patio/liberados.
+ * Nada de "marcar como visto", nada de lista que envelhece.
+ */
+async function loadLiberados() {
+    if (!elLiberados || !elLiberadosChips) return;
+    try {
+        const liberados = await apiGet('/patio/liberados');
+        renderLiberados(liberados);
+    } catch (err) {
+        // ⚠️ Falha aqui NÃO pode derrubar o pátio: o quadro é um extra, a
+        // grade de filas é o trabalho. Erra quieto e tenta no próximo tick.
+        console.warn('[patio] quadro de liberados indisponível:', err?.message || err);
+    }
+}
+
+function renderLiberados(liberados) {
+    const lista = Array.isArray(liberados) ? liberados : [];
+
+    // Pátio sem carro liberado não ganha espaço morto na tela.
+    if (lista.length === 0) {
+        elLiberados.style.display = 'none';
+        elLiberadosChips.innerHTML = '';
+        elStatManutencao.textContent = String(statManutencaoBase);
+        return;
+    }
+
+    const clicavel = podeEscrever('alocacao');
+
+    elLiberadosChips.innerHTML = lista.map(item => {
+        const frota = Number(item.prefixo);
+        const titulo = item.detalhe
+            ? `${item.detalhe} — liberado ${horaCurta(item.liberado_em)}`
+            : `Liberado ${horaCurta(item.liberado_em)}`;
+        return `
+            <div class="liberado-chip${clicavel ? '' : ' sem-acao'}"
+                 data-frota="${frota}"
+                 title="${escapeHtml(titulo)}">
+                <span class="liberado-chip-frota">${frota}</span>
+                <span class="liberado-chip-hora">${horaCurta(item.liberado_em)}</span>
+            </div>`;
+    }).join('');
+
+    elLiberados.style.display = '';
+    // "12 · 3 prontos" — quem bate o olho no cartão já sabe que tem carro
+    // pra puxar, sem precisar ler o quadro inteiro.
+    elStatManutencao.textContent = `${statManutencaoBase} · ${lista.length} prontos`;
+}
+
+// ⛔ Nunca toISOString() aqui — erra o dia depois das 21h, e o pátio opera
+// exatamente nessa faixa. Date#getHours é hora local, que é o que o
+// operador lê no relógio da parede.
+function horaCurta(iso) {
+    if (!iso) return '--:--';
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return '--:--';
+    return `${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+}
+
+/**
+ * Do aviso à alocação em um toque: o chip do quadro abre o mesmo modal de
+ * mover chip da grade, sem o operador digitar o prefixo de novo. A alocação
+ * de verdade continua sendo decisão dele — escala, linha e horário são
+ * coisas que a manutenção não conhece (J.7).
+ */
+function abrirMoverPeloQuadro(frota) {
+    for (const fila of lastFilas) {
+        for (const onibus of (fila.onibus || [])) {
+            if (Number(onibus.numero_frota) !== frota) continue;
+            abrirModalMoverChip({
+                alocacaoId:       onibus.alocacao_id,
+                frota:            frota,
+                filaAtualId:      fila.fila_id,
+                linhaAtual:       onibus.linha_codigo || '',
+                filasDisponiveis: lastFilas,
+            });
+            return;
+        }
+    }
+    // Só acontece se o carro saiu da fila entre o polling e o clique — o
+    // próximo tick já o remove do quadro sozinho.
+    console.warn('[patio] carro', frota, 'não está mais no pátio; quadro atualiza no próximo ciclo.');
 }
 
 // ============================================================
@@ -335,6 +436,9 @@ async function loadPatio() {
         lastFilas = filas;
         renderPatio(filas);
         updateStats(filas);
+        // Depois do updateStats de propósito: o quadro compõe o texto do
+        // cartão MANUTENÇÃO em cima da contagem que acabou de ser escrita.
+        await loadLiberados();
         markOnline();
         stampNow();
     } catch (err) {
@@ -434,7 +538,8 @@ document.addEventListener('DOMContentLoaded', () => {
         if (alocacaoPanel) alocacaoPanel.style.display = 'none';
         const menuDots = document.getElementById('menu-dots');
         if (menuDots) menuDots.style.display = 'none';
-        // chip click desativado — só visualização
+        // chip click desativado — só visualização (o quadro do Bloco J
+        // continua aparecendo: a informação é dele, só a ação não é)
         elGrid.addEventListener('click', e => e.stopPropagation(), true);
 
         return; // não inicializa módulos de escrita
@@ -451,6 +556,15 @@ document.addEventListener('DOMContentLoaded', () => {
         getFilasSnapshot: () => lastFilas,
         onSuccess: () => loadPatio(),
     });
+
+    // Bloco J — chip do quadro abre o mesmo modal da grade.
+    if (elLiberadosChips) {
+        elLiberadosChips.addEventListener('click', (e) => {
+            const chip = e.target.closest('.liberado-chip');
+            if (!chip || !chip.dataset.frota) return;
+            abrirMoverPeloQuadro(Number(chip.dataset.frota));
+        });
+    }
 
     elGrid.addEventListener('click', (e) => {
         const chip = e.target.closest('.onibus-chip');
