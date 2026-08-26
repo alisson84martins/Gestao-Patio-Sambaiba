@@ -1,0 +1,155 @@
+-- ============================================================================
+-- MIGRATION 038 — Fecha o RBAC depois do Bloco J
+-- ----------------------------------------------------------------------------
+-- BANCO:  gestao_frota_sambaiba (produção) / gestao_patio_sambaiba (dev)
+-- SCHEMA: public (RBAC — recurso, funcao_permissao)
+-- DATA:   2026-08-26
+-- AUTOR:  Claude Code
+-- DEPENDE DE: 011-rbac-cadastro-central.sql (funcionario/recurso/funcao/
+--             funcao_permissao/modulo), 026-recolhida-anormal.sql (cria
+--             recolhida_gerencial no módulo PORTARIA), 037-modulo-manutencao.sql
+--             (cria o módulo MANUTENCAO e move `manutencao` pra ele)
+-- ORIGEM: _handoff-claude/PROMPT-patio-liberados-bloco-J.md §J.5 e o cabeçalho
+--         da própria migration 037, que deixou esta pendência por escrito.
+-- ----------------------------------------------------------------------------
+-- 🔴🔴 ORDEM OBRIGATÓRIA — LEIA ANTES DE RODAR
+--   Esta migration SÓ pode rodar com o Bloco J JÁ NO AR em produção: código
+--   novo publicado (GET /patio/liberados respondendo) E `systemctl restart
+--   gestao-patio` feito. Rodar antes tira do OPERADOR_PATIO e do PLANTONISTA
+--   a tela da manutenção sem que o aviso que a substitui exista — eles ficam
+--   sem os dois ao mesmo tempo, cegos pra frota que está pronta e parada.
+--   Isso é pior que a situação de hoje. Não existe pressa que justifique.
+--
+--   Confira ANTES de rodar (o endpoint tem que responder 200 pra um
+--   OPERADOR_PATIO logado):
+--     curl -s -o /dev/null -w '%{http_code}\n' \
+--          -H "Authorization: Bearer <token de um operador>" \
+--          https://api.gestaopatiosambaiba.com.br/patio/liberados
+--   200 = pode rodar. 404 = o backend ainda não subiu. 403 = o gate está no
+--   recurso errado, ⛔ NÃO rode esta migration, avise.
+--
+-- POR QUÊ — duas coisas, as duas herdadas de decisões já tomadas:
+--
+--   1 · OPERADOR_PATIO e PLANTONISTA perdem a leitura de `manutencao`.
+--       Eles nunca escreveram nesse recurso — só liam, e liam por um motivo
+--       só: descobrir que um carro estava pronto pra voltar pra frota. Com o
+--       Bloco J, esse fato chega sozinho na tela do Pátio, que é onde eles já
+--       estão o dia inteiro. A leitura de `manutencao` virou acesso a um
+--       módulo que não é deles (menor privilégio, migration 020), e desde a
+--       037 ela também lhes dá o card MANUTENÇÃO na tela de seleção — efeito
+--       colateral que a 037 aceitou de propósito e adiou pra cá.
+--
+--   2 · `recolhida_gerencial` muda de módulo: PORTARIA -> MANUTENCAO.
+--       Correção de mapa, não de acesso. A tela que consome esse recurso é a
+--       análise dentro da aba RA, em manutencao.html — que a 037 mudou pro
+--       módulo Manutenção. O recurso ficou apontando pro módulo da tela
+--       antiga.
+--
+-- CONFERIDO ANTES DE ESCREVER (26/08/2026) — as duas seções não se cruzam:
+--   recolhida_gerencial pertence hoje a COORDENADOR_TRAFEGO, ENCARREGADO,
+--   GERENTE_OPERACIONAL, GERENTE_GERAL e ADMIN (migration 026, §RBAC).
+--   ⛔ OPERADOR_PATIO e PLANTONISTA não estão nessa lista — ninguém é
+--   atingido pelas duas mudanças ao mesmo tempo. E os cinco que têm
+--   recolhida_gerencial também têm `manutencao` (lista no cabeçalho da 037),
+--   então todos continuam conseguindo ABRIR manutencao.html: o card do
+--   módulo não quebra em ninguém — que é a armadilha clássica deste projeto
+--   (dar um recurso é dar o card do módulo inteiro).
+--
+-- NATUREZA: um UPDATE de UMA linha de catálogo + um DELETE de DUAS linhas de
+--   permissão. Idempotente na prática — rodar duas vezes não erra (a segunda
+--   passagem não acha o que apagar e o UPDATE já está no valor final).
+--
+-- ⚠️ DADO PESSOAL: nenhum nesta migration.
+--
+-- ⚠️ DEPOIS DE RODAR: TODO MUNDO desloga e loga de novo. Módulo e permissões
+--   são lidos no login e ficam no localStorage — sessão aberta continua
+--   enxergando o card antigo (armadilha já registrada no projeto). Ctrl+Shift+R
+--   junto, pra não pegar JS velho de cache.
+--
+-- ARMADILHA DE DONO DE TABELA (ver 011, PARTE 0): se der "must be owner of
+-- table X", rode SET ROLE sambaiba; antes.
+-- COMO RODAR:
+--   sudo -u postgres psql -d gestao_frota_sambaiba -c "SET ROLE sambaiba;" \
+--        -f 038-rbac-pos-bloco-j.sql
+-- ============================================================================
+
+-- ============================================================================
+-- 1 · OPERADOR_PATIO e PLANTONISTA saem de `manutencao`
+-- ============================================================================
+-- ⛔ Só estas duas funções. ADMIN, MECANICO, COORDENADOR_TRAFEGO,
+-- ENCARREGADO, GERENTE_GERAL e GERENTE_OPERACIONAL mantêm `manutencao` —
+-- é gente que efetivamente lida com manutenção (cabeçalho da 037).
+DELETE FROM public.funcao_permissao
+ WHERE recurso = 'manutencao'
+   AND funcao_id IN (
+       SELECT id FROM public.funcao WHERE codigo IN ('OPERADOR_PATIO', 'PLANTONISTA')
+   );
+
+-- ============================================================================
+-- 2 · `recolhida_gerencial` vai pro módulo da tela que o usa
+-- ============================================================================
+-- Efeito neutro de acesso: quem tem o recurso já tinha `manutencao` e já
+-- ganhou o card MANUTENÇÃO na 037. Isto só corrige a que módulo o recurso
+-- diz pertencer.
+UPDATE public.recurso
+   SET modulo_codigo = 'MANUTENCAO'
+ WHERE codigo = 'recolhida_gerencial'
+   AND modulo_codigo IS DISTINCT FROM 'MANUTENCAO';
+
+-- ============================================================================
+-- CONFERÊNCIA
+-- ============================================================================
+--   -- 1) Os dois saíram de manutencao (esperado: 0 linhas):
+--   SELECT fn.codigo FROM funcao_permissao fp
+--     JOIN funcao fn ON fn.id = fp.funcao_id
+--    WHERE fp.recurso = 'manutencao'
+--      AND fn.codigo IN ('OPERADOR_PATIO','PLANTONISTA');
+--
+--   -- 2) E ninguém mais foi tocado (esperado: ADMIN, COORDENADOR_TRAFEGO,
+--   --    ENCARREGADO, GERENTE_GERAL, GERENTE_OPERACIONAL, MECANICO):
+--   SELECT fn.codigo, fp.pode_ler, fp.pode_escrever
+--     FROM funcao_permissao fp JOIN funcao fn ON fn.id = fp.funcao_id
+--    WHERE fp.recurso = 'manutencao' ORDER BY fn.codigo;
+--
+--   -- 3) recolhida_gerencial mudou de módulo (esperado: MANUTENCAO):
+--   SELECT modulo_codigo FROM recurso WHERE codigo = 'recolhida_gerencial';
+--
+--   -- 4) 🔴 A checagem que importa — ninguém ficou com um card que não abre.
+--   --    Todo mundo que tem recolhida_gerencial precisa ter também algum
+--   --    recurso que abra manutencao.html (`manutencao` ou
+--   --    `recolhida_tratativa`). Esperado: 0 linhas.
+--   SELECT fn.codigo FROM funcao_permissao fp_rg
+--     JOIN funcao fn ON fn.id = fp_rg.funcao_id
+--    WHERE fp_rg.recurso = 'recolhida_gerencial'
+--      AND NOT EXISTS (
+--          SELECT 1 FROM funcao_permissao fp2
+--           WHERE fp2.funcao_id = fp_rg.funcao_id
+--             AND fp2.recurso IN ('manutencao','recolhida_tratativa')
+--             AND fp2.pode_ler
+--      );
+--
+--   -- 5) O operador continua com o Pátio inteiro (esperado: alocacao entre
+--   --    os recursos, e o módulo PATIO ainda liberado pra ele):
+--   SELECT fp.recurso, fp.pode_ler, fp.pode_escrever
+--     FROM funcao_permissao fp JOIN funcao fn ON fn.id = fp.funcao_id
+--    WHERE fn.codigo = 'OPERADOR_PATIO' ORDER BY fp.recurso;
+--
+--   -- Rodar o arquivo inteiro DUAS VEZES não erra nem duplica nada.
+-- ============================================================================
+
+-- ============================================================================
+-- ROLLBACK
+-- ============================================================================
+-- -- Devolve a leitura de manutencao aos dois (mesmos valores de antes:
+-- -- ler sim, escrever não):
+-- INSERT INTO public.funcao_permissao (funcao_id, recurso, pode_ler, pode_escrever)
+-- SELECT id, 'manutencao', TRUE, FALSE FROM public.funcao
+--  WHERE codigo IN ('OPERADOR_PATIO','PLANTONISTA')
+-- ON CONFLICT ON CONSTRAINT uq_funcao_permissao DO NOTHING;
+--
+-- UPDATE public.recurso SET modulo_codigo = 'PORTARIA'
+--  WHERE codigo = 'recolhida_gerencial';
+--
+-- -- ⚠️ Depois do rollback, todo mundo desloga e loga de novo — mesma razão
+-- -- do cabeçalho.
+-- ============================================================================
