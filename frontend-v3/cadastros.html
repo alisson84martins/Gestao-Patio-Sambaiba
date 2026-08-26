@@ -49,6 +49,10 @@
         <button class="filtro-btn" data-tab="linhas">Linhas</button>
         <button class="filtro-btn" data-tab="filas">Filas</button>
         <button class="filtro-btn" data-tab="tipos-defeito">Tipos de Defeito</button>
+        <!-- Bloco F — recurso próprio (pre_cadastro), não "usuarios": pode ficar
+             invisível pra quem entra na tela mas não tem esse recurso (ver
+             aplicarVisibilidadeAbaPreCadastro em cadastros.js). -->
+        <button class="filtro-btn" data-tab="pre-cadastros">Pré-cadastros</button>
         <button class="btn btn-primary" id="btn-novo" style="margin-left:auto">+ Novo</button>
     </div>
 
@@ -320,6 +324,75 @@
 
         <button type="button" class="btn btn-primary btn-full" id="btn-salvar-tipo">Salvar</button>
         <button type="button" class="btn btn-ghost btn-full btn-modal-stack" id="btn-cancelar-tipo">Cancelar</button>
+    </div>
+</div>
+
+<!-- ========================================================= -->
+<!-- Modal Pré-cadastro (Bloco F) — completar e promover, ou     -->
+<!-- descartar. Nunca cria acesso ao sistema (só funcionario).   -->
+<!-- ========================================================= -->
+<div class="modal-overlay" id="modal-pre-cadastro">
+    <div class="modal">
+        <button type="button" class="modal-close" id="modal-pre-cadastro-fechar">✕</button>
+        <div class="modal-title">Completar e promover</div>
+
+        <input type="hidden" id="pc-id">
+
+        <div class="form-group">
+            <label class="form-label">RE</label>
+            <div id="pc-re-display" style="padding:8px 12px;background:var(--surface-2);border-radius:4px;font-family:var(--mono)"></div>
+        </div>
+
+        <div class="form-group">
+            <label class="form-label" for="pc-nome">Nome Completo <span style="color:var(--accent)">*</span></label>
+            <input type="text" class="form-input" id="pc-nome" placeholder="Ex: João da Silva" maxlength="120">
+        </div>
+
+        <div class="form-group">
+            <label class="form-label" for="pc-cpf">CPF</label>
+            <input type="text" class="form-input" id="pc-cpf" placeholder="000.000.000-00" maxlength="14">
+        </div>
+
+        <div class="form-group">
+            <label class="form-label" for="pc-rg">RG</label>
+            <input type="text" class="form-input" id="pc-rg" placeholder="Ex: 12.345.678-9" maxlength="20">
+        </div>
+
+        <div class="form-group">
+            <label class="form-label" for="pc-cnh">CNH</label>
+            <input type="text" class="form-input" id="pc-cnh" inputmode="numeric" maxlength="20">
+        </div>
+
+        <div class="form-group">
+            <label class="form-label" for="pc-telefone">Telefone</label>
+            <input type="text" class="form-input" id="pc-telefone" maxlength="20">
+        </div>
+
+        <div class="form-group">
+            <label class="form-label" for="pc-papel">Papel sugerido</label>
+            <select class="form-select" id="pc-papel">
+                <option value="INDEFINIDO">Indefinido</option>
+                <option value="MOTORISTA">Motorista</option>
+                <option value="COBRADOR">Cobrador</option>
+            </select>
+        </div>
+
+        <!-- Origem/contagem/retenção (LGPD) — só leitura, vêm do que a
+             operação já acumulou (services/pre_cadastro.py). -->
+        <div class="portaria-ficha-linha" id="pc-meta" style="margin-bottom:0.75rem;color:var(--muted)"></div>
+
+        <div id="modal-pre-cadastro-erro" style="display:none;color:var(--accent);font-size:0.85rem;margin-bottom:0.75rem;"></div>
+
+        <button type="button" class="btn btn-primary btn-full" id="btn-promover-pre-cadastro">Completar e promover</button>
+        <button type="button" class="btn btn-danger btn-full btn-modal-stack" id="btn-descartar-pre-cadastro">Descartar</button>
+        <button type="button" class="btn btn-ghost btn-full btn-modal-stack" id="btn-cancelar-pre-cadastro">Cancelar</button>
+
+        <div id="pc-descarte-wrap" style="display:none;margin-top:10px">
+            <label class="form-label" for="pc-descarte-motivo">Motivo do descarte <span style="color:var(--accent)">*</span></label>
+            <textarea class="form-input form-textarea" id="pc-descarte-motivo" rows="2"></textarea>
+            <button type="button" class="btn btn-primary btn-full" id="btn-confirmar-descarte" style="margin-top:8px">Confirmar descarte</button>
+            <button type="button" class="btn btn-ghost btn-full btn-modal-stack" id="btn-cancelar-descarte">Cancelar</button>
+        </div>
     </div>
 </div>
 

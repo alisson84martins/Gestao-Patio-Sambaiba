@@ -4,6 +4,7 @@
  * Tela de gestão de entidades base, acesso restrito a quem escreve em "usuarios".
  *
  * Abas: Funcionários | Ônibus | Motoristas | Linhas | Filas | Tipos de Defeito
+ *       | Pré-cadastros (Bloco F — só aparece pra quem tem `pre_cadastro`)
  * (a chave interna da primeira aba continua 'usuarios' — só o rótulo mudou —
  * pra não precisar tocar no roteamento das outras abas, que não mudam.)
  *
@@ -68,6 +69,15 @@ document.addEventListener('DOMContentLoaded', () => {
     aplicarMascara(document.getElementById('motorista-re'), 're');
     aplicarMascara(document.getElementById('usuario-cnh'), 'cnh');
     aplicarMascara(document.getElementById('usuario-rg'), 'rg');
+
+    // Bloco F — mesmas máscaras da aba Funcionários. ⛔ CPF fica SEM máscara
+    // de propósito: promover cria um Funcionario, e a aba Funcionários grava
+    // CPF cru. Formatar só aqui criaria dois formatos do mesmo CPF no
+    // cadastro central e a verificação de duplicata deixaria de casar.
+    aplicarMascara(document.getElementById('pc-cnh'), 'cnh');
+    aplicarMascara(document.getElementById('pc-rg'), 'rg');
+
+    aplicarVisibilidadeAbaPreCadastro();
 });
 
 // Filas são um catálogo fixo (seedado pelas migrations) — esta tela só
@@ -79,7 +89,10 @@ document.addEventListener('DOMContentLoaded', () => {
 function atualizarVisibilidadeBtnNovo() {
     const btnNovo = document.getElementById('btn-novo');
     if (!btnNovo) return;
-    if (abaAtiva === 'filas') {
+    // Filas e Pré-cadastros não têm "+ Novo" — nos dois casos é ausência de
+    // funcionalidade, não falta de permissão: fila vem das migrations, e
+    // pré-cadastro nasce da operação (services/pre_cadastro.py), nunca da mão.
+    if (abaAtiva === 'filas' || abaAtiva === 'pre-cadastros') {
         btnNovo.style.display = 'none';
         return;
     }
@@ -165,6 +178,10 @@ async function fetchAba(aba) {
         case 'linhas':       return await apiGet('/linhas?limit=500');
         case 'filas':        return await apiGet('/filas?limit=200');
         case 'tipos-defeito':return await apiGet('/tipos-defeito?limit=200');
+        // Só a fila de trabalho: PROMOVIDO e DESCARTADO saem da lista, como a
+        // pré-ocorrência convertida some da fila do coordenador. O histórico
+        // continua na tabela (nada é apagado) — só não polui a tela.
+        case 'pre-cadastros': return await apiGet('/pre-cadastros?status=PENDENTE');
         default: return [];
     }
 }
@@ -198,6 +215,9 @@ function renderTabela(dados) {
             break;
         case 'tipos-defeito':
             html = tabelaTiposDefeito(dados);
+            break;
+        case 'pre-cadastros':
+            html = tabelaPreCadastros(dados);
             break;
     }
 
@@ -419,6 +439,17 @@ function setupModais() {
     });
     document.getElementById('btn-salvar-tipo').addEventListener('click', salvarTipoDefeito);
 
+    // Pré-cadastro (Bloco F)
+    document.getElementById('modal-pre-cadastro-fechar').addEventListener('click', () => fechar('modal-pre-cadastro'));
+    document.getElementById('btn-cancelar-pre-cadastro').addEventListener('click', () => fechar('modal-pre-cadastro'));
+    document.getElementById('modal-pre-cadastro').addEventListener('click', e => {
+        if (e.target.id === 'modal-pre-cadastro') fechar('modal-pre-cadastro');
+    });
+    document.getElementById('btn-promover-pre-cadastro').addEventListener('click', promoverPreCadastro);
+    document.getElementById('btn-descartar-pre-cadastro').addEventListener('click', abrirDescartePreCadastro);
+    document.getElementById('btn-confirmar-descarte').addEventListener('click', confirmarDescartePreCadastro);
+    document.getElementById('btn-cancelar-descarte').addEventListener('click', cancelarDescartePreCadastro);
+
     // Esc fecha qualquer modal aberto
     document.addEventListener('keydown', e => {
         if (e.key === 'Escape') {
@@ -480,6 +511,7 @@ function abrirModalEditar(item) {
         case 'linhas':       abrirModalLinha(item);       break;
         case 'filas':        abrirModalFila(item);        break;
         case 'tipos-defeito':abrirModalTipoDefeito(item); break;
+        case 'pre-cadastros':abrirModalPreCadastro(item); break;
     }
 }
 
@@ -884,5 +916,284 @@ async function salvarTipoDefeito() {
         carregarAba();
     } catch (err) {
         erroModal('modal-tipo-erro', err.message);
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// ABA PRÉ-CADASTROS (Bloco F)
+// ═══════════════════════════════════════════════════════════════════
+/*
+ * A fila que a operação enche sozinha. Todo RE digitado em ocorrência,
+ * pré-ocorrência, recolhida anormal e avaria de saída cai em
+ * pessoa_pre_cadastro (services/pre_cadastro.py, migration 028) com o que
+ * aquele módulo soube informar — a portaria contribui só o RE, a
+ * pré-ocorrência contribui nome, CPF, RG, CNH e telefone.
+ *
+ * É o carro que entra na garagem sem ficha: alguém precisa olhar a fila e
+ * decidir se vira cadastro de verdade ou se some. Esta aba é a primeira
+ * tela desse dado — antes dela, a fila acumulava invisível.
+ *
+ * 🔴 RBAC DE DUAS CABEÇAS — a parte que mais engana nesta tela:
+ *     ler a fila, corrigir campos, descartar → recurso `pre_cadastro`
+ *     PROMOVER (criar o funcionário)        → recurso `usuarios`, escrita
+ * Promover é ato de cadastro central (RH), não de triagem. Por isso este
+ * modal ⛔ NÃO passa por abrir()/aplicarSomenteLeituraModal(): aquele
+ * caminho é genérico e trancaria o modal inteiro por `usuarios`, deixando
+ * quem tem `pre_cadastro` sem conseguir nem corrigir um nome torto.
+ * Ver aplicarPermissoesPreCadastro().
+ *
+ * ⚠️ Promover NUNCA cria login. Devolve o funcionario_id; o acesso ao
+ * sistema continua sendo criado na aba Funcionários, como sempre foi.
+ */
+
+// Lidos uma vez no carregamento, como `somenteLeitura` lá em cima.
+const podeEscreverPreCadastro = podeEscrever('pre_cadastro');
+const podePromoverPreCadastro = podeEscrever('usuarios');
+
+let preCadastroAtual = null;   // registro aberto no modal
+
+/**
+ * A aba some inteira pra quem não tem `pre_cadastro` leitura.
+ * ⚠️ Aqui é display:none mesmo (e não disabled+title, como o "+ Novo"):
+ * ausência de recurso é ausência de funcionalidade, mesmo caso da aba
+ * Filas. Botão desabilitado serve pra avisar que a ação existe; aba de um
+ * recurso que a pessoa não tem só geraria pergunta sem resposta.
+ * ⛔ Nome usado pelo comentário do cadastros.html — não renomear sozinho.
+ */
+function aplicarVisibilidadeAbaPreCadastro() {
+    const btn = document.querySelector('#cadastros-tabs .filtro-btn[data-tab="pre-cadastros"]');
+    if (!btn) return;
+    btn.style.display = podeLer('pre_cadastro') ? '' : 'none';
+}
+
+// ─── TABELA ──────────────────────────────────────────────────────
+function tabelaPreCadastros(dados) {
+    // Ordem por vezes_visto DESC: quem a operação mais encontrou é quem mais
+    // vale cadastrar. O backend devolve por ultima_vez_em (fila de novidade);
+    // a ordem que interessa aqui é a de prioridade, então reordenamos.
+    const ordenados = [...dados].sort((a, b) => {
+        if (b.vezes_visto !== a.vezes_visto) return b.vezes_visto - a.vezes_visto;
+        return new Date(b.ultima_vez_em) - new Date(a.ultima_vez_em);
+    });
+
+    const linhas = ordenados.map(p => _tr(p.id, [
+        `<strong style="font-family:var(--mono)">${escapeHtml(p.re)}</strong>`,
+        p.nome ? escapeHtml(p.nome) : '<span style="color:var(--muted)">— sem nome —</span>',
+        _badgePapelPreCadastro(p.papel_sugerido),
+        `<strong>${Number(p.vezes_visto) || 0}</strong>`,
+        _nomeOrigemPreCadastro(p.ultima_origem),
+        _dataHoraCurta(p.ultima_vez_em),
+        _retencaoPreCadastro(p.retencao_expira_em),
+    ])).join('');
+
+    return _table(
+        ['RE', 'Nome', 'Papel sugerido', 'Vezes visto', 'Última origem', 'Última vez', 'Retenção'],
+        linhas,
+    );
+}
+
+function _badgePapelPreCadastro(papel) {
+    const mapa = {
+        MOTORISTA:  ['Motorista', 'azul'],
+        COBRADOR:   ['Cobrador', 'verde'],
+        INDEFINIDO: ['Indefinido', 'cinza'],
+    };
+    const [label, cor] = mapa[papel] || [papel, 'cinza'];
+    return _badge(label, cor);
+}
+
+// Valores gravados por services/pre_cadastro.py — os quatro pontos de
+// captura de hoje. Origem desconhecida cai no próprio código (escapado),
+// nunca em "—": saber que veio de um lugar novo é informação.
+function _nomeOrigemPreCadastro(origem) {
+    if (!origem) return '<span style="color:var(--muted)">—</span>';
+    const mapa = {
+        OCORRENCIA:         'Ocorrência',
+        PRE_OCORRENCIA:     'Pré-ocorrência',
+        PORTARIA_RECOLHIDA: 'Recolhida',
+        PORTARIA_AVARIA:    'Avaria na saída',
+    };
+    return escapeHtml(mapa[origem] || origem);
+}
+
+/**
+ * ⚠️ LGPD visível de propósito. A migration 028 decidiu que a retenção é
+ * aplicada por FILTRO na leitura, não por job — o projeto não tem
+ * scheduler. Ou seja: passou da data, o registro continua no banco. Deixar
+ * o prazo na tela é o que evita que isso seja esquecido.
+ */
+function _retencaoPreCadastro(iso) {
+    if (!iso) return '<span style="color:var(--muted)">—</span>';
+    const expira = new Date(iso);
+    if (Number.isNaN(expira.getTime())) return '<span style="color:var(--muted)">—</span>';
+    const dias = Math.ceil((expira - new Date()) / 86400000);
+    if (dias < 0)  return _badge('Expirado', 'vermelho');
+    if (dias <= 7) return _badge(`${dias} d`, 'amarelo');
+    return `<span style="color:var(--muted)">${dias} d</span>`;
+}
+
+// ⛔ Nunca toISOString() para exibir data — erra o dia depois das 21h
+// (armadilha registrada no projeto). toLocaleString respeita o fuso local.
+function _dataHoraCurta(iso) {
+    if (!iso) return '<span style="color:var(--muted)">—</span>';
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return '<span style="color:var(--muted)">—</span>';
+    return d.toLocaleString('pt-BR', {
+        day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit',
+    });
+}
+
+// ─── MODAL ───────────────────────────────────────────────────────
+function abrirModalPreCadastro(p) {
+    preCadastroAtual = p;
+
+    document.getElementById('pc-id').value            = p.id;
+    document.getElementById('pc-re-display').textContent = p.re;
+    document.getElementById('pc-nome').value           = p.nome || '';
+    document.getElementById('pc-cpf').value            = p.cpf || '';
+    document.getElementById('pc-rg').value             = p.rg || '';
+    document.getElementById('pc-cnh').value            = p.cnh || '';
+    document.getElementById('pc-telefone').value       = p.telefone || '';
+    document.getElementById('pc-papel').value          = p.papel_sugerido || 'INDEFINIDO';
+    document.getElementById('pc-meta').textContent     = _metaPreCadastro(p);
+
+    // O descarte começa fechado toda vez — abrir o modal não pode deixar um
+    // motivo digitado antes à mostra.
+    cancelarDescartePreCadastro();
+    erroModal('modal-pre-cadastro-erro', '');
+
+    // ⛔ De propósito NÃO usa abrir(): ver o cabeçalho desta seção.
+    document.getElementById('modal-pre-cadastro').classList.add('open');
+    aplicarPermissoesPreCadastro();
+
+    if (podeEscreverPreCadastro) document.getElementById('pc-nome').focus();
+}
+
+function _metaPreCadastro(p) {
+    const partes = [`Visto ${Number(p.vezes_visto) || 0}x`];
+    if (p.ultima_origem) {
+        const mapa = {
+            OCORRENCIA: 'Ocorrência', PRE_OCORRENCIA: 'Pré-ocorrência',
+            PORTARIA_RECOLHIDA: 'Recolhida', PORTARIA_AVARIA: 'Avaria na saída',
+        };
+        partes.push(`última via ${mapa[p.ultima_origem] || p.ultima_origem}`);
+    }
+    if (p.retencao_expira_em) {
+        const d = new Date(p.retencao_expira_em);
+        if (!Number.isNaN(d.getTime())) {
+            partes.push(`retenção até ${d.toLocaleDateString('pt-BR')}`);
+        }
+    }
+    return partes.join(' · ');
+}
+
+/**
+ * 🔴 O ponto delicado do bloco: dois recursos, dois grupos de controles.
+ * Quem tem só `pre_cadastro` corrige e descarta, mas não promove. Quem tem
+ * só `usuarios` promove o que já está completo, sem editar a fila. Ninguém
+ * fica com o modal inteiro trancado por causa do outro recurso.
+ */
+function aplicarPermissoesPreCadastro() {
+    ['pc-nome', 'pc-cpf', 'pc-rg', 'pc-cnh', 'pc-telefone', 'pc-papel', 'pc-descarte-motivo']
+        .forEach(id => {
+            const el = document.getElementById(id);
+            if (el) el.disabled = !podeEscreverPreCadastro;
+        });
+
+    const msgTriagem = 'Você não tem permissão de escrita em Pré-cadastros.';
+    _botaoPermissao('btn-descartar-pre-cadastro', podeEscreverPreCadastro, msgTriagem);
+    _botaoPermissao('btn-confirmar-descarte',     podeEscreverPreCadastro, msgTriagem);
+    _botaoPermissao('btn-promover-pre-cadastro',  podePromoverPreCadastro,
+        'Promover cria cadastro de funcionário — exige escrita em Usuários.');
+}
+
+// Desabilita com title, nunca esconde — mesma regra do "+ Novo" e do
+// Imprimir/Sinistro: ação que existe e você não pode fazer tem que aparecer.
+function _botaoPermissao(id, liberado, motivo) {
+    const btn = document.getElementById(id);
+    if (!btn) return;
+    btn.disabled = !liberado;
+    btn.title = liberado ? '' : motivo;
+    btn.setAttribute('aria-disabled', String(!liberado));
+}
+
+// ─── PROMOVER ────────────────────────────────────────────────────
+async function promoverPreCadastro() {
+    const p = preCadastroAtual;
+    if (!p) return;
+    erroModal('modal-pre-cadastro-erro', '');
+
+    const nome = document.getElementById('pc-nome').value.trim();
+    if (!nome) {
+        return erroModal('modal-pre-cadastro-erro',
+            'Nome é obrigatório para promover — complete o cadastro antes.');
+    }
+
+    const dados = {
+        nome,
+        cpf:      document.getElementById('pc-cpf').value.trim() || null,
+        rg:       document.getElementById('pc-rg').value.trim() || null,
+        cnh:      document.getElementById('pc-cnh').value.trim() || null,
+        telefone: document.getElementById('pc-telefone').value.trim() || null,
+        papel_sugerido: document.getElementById('pc-papel').value,
+    };
+
+    try {
+        // Dois atos, dois recursos. O PATCH só sai se alguma coisa mudou —
+        // assim quem tem apenas `usuarios` promove um registro já completo
+        // sem esbarrar no recurso `pre_cadastro`, que ele não tem.
+        if (_preCadastroMudou(p, dados)) {
+            await apiPatch(`/pre-cadastros/${p.id}`, dados);
+        }
+        await apiPost(`/pre-cadastros/${p.id}/promover`);
+        fechar('modal-pre-cadastro');
+        preCadastroAtual = null;
+        carregarAba();
+    } catch (err) {
+        erroModal('modal-pre-cadastro-erro', err.message);
+    }
+}
+
+function _preCadastroMudou(p, dados) {
+    const norm = v => (v ?? '').toString().trim();
+    return norm(dados.nome)     !== norm(p.nome)
+        || norm(dados.cpf)      !== norm(p.cpf)
+        || norm(dados.rg)       !== norm(p.rg)
+        || norm(dados.cnh)      !== norm(p.cnh)
+        || norm(dados.telefone) !== norm(p.telefone)
+        || dados.papel_sugerido !== p.papel_sugerido;
+}
+
+// ─── DESCARTAR ───────────────────────────────────────────────────
+// Motivo obrigatório: o backend grava quem descartou e quando, mas o
+// porquê só existe se alguém escrever. Descarte sem motivo vira mistério
+// daqui a três meses.
+function abrirDescartePreCadastro() {
+    erroModal('modal-pre-cadastro-erro', '');
+    document.getElementById('pc-descarte-wrap').style.display = '';
+    document.getElementById('pc-descarte-motivo').focus();
+}
+
+function cancelarDescartePreCadastro() {
+    const wrap = document.getElementById('pc-descarte-wrap');
+    if (wrap) wrap.style.display = 'none';
+    const motivo = document.getElementById('pc-descarte-motivo');
+    if (motivo) motivo.value = '';
+}
+
+async function confirmarDescartePreCadastro() {
+    const p = preCadastroAtual;
+    if (!p) return;
+    const motivo = document.getElementById('pc-descarte-motivo').value.trim();
+    if (!motivo) {
+        return erroModal('modal-pre-cadastro-erro', 'Descreva o motivo do descarte.');
+    }
+    try {
+        await apiPost(`/pre-cadastros/${p.id}/descartar`, { motivo });
+        fechar('modal-pre-cadastro');
+        preCadastroAtual = null;
+        carregarAba();
+    } catch (err) {
+        erroModal('modal-pre-cadastro-erro', err.message);
     }
 }
