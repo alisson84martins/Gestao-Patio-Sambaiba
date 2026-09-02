@@ -140,14 +140,24 @@ async function registrar() {
     erro.style.display = 'none';
 
     const prefixo = document.getElementById('av-prefixo').value.trim();
+    const motoristaRe = document.getElementById('av-motorista-re').value.trim();
     const descricao = document.getElementById('av-descricao').value.trim();
     if (!prefixo) {
         erro.textContent = 'Digite o carro.';
         erro.style.display = 'block';
         return;
     }
+    // Única exceção à regra número um do módulo (nunca recusar registro): decisão de
+    // operação, não do modelo — a avaria é vista na conferência de saída com o motorista
+    // ali na frente, então o RE é sempre conhecido. O backend continua aceitando
+    // motorista_re nulo, para não travar um dia em que a avaria entre por outro caminho.
+    if (!motoristaRe) {
+        erro.textContent = 'Digite o RE.';
+        erro.style.display = 'block';
+        return;
+    }
     if (!descricao) {
-        erro.textContent = 'Descreva o que foi visto.';
+        erro.textContent = 'Descreva a avaria.';
         erro.style.display = 'block';
         return;
     }
@@ -158,7 +168,7 @@ async function registrar() {
         await apiPost('/portaria/avarias', {
             prefixo,
             descricao,
-            motorista_re: document.getElementById('av-motorista-re').value.trim() || null,
+            motorista_re: motoristaRe || null,
             motorista_nome: document.getElementById('av-motorista-nome').value.trim() || null,
         });
         limparFormulario();
