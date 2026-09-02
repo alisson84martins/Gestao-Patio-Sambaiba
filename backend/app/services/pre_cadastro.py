@@ -44,7 +44,9 @@ def registrar_pessoa_vista(
     db: Session,
     *,
     re: Optional[str],
-    papel: Literal["MOTORISTA", "COBRADOR"],
+    # INDEFINIDO (C1): dono de veículo particular cadastrado só pelo RE — o
+    # cadastro não diz se a pessoa é motorista ou cobrador, só que existe.
+    papel: Literal["MOTORISTA", "COBRADOR", "INDEFINIDO"],
     origem: str,
     nome: Optional[str] = None,
     cpf: Optional[str] = None,

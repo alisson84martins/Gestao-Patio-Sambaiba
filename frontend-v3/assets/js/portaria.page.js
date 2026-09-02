@@ -352,6 +352,10 @@ function renderEstadoConfirmacao() {
         condutorWrap.style.display = 'block';
     } else if (v.funcionario_nome) {
         donoTexto = v.funcionario_re ? `${v.funcionario_nome} · RE ${v.funcionario_re}` : v.funcionario_nome;
+    } else if (v.re_dono_texto) {
+        // C1 (migration 039): RE digitado que não resolveu — regra número
+        // um, o cadastro não foi recusado, mas o dono ainda não é funcionário.
+        donoTexto = `RE ${v.re_dono_texto} (não cadastrado)`;
     }
     dono.textContent = donoTexto;
 
@@ -599,8 +603,10 @@ async function resolverDonoPorRe() {
             nomeEl.textContent = `${resultados.length} funcionário(s) encontrados — digite o RE completo`;
             nomeEl.style.color = 'var(--muted)';
         } else {
-            nomeEl.textContent = 'Nenhum funcionário encontrado com este RE';
-            nomeEl.style.color = 'var(--accent)';
+            // C1 (migration 039): RE não encontrado NÃO bloqueia — regra
+            // número um. salvarCadastroRapido manda esse RE em re_dono_texto.
+            nomeEl.textContent = 'RE não encontrado no cadastro. O veículo será cadastrado assim mesmo e ficará em Divergências.';
+            nomeEl.style.color = 'var(--muted)';
         }
     } catch (err) {
         if (err instanceof ApiError && err.status === 401) return;
@@ -665,12 +671,20 @@ async function salvarCadastroRapido() {
     };
 
     if (propriedade === 'PARTICULAR') {
-        if (!donoResolvidoId) {
-            erro.textContent = 'Informe um RE válido pra resolver o dono (PARTICULAR exige dono).';
+        const reDono = document.getElementById('cad-re-dono').value.trim();
+        if (!donoResolvidoId && !reDono) {
+            erro.textContent = 'Informe o RE do dono (PARTICULAR exige dono).';
             erro.style.display = 'block';
             return;
         }
-        payload.funcionario_id = donoResolvidoId;
+        // C1 (migration 039): RE que não resolveu não bloqueia — vai como
+        // re_dono_texto (snapshot) e o veículo fica na fila de Divergências
+        // até alguém promover essa pessoa a funcionário.
+        if (donoResolvidoId) {
+            payload.funcionario_id = donoResolvidoId;
+        } else {
+            payload.re_dono_texto = reDono;
+        }
     } else if (propriedade === 'TERCEIRO') {
         const empresaId = document.getElementById('cad-empresa').value;
         if (!empresaId) {

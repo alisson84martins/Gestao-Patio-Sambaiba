@@ -34,6 +34,7 @@ from app.services.portaria import veiculo_read
 from app.services.portaria_credencial import (
     gerar_codigo, gerar_svg_documento, montar_html_etiquetas,
 )
+from app.services.pre_cadastro import registrar_pessoa_vista
 
 router = APIRouter(prefix="/portaria", tags=["portaria"])
 
@@ -162,6 +163,9 @@ def cadastrar_veiculo(payload: VeiculoCreate, usuario: EscritaCadastro, db: Anno
         propriedade=payload.propriedade,
         funcionario_id=payload.funcionario_id,
         empresa_terceira_id=payload.empresa_terceira_id,
+        # C1 (migration 039): só existe quando funcionario_id não resolveu —
+        # o schema (_valida_dono) já garante que PARTICULAR tem um dos dois.
+        re_dono_texto=payload.re_dono_texto,
         placa=payload.placa,
         tipo=payload.tipo,
         marca_modelo=payload.marca_modelo,
@@ -190,6 +194,15 @@ def cadastrar_veiculo(payload: VeiculoCreate, usuario: EscritaCadastro, db: Anno
             motivo=novo.situacao_motivo,
             decidido_por=payload.funcionario_id,
         ))
+
+    # C1/Bloco F: RE digitado que não resolveu vira pré-cadastro — de graça,
+    # nunca bloqueia (registrar_pessoa_vista nunca propaga exceção). Papel
+    # INDEFINIDO porque aqui só sabemos que a pessoa é dona de um carro, não
+    # se é motorista ou cobrador; quem promove decide isso na tela.
+    if payload.re_dono_texto:
+        registrar_pessoa_vista(
+            db, re=payload.re_dono_texto, papel="INDEFINIDO", origem="PORTARIA_VEICULO",
+        )
 
     db.commit()
     db.refresh(novo)
@@ -440,7 +453,7 @@ def listar_pendentes(usuario: LeituraAutorizacao, db: Annotated[Session, Depends
 @router.get(
     "/veiculos/divergencias",
     response_model=list[VeiculoDivergenciaRead],
-    summary="D13 — veículos AUTORIZADOS de pessoas que não estão ATIVAS. Só mostra, não decide.",
+    summary="D13 — veículos AUTORIZADOS de pessoas que não estão ATIVAS, ou sem dono cadastrado (C1). Só mostra, não decide.",
 )
 def listar_divergencias(usuario: LeituraAutorizacao, db: Annotated[Session, Depends(get_db)]):
     linhas = db.execute(
@@ -454,10 +467,29 @@ def listar_divergencias(usuario: LeituraAutorizacao, db: Annotated[Session, Depe
         )
         .order_by(VeiculoPortaria.placa)
     ).all()
-    return [
+    resultado = [
         VeiculoDivergenciaRead(**veiculo_read(v, db).model_dump(), funcionario_status=status_bruto)
         for v, status_bruto in linhas
     ]
+
+    # C1 (migration 039): AUTORIZADO com re_dono_texto e sem funcionario_id —
+    # o RE digitado na guarita nunca virou funcionário (promoção pendente na
+    # aba Pré-cadastros). Mesma fila de trabalho, motivo diferente do
+    # funcionário inativo acima.
+    sem_dono = db.execute(
+        select(VeiculoPortaria).where(
+            VeiculoPortaria.situacao == "AUTORIZADO",
+            VeiculoPortaria.propriedade == "PARTICULAR",
+            VeiculoPortaria.ativo.is_(True),
+            VeiculoPortaria.funcionario_id.is_(None),
+        )
+    ).scalars().all()
+    resultado.extend(
+        VeiculoDivergenciaRead(**veiculo_read(v, db).model_dump(), funcionario_status="NAO_CADASTRADO")
+        for v in sem_dono
+    )
+    resultado.sort(key=lambda item: item.placa)
+    return resultado
 
 
 # 🔴 §3.6-D.3: registrada AQUI, depois de /veiculos/pendentes e

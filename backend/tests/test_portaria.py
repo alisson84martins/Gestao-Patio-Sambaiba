@@ -377,6 +377,65 @@ def test_veiculo_de_funcao_sem_auto_autorizacao_continua_pendente(ambiente):
     assert resp.json()["situacao"] == "PENDENTE"
 
 
+# ─── C1 (migration 039) — PARTICULAR sem funcionario_id não trava mais ──
+# 🔴 Bug de produção: RE digitado que não resolve não podia mais recusar o
+# cadastro (regra número um). re_dono_texto é o snapshot do que foi digitado.
+
+def test_particular_com_re_dono_texto_sem_funcionario_id_cadastra(ambiente):
+    _como(ambiente, "CONTROLADOR")
+    resp = ambiente["http"].post("/portaria/veiculos", json={
+        "propriedade": "PARTICULAR", "re_dono_texto": "12345", "placa": "ABC1D23",
+    })
+    assert resp.status_code == 201, resp.text
+    corpo = resp.json()
+    assert corpo["funcionario_id"] is None
+    assert corpo["re_dono_texto"] == "12345"
+    # Sem funcionario_id não há como saber se é gestor — nasce PENDENTE,
+    # como qualquer outro (auto-autorização não se aplica aqui).
+    assert corpo["situacao"] == "PENDENTE"
+
+
+def test_particular_sem_funcionario_id_e_sem_re_dono_texto_e_422(ambiente):
+    _como(ambiente, "CONTROLADOR")
+    resp = ambiente["http"].post("/portaria/veiculos", json={
+        "propriedade": "PARTICULAR", "placa": "ABC1D23",
+    })
+    assert resp.status_code == 422, resp.text
+
+
+def test_particular_re_dono_texto_alimenta_pre_cadastro_origem_portaria_veiculo(ambiente):
+    _como(ambiente, "CONTROLADOR")
+    resp = ambiente["http"].post("/portaria/veiculos", json={
+        "propriedade": "PARTICULAR", "re_dono_texto": "54321", "placa": "ABC1D23",
+    })
+    assert resp.status_code == 201, resp.text
+
+    with Session(ambiente["engine"]) as db:
+        pre = db.execute(
+            select(PessoaPreCadastro).where(PessoaPreCadastro.re == "54321")
+        ).scalar_one_or_none()
+    assert pre is not None
+    assert pre.ultima_origem == "PORTARIA_VEICULO"
+    assert pre.papel_sugerido == "INDEFINIDO"
+
+
+def test_divergencias_lista_autorizado_com_re_dono_texto_sem_funcionario(ambiente):
+    """C1: a fila de Divergências (D13) passa a listar também o AUTORIZADO
+    cujo dono nunca virou funcionário — antes só listava funcionário INATIVO."""
+    _criar_veiculo(
+        ambiente, placa="ABC1D23", propriedade="PARTICULAR", funcionario_id=None,
+        re_dono_texto="65432", situacao="AUTORIZADO",
+    )
+    _como(ambiente, "ENCARREGADO")
+    resp = ambiente["http"].get("/portaria/veiculos/divergencias")
+    assert resp.status_code == 200, resp.text
+    corpo = resp.json()
+    assert len(corpo) == 1
+    assert corpo[0]["placa"] == "ABC1D23"
+    assert corpo[0]["re_dono_texto"] == "65432"
+    assert corpo[0]["funcionario_status"] == "NAO_CADASTRADO"
+
+
 def test_busca_funcionario_portaria_expoe_auto_autorizado(ambiente):
     with Session(ambiente["engine"]) as db:
         funcao = Funcao(

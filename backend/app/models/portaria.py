@@ -72,6 +72,11 @@ class VeiculoPortaria(Base, AuditoriaMixin):
     empresa_terceira_id: Mapped[Optional[UUID]] = mapped_column(
         PG_UUID(as_uuid=True), ForeignKey(f"{SCHEMA}.empresa_terceira.id"), nullable=True
     )
+    # C1 (migration 039): SNAPSHOT do RE digitado pelo controlador quando o
+    # dono PARTICULAR não estava no cadastro de funcionário — regra número
+    # um, o registro nunca é recusado. ⛔ Nunca a fonte de verdade do dono —
+    # funcionario_id é. Vira histórico quando a pessoa é promovida (Bloco F).
+    re_dono_texto: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
 
     placa: Mapped[str] = mapped_column(String(8), nullable=False)
     tipo: Mapped[str] = mapped_column(String(12), nullable=False, default="CARRO")

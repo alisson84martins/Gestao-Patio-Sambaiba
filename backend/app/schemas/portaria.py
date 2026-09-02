@@ -67,6 +67,10 @@ class VeiculoCreate(BaseModel):
     propriedade: Propriedade
     funcionario_id: Optional[UUID] = None
     empresa_terceira_id: Optional[UUID] = None
+    # C1 (migration 039): RE digitado pelo controlador quando a busca por
+    # funcionario_id não achou ninguém — regra número um, o registro nunca é
+    # recusado. Só faz sentido junto de PARTICULAR sem funcionario_id.
+    re_dono_texto: ReNormalizado = Field(None, max_length=20)
     placa: PlacaNormalizada = Field(..., max_length=8)
     tipo: TipoVeiculo = "CARRO"
     marca_modelo: Optional[str] = Field(None, max_length=60)
@@ -80,8 +84,8 @@ class VeiculoCreate(BaseModel):
         # Mesmo par de exigências do CHECK ck_veiculo_dono da migration —
         # falhar aqui como 422 é mais claro pro chamador que um IntegrityError.
         if self.propriedade == "PARTICULAR":
-            if not self.funcionario_id:
-                raise ValueError("PARTICULAR exige funcionario_id (o dono).")
+            if not self.funcionario_id and not self.re_dono_texto:
+                raise ValueError("PARTICULAR exige funcionario_id ou re_dono_texto (o dono).")
             if self.empresa_terceira_id:
                 raise ValueError("PARTICULAR não pode ter empresa_terceira_id.")
         elif self.propriedade == "EMPRESA":
@@ -124,6 +128,9 @@ class VeiculoRead(ORMBase, AuditoriaSchema):
     propriedade: Propriedade
     funcionario_id: Optional[UUID] = None
     empresa_terceira_id: Optional[UUID] = None
+    # C1 (migration 039): snapshot do RE digitado quando funcionario_id não
+    # resolveu — ⛔ nunca a fonte de verdade do dono, só fila de Divergências.
+    re_dono_texto: Optional[str] = None
     placa: str
     tipo: TipoVeiculo
     marca_modelo: Optional[str] = None

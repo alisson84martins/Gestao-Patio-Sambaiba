@@ -78,6 +78,9 @@ function donoTexto(v) {
     if (v.propriedade === 'TERCEIRO') return v.empresa_terceira_nome || 'Terceiro';
     if (v.propriedade === 'EMPRESA') return 'Veículo da empresa';
     if (v.funcionario_nome) return v.funcionario_re ? `${v.funcionario_nome} · RE ${v.funcionario_re}` : v.funcionario_nome;
+    // C1 (migration 039): RE digitado que não resolveu — regra número um,
+    // o cadastro não foi recusado, mas o dono ainda não é funcionário.
+    if (v.re_dono_texto) return `RE ${v.re_dono_texto} (não cadastrado)`;
     return '—';
 }
 
@@ -240,8 +243,12 @@ async function carregarDivergencias() {
     try {
         const veiculos = await apiGet('/portaria/veiculos/divergencias');
         renderLista('lista-divergencias', veiculos, {
-            vazio: 'Nenhuma divergência — todo AUTORIZADO particular tem dono ATIVO.',
-            extra: v => ` · status do funcionário: ${escapeHtml(v.funcionario_status)}`,
+            vazio: 'Nenhuma divergência — todo AUTORIZADO particular tem dono ATIVO e cadastrado.',
+            // C1 (migration 039): NAO_CADASTRADO é o RE digitado (re_dono_texto)
+            // que nunca virou funcionário — motivo diferente do funcionário inativo.
+            extra: v => v.funcionario_status === 'NAO_CADASTRADO'
+                ? ' · dono ainda não é funcionário (RE não promovido — ver Pré-cadastros)'
+                : ` · status do funcionário: ${escapeHtml(v.funcionario_status)}`,
         });
     } catch (err) {
         if (err instanceof ApiError && err.status === 401) return;
@@ -668,8 +675,10 @@ async function resolverDonoPorRe() {
             nomeEl.textContent = `${resultados.length} funcionário(s) encontrados — digite o RE completo`;
             nomeEl.style.color = 'var(--muted)';
         } else {
-            nomeEl.textContent = 'Nenhum funcionário encontrado com este RE';
-            nomeEl.style.color = 'var(--accent)';
+            // C1 (migration 039): RE não encontrado NÃO bloqueia — regra
+            // número um. salvarNovoVeiculo manda esse RE em re_dono_texto.
+            nomeEl.textContent = 'RE não encontrado no cadastro. O veículo será cadastrado assim mesmo e ficará em Divergências.';
+            nomeEl.style.color = 'var(--muted)';
         }
     } catch (err) {
         if (err instanceof ApiError && err.status === 401) return;
@@ -692,12 +701,20 @@ async function salvarNovoVeiculo() {
         cor: document.getElementById('nv-cor').value.trim() || null,
     };
     if (propriedade === 'PARTICULAR') {
-        if (!donoResolvidoId) {
-            erro.textContent = 'Informe um RE válido pra resolver o dono.';
+        const reDono = document.getElementById('nv-re-dono').value.trim();
+        if (!donoResolvidoId && !reDono) {
+            erro.textContent = 'Informe o RE do dono.';
             erro.style.display = 'block';
             return;
         }
-        payload.funcionario_id = donoResolvidoId;
+        // C1 (migration 039): RE que não resolveu não bloqueia — vai como
+        // re_dono_texto (snapshot) e o veículo fica na fila de Divergências
+        // até alguém promover essa pessoa a funcionário.
+        if (donoResolvidoId) {
+            payload.funcionario_id = donoResolvidoId;
+        } else {
+            payload.re_dono_texto = reDono;
+        }
     } else if (propriedade === 'TERCEIRO') {
         const empresaId = document.getElementById('nv-empresa').value;
         if (!empresaId) { erro.textContent = 'Selecione a empresa terceira.'; erro.style.display = 'block'; return; }
