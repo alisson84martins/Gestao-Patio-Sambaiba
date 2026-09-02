@@ -24,6 +24,7 @@ import { escapeHtml } from './escape.js';
 import { POLLING_INTERVAL_MS } from './config.js';
 import { aplicarMascara } from './mascaras.js';
 import { podeEscrever } from './sessao.js';
+import { buscarPorRe } from './identidade.js';
 
 if (!requireAuth()) {
     throw new Error('Sessão não autenticada — interrompendo carga da página');
@@ -38,6 +39,10 @@ const HORAS_DENTRO = 36;
 let contexto = null;
 let pollHandle = null;
 let empresasCache = null;
+// RE do condutor (C2) — só relevante quando o carro é da empresa: achou
+// funcionário -> vai por funcionario_id; não achou -> vai por texto livre
+// (re_registrado/nome_registrado). Nunca em veiculo.funcionario_id (D2).
+let condutorFuncionarioId = null;
 
 // ─── Header ─────────────────────────────────────────────────────────────
 function initHeader() {
@@ -292,6 +297,10 @@ function renderEstadoConfirmacao() {
     const kmEntrada = document.getElementById('confirmacao-km-entrada');
     const obsObrigatoria = document.getElementById('confirmacao-obs-obrigatoria');
     const obsInput = document.getElementById('confirmacao-observacao');
+    const condutorWrap = document.getElementById('confirmacao-condutor-wrap');
+    const condutorRe = document.getElementById('confirmacao-condutor-re');
+    const condutorStatus = document.getElementById('confirmacao-condutor-status');
+    const condutorNome = document.getElementById('confirmacao-condutor-nome');
     const erro = document.getElementById('confirmacao-erro');
     const btnConfirmar = document.getElementById('btn-confirmar-movimento');
     const btnCadastrar = document.getElementById('btn-cadastrar-agora');
@@ -302,6 +311,12 @@ function renderEstadoConfirmacao() {
     obsInput.value = '';
     hodInput.value = '';
     kmEntrada.textContent = '';
+    condutorWrap.style.display = 'none';
+    condutorRe.value = '';
+    condutorStatus.textContent = '';
+    condutorNome.value = '';
+    condutorNome.style.display = 'none';
+    condutorFuncionarioId = null;
     document.getElementById('confirmacao-titulo').textContent =
         contexto.sentido === 'SAIDA' ? 'Confirmar saída' : 'Confirmar entrada';
     sentidoSelect.value = contexto.sentido;
@@ -334,6 +349,7 @@ function renderEstadoConfirmacao() {
         donoTexto = v.empresa_terceira_nome || 'Terceiro';
     } else if (v.propriedade === 'EMPRESA') {
         donoTexto = 'Veículo da empresa';
+        condutorWrap.style.display = 'block';
     } else if (v.funcionario_nome) {
         donoTexto = v.funcionario_re ? `${v.funcionario_nome} · RE ${v.funcionario_re}` : v.funcionario_nome;
     }
@@ -372,6 +388,52 @@ function renderEstadoConfirmacao() {
     } else {
         hodWrap.style.display = 'none';
     }
+
+    atualizarCondutorObrigatorio();
+}
+
+// Obrigatório na SAÍDA, opcional na ENTRADA (carro pode voltar com outro
+// motorista, ou rebocado — exigir na entrada travaria a portaria).
+function atualizarCondutorObrigatorio() {
+    const wrap = document.getElementById('confirmacao-condutor-wrap');
+    const obrigatorio = document.getElementById('confirmacao-condutor-obrigatorio');
+    const sentido = document.getElementById('confirmacao-sentido').value;
+    obrigatorio.style.display = (wrap.style.display !== 'none' && sentido === 'SAIDA') ? 'inline' : 'none';
+}
+
+async function resolverCondutorRe() {
+    const campoRe = document.getElementById('confirmacao-condutor-re');
+    const status = document.getElementById('confirmacao-condutor-status');
+    const campoNome = document.getElementById('confirmacao-condutor-nome');
+    const re = campoRe.value.trim();
+    status.textContent = '';
+    condutorFuncionarioId = null;
+    if (re.length < 3) {
+        campoNome.style.display = 'none';
+        return;
+    }
+    try {
+        const resp = await buscarPorRe(re);
+        if (resp.encontrado) {
+            condutorFuncionarioId = resp.id;
+            campoNome.style.display = 'none';
+            campoNome.value = '';
+            if (resp.ativo === false) {
+                status.textContent = `${resp.nome} — desligado/inativo. Registra assim mesmo.`;
+                status.style.color = '#f59e0b';
+            } else {
+                status.textContent = resp.nome;
+                status.style.color = 'var(--accent3)';
+            }
+        } else {
+            status.textContent = 'Não encontrado — pode informar o nome.';
+            status.style.color = 'var(--muted)';
+            campoNome.style.display = 'block';
+        }
+    } catch (err) {
+        if (err instanceof ApiError && err.status === 401) return;
+        console.error('[portaria] erro ao resolver RE do condutor:', err);
+    }
 }
 
 function initConfirmacao() {
@@ -387,6 +449,9 @@ function initConfirmacao() {
         }
     });
 
+    document.getElementById('confirmacao-sentido').addEventListener('change', atualizarCondutorObrigatorio);
+    document.getElementById('confirmacao-condutor-re').addEventListener('blur', resolverCondutorRe);
+
     document.getElementById('btn-confirmar-movimento').addEventListener('click', submeterMovimentoConhecido);
     document.getElementById('btn-registrar-avulso').addEventListener('click', submeterMovimentoAvulso);
     document.getElementById('btn-cadastrar-agora').addEventListener('click', () => {
@@ -401,19 +466,43 @@ async function submeterMovimentoConhecido() {
     const erro = document.getElementById('confirmacao-erro');
     erro.style.display = 'none';
     const v = contexto.veiculo;
+    const sentido = document.getElementById('confirmacao-sentido').value;
     const observacao = document.getElementById('confirmacao-observacao').value.trim();
     if ((v.situacao === 'SUSPENSO' || v.situacao === 'BAIXADO') && !observacao) {
         erro.textContent = 'Observação é obrigatória pra registrar este veículo.';
         erro.style.display = 'block';
         return;
     }
+
+    // Condutor (D2/C2) — só existe pra carro da empresa; dono pessoa física
+    // (PARTICULAR) já é o funcionario_id do veículo. ⛔ Nunca grava em
+    // veiculo.funcionario_id — quem dirige é do movimento, não do cadastro.
+    const condutorPayload = {};
+    if (v.propriedade === 'EMPRESA') {
+        const condutorRe = document.getElementById('confirmacao-condutor-re').value.trim();
+        if (sentido === 'SAIDA' && !condutorRe) {
+            erro.textContent = 'RE do condutor é obrigatório na saída.';
+            erro.style.display = 'block';
+            return;
+        }
+        if (condutorRe) {
+            if (condutorFuncionarioId) {
+                condutorPayload.funcionario_id = condutorFuncionarioId;
+            } else {
+                condutorPayload.re_registrado = condutorRe;
+                condutorPayload.nome_registrado = document.getElementById('confirmacao-condutor-nome').value.trim() || null;
+            }
+        }
+    }
+
     const hodometroStr = document.getElementById('confirmacao-hodometro').value.trim();
     await enviarMovimento({
-        sentido: document.getElementById('confirmacao-sentido').value,
+        sentido,
         placa: v.placa,
         observacao: observacao || null,
         hodometro_km: hodometroStr ? Number(hodometroStr) : null,
         movimento_entrada_id: contexto.movimentoEntradaId || null,
+        ...condutorPayload,
     });
 }
 

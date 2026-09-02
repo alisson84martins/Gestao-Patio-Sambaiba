@@ -476,6 +476,25 @@ def test_placa_inexistente_registra_avulso(ambiente):
     assert resp.json()["cadastrado"] is False
 
 
+# ─── C2 — RE de quem sai com veículo da frota: snapshot, nunca recusa ──
+
+def test_movimento_empresa_com_re_registrado_de_nao_funcionario_grava_snapshot(ambiente):
+    _como(ambiente, "CONTROLADOR")
+    _criar_veiculo(ambiente, placa="ABC1D23", propriedade="EMPRESA", situacao="AUTORIZADO")
+    resp = ambiente["http"].post("/portaria/movimentos", json={
+        "sentido": "SAIDA", "placa": "ABC1D23",
+        "re_registrado": "99999", "nome_registrado": "Motorista Desconhecido",
+    })
+    assert resp.status_code == 201, resp.text
+    with Session(ambiente["engine"]) as db:
+        salvo = db.execute(
+            select(MovimentoPortaria).where(MovimentoPortaria.placa_registrada == "ABC1D23")
+        ).scalar_one()
+    assert salvo.funcionario_id is None
+    assert salvo.re_registrado == "99999"
+    assert salvo.nome_registrado == "Motorista Desconhecido"
+
+
 # ─── 9 — placa normalizada acha o mesmo veículo (D10) ──────────────────
 
 def test_placa_normalizada_acha_mesmo_veiculo(ambiente):

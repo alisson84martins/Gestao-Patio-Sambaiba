@@ -107,6 +107,15 @@
             </select>
         </div>
 
+        <div id="confirmacao-condutor-wrap" style="display:none;margin-bottom:12px">
+            <label class="form-label" for="confirmacao-condutor-re">RE do condutor<span
+              id="confirmacao-condutor-obrigatorio" style="display:none;color:var(--accent)"> (obrigatório)</span></label>
+            <input type="text" inputmode="numeric" class="form-input" id="confirmacao-condutor-re" autocomplete="off">
+            <div class="portaria-ficha-linha" id="confirmacao-condutor-status"></div>
+            <input type="text" class="form-input" id="confirmacao-condutor-nome"
+                   placeholder="Nome (RE não encontrado)" style="display:none;margin-top:6px">
+        </div>
+
         <div id="confirmacao-hodometro-wrap" style="display:none;margin-bottom:12px">
             <label class="form-label" for="confirmacao-hodometro">Hodômetro (km)</label>
             <input type="text" inputmode="numeric" class="form-input" id="confirmacao-hodometro" placeholder="Km atual">
