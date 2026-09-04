@@ -8,7 +8,7 @@
 <html lang="pt-BR">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, interactive-widget=resizes-content">
     <meta name="theme-color" content="#0a0a0a">
     <title>Portaria — Sambaíba V3</title>
 
@@ -130,14 +130,16 @@
 
         <div id="confirmacao-erro" style="display:none;color:var(--accent);font-size:0.85rem;margin-bottom:10px"></div>
 
-        <!-- Estados 🟢🟡🔴: um botão só. -->
-        <button type="button" class="btn btn-primary btn-full" id="btn-confirmar-movimento">Confirmar</button>
+        <div class="modal-acoes">
+            <!-- Estados 🟢🟡🔴: um botão só. -->
+            <button type="button" class="btn btn-primary btn-full" id="btn-confirmar-movimento">Confirmar</button>
 
-        <!-- Estado ⚪: regra número um — cadastrar OU registrar avulso, nunca recusa. -->
-        <button type="button" class="btn btn-primary btn-full" id="btn-cadastrar-agora" style="display:none">Cadastrar agora</button>
-        <button type="button" class="btn btn-ghost btn-full btn-modal-stack" id="btn-registrar-avulso" style="display:none">Registrar avulso</button>
+            <!-- Estado ⚪: regra número um — cadastrar OU registrar avulso, nunca recusa. -->
+            <button type="button" class="btn btn-primary btn-full" id="btn-cadastrar-agora" style="display:none">Cadastrar agora</button>
+            <button type="button" class="btn btn-ghost btn-full btn-modal-stack" id="btn-registrar-avulso" style="display:none">Registrar avulso</button>
 
-        <button type="button" class="btn btn-ghost btn-full btn-modal-stack" id="btn-cancelar-confirmacao">Cancelar</button>
+            <button type="button" class="btn btn-ghost btn-full btn-modal-stack" id="btn-cancelar-confirmacao">Cancelar</button>
+        </div>
     </div>
 </div>
 
@@ -195,8 +197,10 @@
 
         <div id="cadastro-rapido-erro" style="display:none;color:var(--accent);font-size:0.85rem;margin-bottom:10px"></div>
 
-        <button type="button" class="btn btn-primary btn-full" id="btn-salvar-cadastro-rapido">Cadastrar e continuar</button>
-        <button type="button" class="btn btn-ghost btn-full btn-modal-stack" id="btn-cancelar-cadastro-rapido">Cancelar</button>
+        <div class="modal-acoes">
+            <button type="button" class="btn btn-primary btn-full" id="btn-salvar-cadastro-rapido">Cadastrar e continuar</button>
+            <button type="button" class="btn btn-ghost btn-full btn-modal-stack" id="btn-cancelar-cadastro-rapido">Cancelar</button>
+        </div>
     </div>
 </div>
 
@@ -240,8 +244,10 @@
 
         <div id="terceiro-erro" style="display:none;color:var(--accent);font-size:0.85rem;margin-bottom:10px"></div>
 
-        <button type="button" class="btn btn-primary btn-full" id="btn-registrar-terceiro">Registrar</button>
-        <button type="button" class="btn btn-ghost btn-full btn-modal-stack" id="btn-cancelar-terceiro">Cancelar</button>
+        <div class="modal-acoes">
+            <button type="button" class="btn btn-primary btn-full" id="btn-registrar-terceiro">Registrar</button>
+            <button type="button" class="btn btn-ghost btn-full btn-modal-stack" id="btn-cancelar-terceiro">Cancelar</button>
+        </div>
     </div>
 </div>
 
@@ -270,8 +276,10 @@
                 <video id="placa-video" playsinline muted></video>
             </div>
             <div id="placa-camera-erro" style="display:none;color:var(--accent);font-size:0.85rem;margin:10px 0"></div>
-            <button type="button" class="btn btn-primary btn-full" id="btn-capturar-placa">Capturar</button>
-            <button type="button" class="btn btn-ghost btn-full btn-modal-stack" id="btn-cancelar-placa">Cancelar</button>
+            <div class="modal-acoes">
+                <button type="button" class="btn btn-primary btn-full" id="btn-capturar-placa">Capturar</button>
+                <button type="button" class="btn btn-ghost btn-full btn-modal-stack" id="btn-cancelar-placa">Cancelar</button>
+            </div>
         </div>
 
         <div id="placa-confirma-view" style="display:none">
@@ -280,9 +288,11 @@
                    style="text-align:center;font-size:22px;margin-bottom:6px" autocomplete="off" placeholder="Placa">
             <div class="portaria-ficha-linha" id="placa-confirma-status"></div>
             <div id="placa-confirma-erro" style="display:none;color:var(--accent);font-size:0.85rem;margin:10px 0"></div>
-            <button type="button" class="btn btn-primary btn-full" id="btn-confirmar-placa-lida">Confirmar</button>
-            <button type="button" class="btn btn-ghost btn-full btn-modal-stack" id="btn-ler-placa-de-novo">Ler de novo</button>
-            <button type="button" class="btn btn-ghost btn-full btn-modal-stack" id="btn-cancelar-placa-confirma">Cancelar</button>
+            <div class="modal-acoes">
+                <button type="button" class="btn btn-primary btn-full" id="btn-confirmar-placa-lida">Confirmar</button>
+                <button type="button" class="btn btn-ghost btn-full btn-modal-stack" id="btn-ler-placa-de-novo">Ler de novo</button>
+                <button type="button" class="btn btn-ghost btn-full btn-modal-stack" id="btn-cancelar-placa-confirma">Cancelar</button>
+            </div>
         </div>
     </div>
 </div>

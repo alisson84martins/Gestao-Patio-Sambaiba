@@ -264,6 +264,8 @@ body {
     margin-top: 10px;
     padding: 14px;
     font-size: 16px;
+    /* M5 — alvo de toque mínimo: controlador opera em pé, às vezes de luva. */
+    min-height: 44px;
 }
 
 /* Mensagem de erro / alerta */
@@ -1085,6 +1087,21 @@ body.modal-open {
 
 .modal-close:hover {
     color: var(--text);
+}
+
+/* M2 (PROMPT-responsividade-modal) — rodapé de ações grudado no rodapé
+   visível do .modal: sticky dentro do próprio scroll do .modal (que já
+   tem overflow-y:auto) mantém o botão principal visível mesmo com teclado
+   aberto ou conteúdo comprido, sem precisar reescrever cada modal.
+   Margem negativa cancela o padding do .modal pra barra encostar nas
+   bordas; o padding próprio recria o respiro (e a safe-area embaixo). */
+.modal-acoes {
+    position: sticky;
+    bottom: 0;
+    margin: 0 -20px calc(-20px - env(safe-area-inset-bottom));
+    padding: 10px 20px calc(10px + env(safe-area-inset-bottom));
+    background: var(--surface);
+    border-top: 1px solid var(--border);
 }
 
 .form-select {
@@ -3559,6 +3576,11 @@ body.modal-open {
 .portaria-camera-video-wrap {
     width: 100%;
     aspect-ratio: 1 / 1;
+    /* M4 — em retrato, vídeo quadrado gigante some com o botão Capturar.
+       max-height limita a faixa; object-fit:cover no vídeo cobre sem
+       distorcer quando a caixa deixa de ser quadrada. */
+    max-height: 45vh;
+    max-height: 45dvh;
     background: #000;
     border-radius: 10px;
     overflow: hidden;

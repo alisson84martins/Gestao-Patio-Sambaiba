@@ -1030,6 +1030,11 @@ async function capturarFramePlaca() {
         statusEl.textContent = resp.placa_lida
             ? 'Confirme ou corrija a placa lida.'
             : 'Não conseguimos ler a placa — digite manualmente.';
+        // M3 — só abre o teclado sozinho quando NÃO leu placa: se leu, o
+        // controlador quer conferir e tocar em Confirmar, não digitar.
+        if (!resp.placa_lida) {
+            setTimeout(() => inputEl.focus(), 50);
+        }
     } catch (err) {
         if (err instanceof ApiError && err.status === 401) return;
         // P7 — falha de leitura (desligada, timeout, servidor fora) cai
@@ -1037,7 +1042,6 @@ async function capturarFramePlaca() {
         statusEl.textContent = '';
         erroEl.textContent = 'Erro na leitura: ' + err.message + ' — digite a placa manualmente.';
         erroEl.style.display = 'block';
-    } finally {
         setTimeout(() => inputEl.focus(), 50);
     }
 }
