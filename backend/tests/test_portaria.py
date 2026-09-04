@@ -1971,3 +1971,123 @@ def test_ler_placa_nenhum_arquivo_novo_aparece_no_disco(ambiente, monkeypatch, t
     )
     assert resp.status_code == 200, resp.text
     assert list(tmp_path.rglob("*")) == []
+
+
+# ============================================================================
+# Motor fast-alpr (PROMPT-leitura-placa-engine.md, Bloco 1) — testa
+# app/services/leitura_placa.py diretamente, isolado do endpoint. ⛔ NUNCA
+# deixa `_construir_alpr()` rodar de verdade — nem baixa modelo, nem carrega
+# a engine. Todo teste que toca `_alpr`/`_get_alpr` restaura via monkeypatch
+# (reversão automática do pytest), então não vaza estado entre testes.
+# ============================================================================
+
+@pytest.fixture
+def _imagem_jpeg_valida():
+    """Um JPEG mínimo de verdade (não só magic bytes) — precisa passar por
+    cv2.imdecode() de verdade, o que _JPEG_VALIDO (bytes fabricados à mão
+    pra teste de assinatura) não garante fazer sem erro."""
+    import cv2
+    import numpy as np
+    quadro = np.zeros((10, 10, 3), dtype=np.uint8)
+    ok, buf = cv2.imencode(".jpg", quadro)
+    assert ok
+    return bytes(buf)
+
+
+def test_reconhecer_placa_bytes_invalidos_devolve_nao_achou_sem_excecao(monkeypatch):
+    """R4 — bytes que não decodificam como imagem nenhuma (nem chegam a
+    tentar a engine) -> 'não achou', nunca uma exceção."""
+    monkeypatch.setattr(leitura_placa_service_mod, "_alpr", None)
+    resultado = leitura_placa_service_mod.reconhecer_placa(b"isto nao e uma imagem")
+    assert resultado == LeituraPlacaResultado(placa_lida=None, confianca=0.0)
+
+
+def test_reconhecer_placa_engine_lancando_erro_devolve_nao_achou(monkeypatch, _imagem_jpeg_valida):
+    """R4 — imagem válida, mas a engine (._get_alpr()) explode -> 'não
+    achou', sem propagar a exceção pro chamador (P7: nunca 500)."""
+    def _get_alpr_que_falha():
+        raise RuntimeError("engine fora do ar (simulado no teste)")
+
+    monkeypatch.setattr(leitura_placa_service_mod, "_get_alpr", _get_alpr_que_falha)
+    resultado = leitura_placa_service_mod.reconhecer_placa(_imagem_jpeg_valida)
+    assert resultado == LeituraPlacaResultado(placa_lida=None, confianca=0.0)
+
+
+def test_get_alpr_constroi_uma_vez_so_e_reaproveita(monkeypatch):
+    """R1 — chamadas seguidas usam a MESMA instância; a construção (cara,
+    ~1,6s de verdade) roda uma vez só."""
+    chamadas = []
+
+    class _AlprFalso:
+        pass
+
+    def _construir_falso():
+        instancia = _AlprFalso()
+        chamadas.append(instancia)
+        return instancia
+
+    monkeypatch.setattr(leitura_placa_service_mod, "_alpr", None)
+    monkeypatch.setattr(leitura_placa_service_mod, "_construir_alpr", _construir_falso)
+
+    primeira = leitura_placa_service_mod._get_alpr()
+    segunda = leitura_placa_service_mod._get_alpr()
+
+    assert len(chamadas) == 1
+    assert primeira is segunda is chamadas[0]
+
+
+def test_reconhecer_placa_escolhe_resultado_de_maior_confianca_ocr(monkeypatch, _imagem_jpeg_valida):
+    """R4 — mais de uma placa na foto (carro atrás na fila) -> fica com a
+    de maior confiança de OCR, não a primeira nem a última da lista."""
+    class _Ocr:
+        def __init__(self, text, confidence):
+            self.text = text
+            self.confidence = confidence
+
+    class _Resultado:
+        def __init__(self, ocr):
+            self.ocr = ocr
+
+    class _AlprFalso:
+        def predict(self, quadro):
+            return [
+                _Resultado(_Ocr("ZZZ9999", 0.42)),
+                _Resultado(_Ocr("ABC1D23", 0.97)),
+                _Resultado(None),  # detecção sem OCR — precisa ser ignorada, não quebrar
+            ]
+
+    monkeypatch.setattr(leitura_placa_service_mod, "_alpr", _AlprFalso())
+    resultado = leitura_placa_service_mod.reconhecer_placa(_imagem_jpeg_valida)
+    assert resultado.placa_lida == "ABC1D23"
+    assert resultado.confianca == pytest.approx(0.97)
+
+
+def test_reconhecer_placa_confianca_por_caractere_vira_media(monkeypatch, _imagem_jpeg_valida):
+    """OcrResult.confidence pode vir como lista (um valor por caractere) —
+    normaliza pra média, não quebra nem devolve a lista crua."""
+    class _Ocr:
+        text = "ABC1D23"
+        confidence = [0.9, 0.8, 1.0, 0.95]
+
+    class _Resultado:
+        ocr = _Ocr()
+
+    class _AlprFalso:
+        def predict(self, quadro):
+            return [_Resultado()]
+
+    monkeypatch.setattr(leitura_placa_service_mod, "_alpr", _AlprFalso())
+    resultado = leitura_placa_service_mod.reconhecer_placa(_imagem_jpeg_valida)
+    assert resultado.placa_lida == "ABC1D23"
+    assert resultado.confianca == pytest.approx((0.9 + 0.8 + 1.0 + 0.95) / 4)
+
+
+def test_warmup_engine_falhando_nao_propaga_excecao(monkeypatch):
+    """R2 — warmup() nunca derruba o app: falha vira log, não exceção."""
+    monkeypatch.setattr(leitura_placa_service_mod, "_alpr", None)
+
+    def _construir_que_falha():
+        raise RuntimeError("sem internet pra baixar o modelo (simulado)")
+
+    monkeypatch.setattr(leitura_placa_service_mod, "_construir_alpr", _construir_que_falha)
+    leitura_placa_service_mod.warmup()  # não deve lançar

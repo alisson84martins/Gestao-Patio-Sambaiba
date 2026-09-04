@@ -1,4 +1,5 @@
 """Sistema de Gestão de Pátio Sambaíba — API v3.0."""
+import asyncio
 import logging
 from contextlib import asynccontextmanager
 
@@ -14,6 +15,7 @@ from app.routers import (
     patio, permissoes, portaria, portaria_avarias, portaria_recolhidas, portaria_veiculos,
     pre_cadastro, pre_ocorrencias, pre_ocorrencias_publico, tipos_defeito, usuarios,
 )
+from app.services import leitura_placa
 
 settings = get_settings()
 
@@ -30,6 +32,13 @@ async def lifespan(app: FastAPI):
         "Iniciando API Gestão de Pátio Sambaíba v%s [%s]",
         __version__, settings.environment,
     )
+    # R2 (PROMPT-leitura-placa-engine.md) — carrega a engine de leitura de
+    # placa no startup, só quando o recurso está ligado, e nunca derruba o
+    # app se falhar (leitura_placa.warmup() já engole a exceção sozinha).
+    # asyncio.to_thread: carregar o modelo é síncrono e não pode travar o
+    # event loop no início da vida do processo.
+    if settings.leitura_placa_ativa:
+        await asyncio.to_thread(leitura_placa.warmup)
     yield
     logger.info("Encerrando API")
 

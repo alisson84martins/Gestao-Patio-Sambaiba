@@ -33,6 +33,12 @@ dependencies = [
     "openpyxl>=3.1.5",            # leitura de Excel
     "httpx>=0.27.0",              # webhook n8n (pré-ocorrência)
     "qrcode>=8.0",                 # QR do veículo (Portaria)
+
+    # Leitura de placa por câmera (Portaria) — medida no servidor em
+    # 04/09/2026 antes de plugar: 111 MB de RAM, 0,02s/foto, puramente
+    # aditiva (nenhuma dependência já usada pelo projeto foi trocada).
+    # Ver _handoff-claude/PROMPT-leitura-placa-engine.md.
+    "fast-alpr[onnx]>=0.4.0",
 ]
 
 [project.optional-dependencies]
