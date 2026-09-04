@@ -223,7 +223,11 @@ function renderTodosFiltrado() {
     if (placaAtipica) filtrados = filtrados.filter(v => v.placa_atipica);
     renderLista('lista-todos', filtrados, {
         vazio: 'Nenhum veículo encontrado.',
-        selecionavel: true,
+        // P11 do PROMPT-leitura-placa.md (Bloco 4, 04/09) — seleção
+        // múltipla pra imprimir etiquetas de QR escondida junto com o QR
+        // da ficha. barra-imprimir-etiquetas nunca aparece sem checkbox
+        // nenhuma marcada; endpoint de etiquetas (abrirEtiquetas) intacto.
+        selecionavel: false,
         extra: v => badgeAtipica(v),
     });
 }
@@ -421,46 +425,12 @@ async function carregarCredencial(veiculoId) {
 }
 
 async function renderCredencial() {
-    const wrap = document.getElementById('ficha-qr-wrap');
-    const podeCadastrar = podeEscrever('veiculo_portaria');
-    wrap.style.display = podeCadastrar ? 'block' : 'none';
-    if (!podeCadastrar) return;
-
-    document.getElementById('ficha-qr-motivo-wrap').style.display = 'none';
-    document.getElementById('ficha-qr-erro').style.display = 'none';
-
-    const status = document.getElementById('ficha-qr-status');
-    const img = document.getElementById('ficha-qr-img');
-    const btnGerar = document.getElementById('btn-gerar-qr');
-    const btnReemitir = document.getElementById('btn-reemitir-qr');
-    const btnImprimir = document.getElementById('btn-imprimir-qr-ficha');
-
-    if (credencialImgUrl) {
-        URL.revokeObjectURL(credencialImgUrl);
-        credencialImgUrl = null;
-    }
-
-    if (!credencialAtual) {
-        status.textContent = 'Nenhum QR emitido.';
-        img.style.display = 'none';
-        btnGerar.style.display = 'block';
-        btnReemitir.style.display = 'none';
-        btnImprimir.style.display = 'none';
-        return;
-    }
-
-    status.textContent = `QR ativo — emitido em ${fmtDataHora(credencialAtual.emitida_em)}.`;
-    btnGerar.style.display = 'none';
-    btnReemitir.style.display = 'block';
-    btnImprimir.style.display = 'block';
-
-    credencialImgUrl = await buscarImagemQr(fichaVeiculoAtual.id);
-    if (credencialImgUrl) {
-        img.src = credencialImgUrl;
-        img.style.display = 'block';
-    } else {
-        img.style.display = 'none';
-    }
+    // P11 do PROMPT-leitura-placa.md (Bloco 4, 04/09) — o QR sai da TELA,
+    // não do banco: endpoint, tabela portaria.credencial e etiquetas
+    // continuam intactos (emitirCredencial/buscarImagemQr/initFichaQr
+    // abaixo, código dormindo não custa nada), só a seção da ficha fica
+    // escondida. A câmera (Bloco 1/3) substitui esta aceleração.
+    document.getElementById('ficha-qr-wrap').style.display = 'none';
 }
 
 async function abrirEtiquetas(ids) {
