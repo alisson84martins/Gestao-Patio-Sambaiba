@@ -14,6 +14,7 @@ import { apiGet, ApiError } from './api.js';
 import { API_BASE_URL, TOKEN_KEY } from './config.js';
 import { podeEscrever } from './sessao.js';
 import { escapeHtml } from './escape.js';
+import { dataLocalISO } from './data.util.js';
 
 // ─── Guard de autenticação ────────────────────────────────────────────────────
 if (!requireAuth()) {
@@ -33,7 +34,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // Define data default como hoje
     const inputData = document.getElementById('input-data-escala');
     if (inputData) {
-        inputData.value = new Date().toISOString().slice(0, 10);
+        inputData.value = dataLocalISO();
     }
     fetchHistorico();
 

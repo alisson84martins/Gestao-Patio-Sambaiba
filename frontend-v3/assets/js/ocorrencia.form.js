@@ -22,6 +22,7 @@ import { imprimirOcorrencia } from './ocorrencia.imprimir.js';
 import { abrirMensagemSinistro } from './ocorrencia.sinistro.js';
 import { confirmarExclusaoOcorrencia } from './ocorrencia.excluir.js';
 import { aplicarMascara } from './mascaras.js';
+import { dataLocalISO } from './data.util.js';
 
 if (!requireAuth()) {
     throw new Error('Sessão não autenticada — interrompendo carga da página');
@@ -883,7 +884,7 @@ function preencherTudo(dados) {
 
 function definirPadroesNovaOcorrencia() {
     const agora = new Date();
-    document.getElementById('f-data').value = agora.toISOString().slice(0, 10);
+    document.getElementById('f-data').value = dataLocalISO(agora);
     document.getElementById('f-hora').value = `${String(agora.getHours()).padStart(2, '0')}:${String(agora.getMinutes()).padStart(2, '0')}`;
 }
 
