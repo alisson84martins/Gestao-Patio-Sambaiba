@@ -852,6 +852,54 @@ def test_movimento_via_qr_grava_origem_qr(ambiente):
     assert resp.json()["origem"] == "QR"
 
 
+# ─── P13 — leitura de placa por câmera grava origem/placa_lida_bruta ───
+# Migration 040 + Bloco 3 do PROMPT-leitura-placa.md: a medição pós-
+# produção depende só destes dois campos, sem tabela nova.
+
+def test_movimento_via_camera_sem_correcao_grava_origem_e_bruta_iguais(ambiente):
+    _como(ambiente, "CONTROLADOR")
+    _criar_veiculo(ambiente, placa="ABC1D23", funcionario_id=_DONO_A.id, situacao="AUTORIZADO")
+
+    resp = ambiente["http"].post("/portaria/movimentos", json={
+        "sentido": "ENTRADA", "placa": "ABC1D23",
+        "origem": "CAMERA", "placa_lida_bruta": "ABC1D23",
+    })
+    assert resp.status_code == 201, resp.text
+    corpo = resp.json()
+    assert corpo["origem"] == "CAMERA"
+    assert corpo["placa_lida_bruta"] == "ABC1D23"
+
+
+def test_movimento_via_camera_com_correcao_grava_as_duas_diferentes(ambiente):
+    """O controlador leu 'ABC1D24' na tela, corrigiu pra 'ABC1D23' antes de
+    confirmar — P13: as duas ficam gravadas, é a diferença que interessa."""
+    _como(ambiente, "CONTROLADOR")
+    _criar_veiculo(ambiente, placa="ABC1D23", funcionario_id=_DONO_A.id, situacao="AUTORIZADO")
+
+    resp = ambiente["http"].post("/portaria/movimentos", json={
+        "sentido": "ENTRADA", "placa": "ABC1D23",
+        "origem": "CAMERA", "placa_lida_bruta": "ABC1D24",
+    })
+    assert resp.status_code == 201, resp.text
+    corpo = resp.json()
+    assert corpo["placa_registrada"] == "ABC1D23"
+    assert corpo["placa_lida_bruta"] == "ABC1D24"
+    assert corpo["placa_lida_bruta"] != corpo["placa_registrada"]
+
+
+def test_movimento_manual_grava_placa_lida_bruta_nula(ambiente):
+    """Digitado (origem default MANUAL) nunca tem placa_lida_bruta — é o
+    que separa os dois grupos na consulta de medição do P13."""
+    _como(ambiente, "CONTROLADOR")
+    _criar_veiculo(ambiente, placa="ABC1D23", funcionario_id=_DONO_A.id, situacao="AUTORIZADO")
+
+    resp = ambiente["http"].post("/portaria/movimentos", json={"sentido": "ENTRADA", "placa": "ABC1D23"})
+    assert resp.status_code == 201, resp.text
+    corpo = resp.json()
+    assert corpo["origem"] == "MANUAL"
+    assert corpo["placa_lida_bruta"] is None
+
+
 # ─── 7 — GET credencial ativa: null antes de emitir, objeto depois ─────
 # (endpoint além dos 4 do prompt — sustenta o botão "Gerar QR" × "Reemitir"
 # na ficha, ver §1.6)

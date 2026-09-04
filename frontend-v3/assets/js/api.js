@@ -126,6 +126,57 @@ export const apiPatch = (path, body) => request(path, {
 export const apiDelete = (path) => request(path, { method: 'DELETE' });
 
 /**
+ * Upload multipart/form-data. Propositalmente SEM Content-Type manual — o
+ * browser precisa setar sozinho, com o boundary. Centralizado aqui (antes
+ * duplicado só em importacao.js) pra não divergir em silêncio — mesmo
+ * precedente de mascaras.js/escape.js. Usado por qualquer endpoint com
+ * UploadFile (importação de escala, leitura de placa por câmera).
+ */
+export async function apiUpload(path, formData) {
+    const url = `${API_BASE_URL}${path}`;
+    const headers = {};
+    const token = getToken();
+    if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+    }
+
+    let response;
+    try {
+        response = await fetch(url, { method: 'POST', headers, body: formData });
+    } catch (networkErr) {
+        throw new ApiError(
+            0,
+            'Não foi possível conectar à API. Verifique se o servidor está rodando.',
+            { cause: networkErr.message },
+        );
+    }
+
+    if (response.status === 401) {
+        redirectToLogin();
+        throw new ApiError(401, 'Sessão expirada. Faça login novamente.', null);
+    }
+
+    if (response.status === 204) {
+        return null;
+    }
+
+    let payload = null;
+    try {
+        payload = await response.json();
+    } catch {
+        // Resposta sem corpo JSON
+    }
+
+    if (!response.ok) {
+        const detail = payload?.erro ?? payload?.detail ?? payload?.message ?? response.statusText;
+        const msg = typeof detail === 'string' ? detail : 'Erro inesperado no upload';
+        throw new ApiError(response.status, msg, payload);
+    }
+
+    return payload;
+}
+
+/**
  * Health check rápido — usado na tela de login pra mostrar status
  * do servidor antes do operador tentar logar.
  */

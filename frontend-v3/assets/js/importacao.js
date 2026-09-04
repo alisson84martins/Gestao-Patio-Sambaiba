@@ -10,7 +10,7 @@
  */
 
 import { requireAuth, getCurrentUser, logout } from './auth.js';
-import { apiGet, ApiError } from './api.js';
+import { apiGet, apiUpload, ApiError } from './api.js';
 import { API_BASE_URL, TOKEN_KEY } from './config.js';
 import { podeEscrever } from './sessao.js';
 import { escapeHtml } from './escape.js';
@@ -76,67 +76,10 @@ function initHeader() {
     }
 }
 
-// ─── Upload (multipart) ───────────────────────────────────────────────────────
-
-/**
- * Função de upload multipart/form-data.
- * NÃO seta Content-Type — o browser precisa setar automaticamente com o boundary.
- * Trata 401 redirecionando pro login, erros de rede e respostas não-JSON.
- *
- * @param {string} path — caminho relativo da API (ex: '/importacoes/escala')
- * @param {FormData} formData — dados do formulário com o arquivo
- * @returns {Promise<any>} — payload JSON da resposta
- * @throws {ApiError}
- */
-async function apiUpload(path, formData) {
-    const url = `${API_BASE_URL}${path}`;
-    const token = localStorage.getItem(TOKEN_KEY);
-
-    const headers = {};
-    if (token) {
-        headers['Authorization'] = `Bearer ${token}`;
-    }
-    // Propositalmente SEM Content-Type — o browser injeta multipart/form-data + boundary
-
-    let response;
-    try {
-        response = await fetch(url, {
-            method: 'POST',
-            headers,
-            body: formData,
-        });
-    } catch (networkErr) {
-        throw new ApiError(
-            0,
-            'Não foi possível conectar à API. Verifique se o servidor está rodando.',
-            { cause: networkErr.message },
-        );
-    }
-
-    // Sessão expirada → redireciona
-    if (response.status === 401) {
-        logout();
-        window.location.replace('index.html');
-        throw new ApiError(401, 'Sessão expirada. Faça login novamente.', null);
-    }
-
-    let payload = null;
-    try {
-        payload = await response.json();
-    } catch {
-        // Resposta sem corpo JSON
-    }
-
-    if (!response.ok) {
-        const detail = payload?.erro || payload?.detail || payload?.message || response.statusText;
-        const msg = typeof detail === 'string' ? detail : 'Erro inesperado no upload';
-        throw new ApiError(response.status, msg, payload);
-    }
-
-    return payload;
-}
-
 // ─── Formulário de upload ─────────────────────────────────────────────────────
+// apiUpload (multipart/form-data, sem Content-Type manual) agora vive em
+// api.js — centralizado pra não divergir em silêncio (leitura de placa por
+// câmera, em portaria.page.js, também usa).
 
 /**
  * Registra o listener de submit no formulário de importação.

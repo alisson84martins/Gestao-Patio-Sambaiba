@@ -431,6 +431,7 @@ def registrar_movimento(
         hodometro_km=payload.hodometro_km,
         cadastrado=veiculo is not None,
         origem=payload.origem,
+        placa_lida_bruta=payload.placa_lida_bruta,
         movimento_entrada_id=movimento_entrada_id,
         registrado_por=usuario.id,
         observacao=payload.observacao,

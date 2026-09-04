@@ -11,14 +11,14 @@ from uuid import UUID
 
 from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, model_validator
 
-from app.core.placa import PlacaNormalizada
+from app.core.placa import PlacaNormalizada, PlacaNormalizadaOpcional
 from app.schemas.base import AuditoriaSchema, ORMBase
 
 Propriedade = Literal["PARTICULAR", "EMPRESA", "TERCEIRO"]
 TipoVeiculo = Literal["CARRO", "MOTO", "OUTRO"]
 SituacaoVeiculo = Literal["PENDENTE", "AUTORIZADO", "SUSPENSO", "BAIXADO"]
 Sentido = Literal["ENTRADA", "SAIDA"]
-OrigemMovimento = Literal["MANUAL", "RETROATIVO", "QR", "TAG", "LPR"]
+OrigemMovimento = Literal["MANUAL", "RETROATIVO", "QR", "TAG", "LPR", "CAMERA"]
 
 # normalizar_placa/placa_valida/PlacaNormalizada vivem em app/core/placa.py
 # agora (D10 — mesma regra em portaria/ocorrência/pré-ocorrência, ver
@@ -255,6 +255,11 @@ class MovimentoCreate(BaseModel):
     # uma PESSOA leu do papel e digitou; o router interpreta em
     # FUSO_OPERACAO antes de gravar, nunca um instante do sistema.
     momento: Optional[datetime] = None
+    # Migration 040/P13 — texto CRU que POST /portaria/ler-placa devolveu,
+    # antes da confirmação/correção do controlador. Só faz sentido junto de
+    # origem='CAMERA'; a tela manda mesmo quando o controlador corrigiu a
+    # placa (P13: a diferença entre os dois campos é o dado que interessa).
+    placa_lida_bruta: PlacaNormalizadaOpcional = Field(None, max_length=8)
 
     @model_validator(mode="after")
     def _retroativo_exige_hora_e_observacao(self) -> "MovimentoCreate":
@@ -283,6 +288,7 @@ class MovimentoRead(ORMBase):
     hodometro_km: Optional[int] = None
     cadastrado: bool
     origem: OrigemMovimento
+    placa_lida_bruta: Optional[str] = None
     movimento_entrada_id: Optional[UUID] = None
     registrado_por: UUID
     observacao: Optional[str] = None

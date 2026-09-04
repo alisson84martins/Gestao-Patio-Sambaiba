@@ -3552,9 +3552,11 @@ body.modal-open {
     }
 }
 
-/* Bloco E — QR do veículo */
+/* Leitura de placa por câmera — substitui o QR do Bloco E na tela da
+   Portaria (o QR continua existindo pra etiqueta/ficha do veículo,
+   ver .portaria-qr-preview logo abaixo, P11). */
 
-.portaria-qr-video-wrap {
+.portaria-camera-video-wrap {
     width: 100%;
     aspect-ratio: 1 / 1;
     background: #000;
@@ -3563,7 +3565,7 @@ body.modal-open {
     margin-bottom: 4px;
 }
 
-.portaria-qr-video-wrap video {
+.portaria-camera-video-wrap video {
     width: 100%;
     height: 100%;
     object-fit: cover;

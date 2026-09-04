@@ -19,7 +19,7 @@
  */
 
 import { requireAuth, getCurrentUser, logout } from './auth.js';
-import { apiGet, apiPost, ApiError } from './api.js';
+import { apiGet, apiPost, apiUpload, ApiError } from './api.js';
 import { escapeHtml } from './escape.js';
 import { POLLING_INTERVAL_MS } from './config.js';
 import { aplicarMascara } from './mascaras.js';
@@ -35,7 +35,7 @@ const HORAS_DENTRO = 36;
 // Contexto do card de confirmação aberto no momento — null quando fechado.
 // { veiculo: VeiculoRead|null, ultimoMovimento: MovimentoRead|null,
 //   sentido: 'ENTRADA'|'SAIDA', movimentoEntradaId: string|null,
-//   placaChute: string }
+//   placaChute: string, origem: 'MANUAL'|'CAMERA', placaLidaBruta: string|null }
 let contexto = null;
 let pollHandle = null;
 let empresasCache = null;
@@ -43,6 +43,29 @@ let empresasCache = null;
 // funcionário -> vai por funcionario_id; não achou -> vai por texto livre
 // (re_registrado/nome_registrado). Nunca em veiculo.funcionario_id (D2).
 let condutorFuncionarioId = null;
+
+// Leitura de placa por câmera (P13) — a busca disparada pela confirmação
+// da leitura (confirmarPlacaLida) cai na MESMA executarBusca() da digitação
+// manual, então esta informação não cabe nos parâmetros dela. Fica aqui,
+// "pendurada", e abrirConfirmacaoParaCandidato/abrirConfirmacaoNaoEncontrado
+// consomem (e zeram) assim que o card de confirmação de sempre nasce — ver
+// _consumirLeituraCamera(). Qualquer digitação na busca visível também zera
+// (initBusca), pra um camera_origem não vazar numa busca manual seguinte.
+let origemProximaConfirmacao = 'MANUAL';
+let placaLidaBrutaAtual = null;
+// Mesma ideia, só que atravessando o modal de cadastro rápido (P6): entre
+// "Cadastrar agora" e o card de confirmação nascer de novo depois do
+// cadastro, `contexto` é recriado do zero em salvarCadastroRapido().
+let origemPendenteCadastro = 'MANUAL';
+let placaLidaBrutaPendenteCadastro = null;
+
+function _consumirLeituraCamera() {
+    const origem = origemProximaConfirmacao;
+    const placaLidaBruta = placaLidaBrutaAtual;
+    origemProximaConfirmacao = 'MANUAL';
+    placaLidaBrutaAtual = null;
+    return { origem, placaLidaBruta };
+}
 
 // ─── Header ─────────────────────────────────────────────────────────────
 function initHeader() {
@@ -192,6 +215,10 @@ function initBusca() {
     const input = document.getElementById('portaria-busca');
     let handle = null;
     input.addEventListener('input', () => {
+        // Digitação manual na busca visível nunca herda origem de câmera
+        // de uma leitura anterior não confirmada.
+        origemProximaConfirmacao = 'MANUAL';
+        placaLidaBrutaAtual = null;
         clearTimeout(handle);
         const termo = input.value.trim();
         esconderResultadosBusca();
@@ -262,24 +289,28 @@ function badgeCurto(situacao) {
 }
 
 function abrirConfirmacaoParaCandidato(candidato) {
+    const { origem, placaLidaBruta } = _consumirLeituraCamera();
     contexto = {
         veiculo: candidato.veiculo,
         ultimoMovimento: candidato.ultimo_movimento,
         sentido: candidato.dentro ? 'SAIDA' : 'ENTRADA',
         movimentoEntradaId: (candidato.dentro && candidato.ultimo_movimento) ? candidato.ultimo_movimento.id : null,
         placaChute: candidato.veiculo.placa,
+        origem, placaLidaBruta,
     };
     renderEstadoConfirmacao();
     abrirModal('modal-confirmacao');
 }
 
 function abrirConfirmacaoNaoEncontrado(placaChute) {
+    const { origem, placaLidaBruta } = _consumirLeituraCamera();
     contexto = {
         veiculo: null,
         ultimoMovimento: null,
         sentido: 'ENTRADA',
         movimentoEntradaId: null,
         placaChute: placaChute || '',
+        origem, placaLidaBruta,
     };
     renderEstadoConfirmacao();
     abrirModal('modal-confirmacao');
@@ -461,6 +492,10 @@ function initConfirmacao() {
     document.getElementById('btn-cadastrar-agora').addEventListener('click', () => {
         const placa = document.getElementById('confirmacao-placa-input').value.trim();
         const sentido = document.getElementById('confirmacao-sentido').value;
+        // P13 — o card de confirmação atual (contexto) morre aqui; guarda a
+        // origem antes que o cadastro rápido recrie `contexto` do zero.
+        origemPendenteCadastro = (contexto && contexto.origem) || 'MANUAL';
+        placaLidaBrutaPendenteCadastro = (contexto && contexto.placaLidaBruta) || null;
         fecharModal('modal-confirmacao');
         abrirCadastroRapido(placa, sentido);
     });
@@ -535,8 +570,16 @@ async function enviarMovimento(payload) {
     const erro = document.getElementById('confirmacao-erro');
     const botoes = ['btn-confirmar-movimento', 'btn-registrar-avulso', 'btn-cadastrar-agora'].map(id => document.getElementById(id));
     botoes.forEach(b => { b.disabled = true; });
+    // P13 — origem/placa_lida_bruta vêm do contexto (câmera ou digitação
+    // manual, ver _consumirLeituraCamera). Central aqui em vez de em cada
+    // submeter*: cobre confirmar, avulso e o "Cadastrar agora" sem repetir.
+    const corpo = {
+        ...payload,
+        origem: (contexto && contexto.origem) || 'MANUAL',
+        placa_lida_bruta: (contexto && contexto.placaLidaBruta) || null,
+    };
     try {
-        const resp = await apiPost('/portaria/movimentos', payload);
+        const resp = await apiPost('/portaria/movimentos', corpo);
         fecharModal('modal-confirmacao');
         limparBusca();
         await carregarDentro();
@@ -705,6 +748,9 @@ async function salvarCadastroRapido() {
         // (PENDENTE, 🟡) e cai no card de confirmação normal.
         const resp = await apiGet(`/portaria/buscar?q=${encodeURIComponent(placa)}`);
         // §4.5-C: guarda explícita — mesma razão do iniciarSaidaDaLista().
+        // P13 — reaplica a origem guardada em btn-cadastrar-agora: o
+        // cadastro criou o veículo, mas o movimento que nasce a seguir
+        // pode continuar sendo crédito da leitura por câmera.
         if (resp.exato && resp.candidatos.length === 1) {
             contexto = {
                 veiculo: resp.candidatos[0].veiculo,
@@ -712,12 +758,20 @@ async function salvarCadastroRapido() {
                 sentido: sentidoDepois,
                 movimentoEntradaId: null,
                 placaChute: placa,
+                origem: origemPendenteCadastro,
+                placaLidaBruta: placaLidaBrutaPendenteCadastro,
             };
         } else {
             // Não deveria acontecer — cadastro acabou de suceder — mas a
             // regra número um vale aqui também: nunca trava a tela.
-            contexto = { veiculo: null, ultimoMovimento: null, sentido: sentidoDepois, movimentoEntradaId: null, placaChute: placa };
+            contexto = {
+                veiculo: null, ultimoMovimento: null, sentido: sentidoDepois,
+                movimentoEntradaId: null, placaChute: placa,
+                origem: origemPendenteCadastro, placaLidaBruta: placaLidaBrutaPendenteCadastro,
+            };
         }
+        origemPendenteCadastro = 'MANUAL';
+        placaLidaBrutaPendenteCadastro = null;
         renderEstadoConfirmacao();
         abrirModal('modal-confirmacao');
     } catch (err) {
@@ -833,92 +887,147 @@ async function registrarTerceiro() {
     }
 }
 
-// ─── Leitor de QR (Bloco E) — aceleração, nunca pré-requisito ──────────
-// D15: a leitura cai no MESMO card de confirmação da busca por placa —
-// mesmo semáforo, e quem decide é o controlador olhando pro carro (o QR é
-// identificador, não credencial de segurança).
+// ─── Leitura de placa por câmera — substitui o QR do Bloco E ───────────
+// _handoff-claude/PROMPT-leitura-placa.md, P1-P14. D15 continua valendo:
+// a leitura cai no MESMO card de confirmação da busca por placa (via
+// executarBusca, ⛔ nunca duplicada aqui) — o QR/câmera é aceleração,
+// nunca credencial de segurança nem pré-requisito.
 //
-// ⚠️ `getUserMedia` só funciona em HTTPS ou localhost — não funciona em
-// http://192.168.x.x. Numa rede local sem HTTPS o botão "Ler QR" pode
-// aparecer (BarcodeDetector existe) e a câmera falhar ao abrir; o erro cai
-// no card #qr-erro e a busca por placa continua funcionando normal.
-let qrStream = null;
-let qrDetectHandle = null;
+// P9: captura SOB COMANDO (um toque em "Capturar"), nunca detecção
+// contínua — poupa bateria e evita ler a placa errada na fila.
+//
+// ⚠️ `getUserMedia` só funciona em HTTPS ou localhost — não em
+// http://192.168.x.x. P8: o gate agora é `navigator.mediaDevices?.
+// getUserMedia`, que existe em qualquer navegador atual sob HTTPS — bem
+// mais gente vê o botão do que via BarcodeDetector, então o erro caindo
+// bonito no card (nunca tela branca) deixa de ser detalhe.
+let cameraPlacaStream = null;
 
-function initLeitorQr() {
-    // Sem suporte nativo -> botão continua com o display:none do HTML,
-    // sem polyfill, sem CDN, sem lib vendorizada (§1.5).
-    if (!('BarcodeDetector' in window)) return;
-    const btn = document.getElementById('btn-ler-qr');
+function initLeitorPlaca() {
+    if (!navigator.mediaDevices?.getUserMedia) return;
+    const btn = document.getElementById('btn-ler-placa');
     btn.style.display = '';
-    btn.addEventListener('click', abrirLeitorQr);
-    document.getElementById('fechar-qr').addEventListener('click', fecharLeitorQr);
-    document.getElementById('btn-cancelar-qr').addEventListener('click', fecharLeitorQr);
+    btn.addEventListener('click', abrirCameraPlaca);
+    document.getElementById('fechar-placa').addEventListener('click', fecharCameraPlaca);
+    document.getElementById('btn-cancelar-placa').addEventListener('click', fecharCameraPlaca);
+    document.getElementById('btn-cancelar-placa-confirma').addEventListener('click', fecharCameraPlaca);
+    document.getElementById('btn-capturar-placa').addEventListener('click', capturarFramePlaca);
+    document.getElementById('btn-ler-placa-de-novo').addEventListener('click', abrirCameraPlaca);
+    document.getElementById('btn-confirmar-placa-lida').addEventListener('click', confirmarPlacaLida);
+    // A1: máscara + aviso visual, nunca bloqueia (D10) — mesmo padrão de
+    // #confirmacao-placa-input/#cad-placa.
+    aplicarMascara(document.getElementById('placa-confirma-input'), 'placa');
 }
 
-async function abrirLeitorQr() {
-    document.getElementById('qr-erro').style.display = 'none';
-    abrirModal('modal-qr');
+function mostrarViewCameraPlaca() {
+    document.getElementById('placa-camera-view').style.display = '';
+    document.getElementById('placa-confirma-view').style.display = 'none';
+}
+
+function mostrarViewConfirmaPlaca() {
+    document.getElementById('placa-camera-view').style.display = 'none';
+    document.getElementById('placa-confirma-view').style.display = '';
+}
+
+async function abrirCameraPlaca() {
+    document.getElementById('placa-camera-erro').style.display = 'none';
+    mostrarViewCameraPlaca();
+    abrirModal('modal-placa');
     try {
-        qrStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
-        const video = document.getElementById('qr-video');
-        video.srcObject = qrStream;
+        cameraPlacaStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+        const video = document.getElementById('placa-video');
+        video.srcObject = cameraPlacaStream;
         await video.play();
-
-        const detector = new BarcodeDetector({ formats: ['qr_code'] });
-        qrDetectHandle = setInterval(async () => {
-            let codigos = [];
-            try {
-                codigos = await detector.detect(video);
-            } catch (err) {
-                console.error('[portaria] erro na detecção do QR:', err);
-                return;
-            }
-            if (codigos.length === 0) return;
-            const valorLido = codigos[0].rawValue;
-            // Fecha a câmera IMEDIATAMENTE — senão a luz fica acesa e a
-            // bateria vai embora numa noite de plantão.
-            pararCameraQr();
-            fecharModal('modal-qr');
-            await processarCodigoLido(valorLido);
-        }, 400);
     } catch (err) {
-        pararCameraQr();
-        document.getElementById('qr-erro').textContent = 'Não foi possível abrir a câmera: ' + err.message;
-        document.getElementById('qr-erro').style.display = 'block';
+        // P7 — câmera negada/indisponível: mensagem no card, sem tela
+        // branca. A busca por placa digitada continua funcionando normal.
+        pararCameraPlaca();
+        document.getElementById('placa-camera-erro').textContent = 'Não foi possível abrir a câmera: ' + err.message;
+        document.getElementById('placa-camera-erro').style.display = 'block';
     }
 }
 
-function pararCameraQr() {
-    if (qrDetectHandle) {
-        clearInterval(qrDetectHandle);
-        qrDetectHandle = null;
-    }
-    if (qrStream) {
-        qrStream.getTracks().forEach((track) => track.stop());
-        qrStream = null;
+function pararCameraPlaca() {
+    // P10 — desliga na hora, sempre antes de qualquer chamada de rede.
+    if (cameraPlacaStream) {
+        cameraPlacaStream.getTracks().forEach((track) => track.stop());
+        cameraPlacaStream = null;
     }
 }
 
-function fecharLeitorQr() {
-    pararCameraQr();
-    fecharModal('modal-qr');
+function fecharCameraPlaca() {
+    pararCameraPlaca();
+    fecharModal('modal-placa');
+    origemProximaConfirmacao = 'MANUAL';
+    placaLidaBrutaAtual = null;
 }
 
-async function processarCodigoLido(codigo) {
+async function capturarFramePlaca() {
+    const video = document.getElementById('placa-video');
+    const canvas = document.createElement('canvas');
+    canvas.width = video.videoWidth || 640;
+    canvas.height = video.videoHeight || 480;
+    canvas.getContext('2d').drawImage(video, 0, 0, canvas.width, canvas.height);
+    // P10 — desliga a câmera IMEDIATAMENTE, antes de qualquer chamada de
+    // rede (a luz acesa a noite inteira come a bateria do plantão).
+    pararCameraPlaca();
+
+    mostrarViewConfirmaPlaca();
+    const statusEl = document.getElementById('placa-confirma-status');
+    const inputEl = document.getElementById('placa-confirma-input');
+    const erroEl = document.getElementById('placa-confirma-erro');
+    erroEl.style.display = 'none';
+    inputEl.value = '';
+    placaLidaBrutaAtual = null;
+    statusEl.textContent = 'Lendo…';
+
+    const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/jpeg', 0.85));
+    if (!blob) {
+        statusEl.textContent = '';
+        erroEl.textContent = 'Não foi possível capturar a imagem — tente "Ler de novo" ou digite a placa.';
+        erroEl.style.display = 'block';
+        setTimeout(() => inputEl.focus(), 50);
+        return;
+    }
+
+    const formData = new FormData();
+    formData.append('arquivo', blob, 'placa.jpg');
+
     try {
-        const resp = await apiGet(`/portaria/buscar-credencial?codigo=${encodeURIComponent(codigo)}`);
-        if (resp.exato && resp.candidatos.length === 1) {
-            abrirConfirmacaoParaCandidato(resp.candidatos[0]);
-        } else {
-            // Código inexistente/revogado — regra número um vale pra busca
-            // também: nunca trava a tela, só avisa e devolve pro fluxo normal.
-            mostrarErroTopo('QR não reconhecido — use a busca por placa.');
-        }
+        const resp = await apiUpload('/portaria/ler-placa', formData);
+        // P13 — o texto CRU da leitura, guardado ANTES de qualquer edição
+        // do controlador no campo abaixo (mesmo que ele corrija).
+        placaLidaBrutaAtual = resp.placa_lida;
+        inputEl.value = resp.placa_lida || '';
+        statusEl.textContent = resp.placa_lida
+            ? 'Confirme ou corrija a placa lida.'
+            : 'Não conseguimos ler a placa — digite manualmente.';
     } catch (err) {
         if (err instanceof ApiError && err.status === 401) return;
-        mostrarErroTopo('Erro ao ler QR: ' + err.message);
+        // P7 — falha de leitura (desligada, timeout, servidor fora) cai
+        // pra digitação no mesmo campo, sem trocar de tela.
+        statusEl.textContent = '';
+        erroEl.textContent = 'Erro na leitura: ' + err.message + ' — digite a placa manualmente.';
+        erroEl.style.display = 'block';
+    } finally {
+        setTimeout(() => inputEl.focus(), 50);
     }
+}
+
+function confirmarPlacaLida() {
+    const erroEl = document.getElementById('placa-confirma-erro');
+    const valor = normalizarPlacaFrontend(document.getElementById('placa-confirma-input').value.trim());
+    if (!valor) {
+        erroEl.textContent = 'Digite ou confirme a placa.';
+        erroEl.style.display = 'block';
+        return;
+    }
+    // P1/D15: nunca um segundo card — fecha este modal e cai na MESMA
+    // busca por placa da digitação manual, que decide sozinha entre
+    // achado (⛔ nunca um palpite) e "Cadastrar agora" (P6).
+    origemProximaConfirmacao = 'CAMERA';
+    fecharModal('modal-placa');
+    executarBusca(valor);
 }
 
 // ─── Bloco C — Recolhida virou botão (saiu da barra de navegação) ──────
@@ -961,6 +1070,6 @@ initCadastroRapido();
 initTerceiro();
 initRecolhida();
 initAvaria();
-initLeitorQr();
+initLeitorPlaca();
 carregarDentro();
 startPolling();

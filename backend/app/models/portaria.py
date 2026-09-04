@@ -174,6 +174,10 @@ class MovimentoPortaria(Base):
 
     cadastrado: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     origem: Mapped[str] = mapped_column(String(12), nullable=False, default="MANUAL")
+    # Migration 040 — texto CRU que o reconhecimento de placa por câmera
+    # devolveu, antes da confirmação/correção do controlador (P13 do
+    # PROMPT-leitura-placa.md). NULL fora de origem='CAMERA'.
+    placa_lida_bruta: Mapped[Optional[str]] = mapped_column(String(8), nullable=True)
     movimento_entrada_id: Mapped[Optional[UUID]] = mapped_column(
         PG_UUID(as_uuid=True), ForeignKey(f"{SCHEMA}.movimento.id"), nullable=True
     )

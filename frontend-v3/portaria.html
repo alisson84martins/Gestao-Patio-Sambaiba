@@ -48,8 +48,9 @@
 
     <div class="portaria-busca-bar">
         <input type="text" class="form-input" id="portaria-busca" placeholder="Placa, RE ou nome" autocomplete="off" autofocus>
-        <!-- Bloco E (QR) — escondido até existir suporte a BarcodeDetector nativo. -->
-        <button type="button" class="btn btn-ghost" id="btn-ler-qr" style="display:none">📷 QR</button>
+        <!-- Leitura de placa por câmera (substitui o QR do Bloco E, P8) —
+             escondido até existir suporte a getUserMedia (precisa HTTPS). -->
+        <button type="button" class="btn btn-ghost" id="btn-ler-placa" style="display:none">📷 Placa</button>
     </div>
 
     <div class="portaria-acoes-rapidas">
@@ -245,21 +246,44 @@
 </div>
 
 <!-- ========================================================= -->
-<!-- Modal leitor de QR (Bloco E) — só abre se o navegador tiver -->
-<!-- BarcodeDetector nativo (o botão que chama isto nasce        -->
-<!-- escondido no HTML e só aparece via JS quando há suporte).   -->
-<!-- Detecção cai no MESMO card de confirmação da busca por      -->
-<!-- placa (D15) — o QR é aceleração, nunca pré-requisito.        -->
+<!-- Modal leitura de placa por câmera — substitui o QR do      -->
+<!-- Bloco E (PROMPT-leitura-placa.md). Só abre se o navegador  -->
+<!-- tiver getUserMedia (precisa HTTPS — o botão nasce escondido -->
+<!-- no HTML e só aparece via JS quando há suporte).             -->
+<!--                                                              -->
+<!-- Dois estados dentro do MESMO modal (P9 — captura sob        -->
+<!-- comando, nunca detecção contínua):                          -->
+<!--  1. #placa-camera-view — vídeo + botão Capturar.             -->
+<!--  2. #placa-confirma-view — placa lida em destaque, campo     -->
+<!--     editável (P2), "Confirma a placa?", botões Confirmar e   -->
+<!--     Ler de novo (P1).                                        -->
+<!-- Confirmar fecha este modal e cai na MESMA busca/card de      -->
+<!-- confirmação de sempre (D15) — nunca um segundo card.         -->
 <!-- ========================================================= -->
-<div class="modal-overlay" id="modal-qr">
+<div class="modal-overlay" id="modal-placa">
     <div class="modal">
-        <button type="button" class="modal-close" id="fechar-qr">✕</button>
-        <div class="modal-title">Ler QR do veículo</div>
-        <div class="portaria-qr-video-wrap">
-            <video id="qr-video" playsinline muted></video>
+        <button type="button" class="modal-close" id="fechar-placa">✕</button>
+
+        <div id="placa-camera-view">
+            <div class="modal-title">Ler placa</div>
+            <div class="portaria-camera-video-wrap">
+                <video id="placa-video" playsinline muted></video>
+            </div>
+            <div id="placa-camera-erro" style="display:none;color:var(--accent);font-size:0.85rem;margin:10px 0"></div>
+            <button type="button" class="btn btn-primary btn-full" id="btn-capturar-placa">Capturar</button>
+            <button type="button" class="btn btn-ghost btn-full btn-modal-stack" id="btn-cancelar-placa">Cancelar</button>
         </div>
-        <div id="qr-erro" style="display:none;color:var(--accent);font-size:0.85rem;margin:10px 0"></div>
-        <button type="button" class="btn btn-ghost btn-full btn-modal-stack" id="btn-cancelar-qr">Cancelar</button>
+
+        <div id="placa-confirma-view" style="display:none">
+            <div class="modal-title">Confirma a placa?</div>
+            <input type="text" class="form-input portaria-ficha-placa" id="placa-confirma-input"
+                   style="text-align:center;font-size:22px;margin-bottom:6px" autocomplete="off" placeholder="Placa">
+            <div class="portaria-ficha-linha" id="placa-confirma-status"></div>
+            <div id="placa-confirma-erro" style="display:none;color:var(--accent);font-size:0.85rem;margin:10px 0"></div>
+            <button type="button" class="btn btn-primary btn-full" id="btn-confirmar-placa-lida">Confirmar</button>
+            <button type="button" class="btn btn-ghost btn-full btn-modal-stack" id="btn-ler-placa-de-novo">Ler de novo</button>
+            <button type="button" class="btn btn-ghost btn-full btn-modal-stack" id="btn-cancelar-placa-confirma">Cancelar</button>
+        </div>
     </div>
 </div>
 
