@@ -72,6 +72,13 @@ class Settings(BaseSettings):
     # o .env só existe pra trocar sem precisar de redeploy.
     pre_ocorrencia_link_base: str = "https://www.gestaopatiosambaiba.com.br/pre-ocorrencia.html"
 
+    # Leitura de placa por câmera (substitui o QR do Bloco E, ver
+    # _handoff-claude/PROMPT-leitura-placa.md, P14). Default FALSE de
+    # propósito: sobe em produção desligada, confere que nada quebrou, só
+    # depois liga — ligar/desligar é trocar esta variável e reiniciar o
+    # serviço, sem migration nem deploy de frontend.
+    leitura_placa_ativa: bool = False
+
     @property
     def cors_origins_list(self) -> list[str]:
         """Retorna a lista de origens permitidas para CORS."""

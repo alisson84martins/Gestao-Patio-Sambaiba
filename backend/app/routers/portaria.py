@@ -6,24 +6,28 @@ Nenhum endpoint deste arquivo retorna 4xx por causa da SITUAÇÃO do veículo
 inexistente. Veículo suspenso/baixado, pendente ou nem cadastrado: o
 POST /movimentos sempre registra, e só avisa.
 """
+import asyncio
 from datetime import date, datetime, timedelta, timezone
 from typing import Annotated, Optional
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile, status
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.core.config import FUSO_OPERACAO
+from app.core.config import FUSO_OPERACAO, get_settings
 from app.core.database import get_db
 from app.core.deps import exige
 from app.core.placa import normalizar_placa
+from app.core.uploads import ler_upload_limitado, validar_assinatura
 from app.models.cadastro import Funcionario
 from app.models.portaria import Credencial, MovimentoPortaria, VeiculoPortaria
 from app.schemas.portaria import (
-    BuscaVeiculoResponse, MovimentoCreate, MovimentoCreateResponse, MovimentoRead,
-    PortariaDentroResponse, Propriedade, ResolverReResponse, Sentido, VeiculoCandidato,
+    BuscaVeiculoResponse, LeituraPlacaResponse, MovimentoCreate, MovimentoCreateResponse,
+    MovimentoRead, PortariaDentroResponse, Propriedade, ResolverReResponse, Sentido,
+    VeiculoCandidato,
 )
+from app.services import leitura_placa
 from app.services.identidade import resolver_por_re
 from app.services.portaria import veiculo_read
 
@@ -224,6 +228,87 @@ def buscar_credencial(
         return BuscaVeiculoResponse(candidatos=[], exato=False)
 
     return BuscaVeiculoResponse(candidatos=[_candidato(veiculo, db)], exato=True)
+
+
+# ============================================================================
+# LEITURA DE PLACA POR CÂMERA (Bloco 1) — substitui o QR do Bloco E.
+# Ver _handoff-claude/PROMPT-leitura-placa.md, P1 a P14.
+#
+# 🔴 P1/P2: este endpoint NUNCA registra movimento — só devolve o texto
+# lido pra tela mostrar "Confirma a placa?" (editável). A confirmação
+# humana chama /portaria/buscar com a placa, igual à digitação — a mesma
+# LeituraAcesso desta rota, nunca um recurso novo (P12).
+#
+# 🔴 P4: a imagem trafega até aqui, é lida em memória (`ler_upload_limitado`)
+# e descartada quando a função termina — nunca grava em disco, nunca vira
+# coluna, nunca vira arquivo temporário. `conteudo` (bytes) não escapa
+# desta função.
+# ============================================================================
+
+_LEITURA_PLACA_MIME_PERMITIDOS = {"image/jpeg", "image/png"}
+_LEITURA_PLACA_TAMANHO_MAXIMO = 8 * 1024 * 1024  # 8 MB — foto de celular já comprimida (P5)
+# Orçamento de tempo da REQUISIÇÃO, não da engine — margem de segurança
+# sobre o limiar de ~4s do Bloco 0 (acima disso o controlador desiste e
+# volta a digitar). Quando a engine real for medida no servidor, este
+# número pode ser ajustado sem tocar em mais nada.
+_LEITURA_PLACA_TIMEOUT_SEGUNDOS = 8.0
+
+
+@router.post(
+    "/ler-placa",
+    response_model=LeituraPlacaResponse,
+    summary="Leitura de placa por foto (câmera) — motor pluggável, imagem nunca gravada (P4)",
+)
+async def ler_placa(
+    usuario: LeituraAcesso,
+    request: Request,
+    arquivo: Annotated[UploadFile, File(description="image/jpeg ou image/png — máx 8 MB")],
+):
+    # P14 — interruptor. Desligado: nem chega a olhar o arquivo.
+    if not get_settings().leitura_placa_ativa:
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN,
+            detail="Leitura de placa por câmera está desativada.",
+        )
+
+    if arquivo.content_type not in _LEITURA_PLACA_MIME_PERMITIDOS:
+        raise HTTPException(
+            status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+            detail=f"Formato não suportado: {arquivo.content_type}. Envie JPEG ou PNG.",
+        )
+
+    # SEV-12 (mesmo cuidado de ocorrencias.upload_anexo): lê em blocos,
+    # abortando ao estourar — nunca o arquivo inteiro em memória antes de
+    # saber se ele cabe.
+    conteudo = await ler_upload_limitado(arquivo, _LEITURA_PLACA_TAMANHO_MAXIMO, request)
+
+    # SEV-13: Content-Type é o que o cliente afirma — os primeiros bytes
+    # do arquivo não mentem.
+    if not validar_assinatura(conteudo, arquivo.content_type):
+        raise HTTPException(
+            status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+            detail="O conteúdo do arquivo não corresponde a um JPEG/PNG válido.",
+        )
+
+    # `asyncio.to_thread` porque o motor plugado (Bloco 0) é síncrono e
+    # pode ser CPU-bound; `wait_for` garante que a REQUISIÇÃO nunca fica
+    # pendurada além do orçamento, mesmo que a thread da engine continue
+    # rodando em segundo plano até terminar sozinha.
+    try:
+        resultado = await asyncio.wait_for(
+            asyncio.to_thread(leitura_placa.reconhecer_placa, conteudo),
+            timeout=_LEITURA_PLACA_TIMEOUT_SEGUNDOS,
+        )
+    except asyncio.TimeoutError:
+        # P7 — falha de leitura devolve pra digitação, sem drama: 200 com
+        # "não achou", não 5xx. A tela trata igual a qualquer outra falha.
+        return LeituraPlacaResponse(placa_lida=None, confianca=0.0)
+    # `conteudo` sai de escopo aqui sem nunca ter sido escrito em disco (P4).
+
+    # D10: normaliza, nunca recusa por formato — placa_valida() não entra
+    # aqui, igual ao resto do módulo.
+    placa_lida = normalizar_placa(resultado.placa_lida) if resultado.placa_lida else None
+    return LeituraPlacaResponse(placa_lida=placa_lida, confianca=resultado.confianca)
 
 
 @router.get(

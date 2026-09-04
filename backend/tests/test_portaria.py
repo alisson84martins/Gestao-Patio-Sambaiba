@@ -49,7 +49,9 @@ from app.routers import portaria as portaria_router_mod
 from app.routers import portaria_avarias as portaria_avarias_router_mod
 from app.routers import portaria_recolhidas as portaria_recolhidas_router_mod
 from app.routers import portaria_veiculos as portaria_veiculos_router_mod
+from app.services import leitura_placa as leitura_placa_service_mod
 from app.services import pre_cadastro as pre_cadastro_service_mod
+from app.services.leitura_placa import LeituraPlacaResultado
 
 # Mesmo ajuste de test_pre_ocorrencia.py/test_ocorrencias_visibilidade.py:
 # o driver sqlite3 puro não serializa uuid.UUID sozinho.
@@ -1778,3 +1780,146 @@ def test_avaria_re_nao_resolvido_alimenta_pre_cadastro(ambiente):
         ).scalar_one_or_none()
     assert pre is not None
     assert pre.ultima_origem == "PORTARIA_AVARIA"
+
+
+# ============================================================================
+# Bloco 1 — POST /portaria/ler-placa (leitura de placa por câmera, motor
+# pluggável). Ver _handoff-claude/PROMPT-leitura-placa.md, P1-P14 e §5.
+# ============================================================================
+
+_JPEG_VALIDO = b"\xff\xd8\xff\xe0\x00\x10JFIF" + b"\x00" * 16
+_EXE_DISFARCADO = b"MZ\x90\x00\x03\x00\x00\x00" + b"\x00" * 16
+
+
+class _SettingsLeituraPlaca:
+    """Fake mínimo de Settings — só o único campo que o endpoint lê. Mesmo
+    padrão de _SettingsComN8N em test_pre_ocorrencia.py."""
+
+    def __init__(self, ativa: bool):
+        self.leitura_placa_ativa = ativa
+
+
+def _ativar_leitura_placa(monkeypatch, ativa: bool = True):
+    monkeypatch.setattr(portaria_router_mod, "get_settings", lambda: _SettingsLeituraPlaca(ativa))
+
+
+def test_ler_placa_sem_token_recebe_401(ambiente):
+    resp = ambiente["http"].post(
+        "/portaria/ler-placa",
+        files={"arquivo": ("placa.jpg", _JPEG_VALIDO, "image/jpeg")},
+    )
+    assert resp.status_code == 401
+
+
+def test_ler_placa_sem_recurso_acesso_veicular_recebe_403(ambiente, monkeypatch):
+    _ativar_leitura_placa(monkeypatch, True)
+    _como(ambiente, "MECANICO")  # leitura_acesso=False (§Bloco D)
+    resp = ambiente["http"].post(
+        "/portaria/ler-placa",
+        files={"arquivo": ("placa.jpg", _JPEG_VALIDO, "image/jpeg")},
+    )
+    assert resp.status_code == 403
+
+
+def test_ler_placa_desativada_por_padrao_recusa_mesmo_com_permissao(ambiente, monkeypatch):
+    """P14 — o interruptor vem antes de qualquer outra checagem, mesmo
+    pra quem tem o recurso todo."""
+    _ativar_leitura_placa(monkeypatch, False)
+    _como(ambiente, "CONTROLADOR")
+    resp = ambiente["http"].post(
+        "/portaria/ler-placa",
+        files={"arquivo": ("placa.jpg", _JPEG_VALIDO, "image/jpeg")},
+    )
+    assert resp.status_code == 403
+    assert "desativada" in resp.json()["erro"].lower()
+
+
+def test_ler_placa_formato_nao_suportado_recebe_415(ambiente, monkeypatch):
+    _ativar_leitura_placa(monkeypatch, True)
+    _como(ambiente, "CONTROLADOR")
+    resp = ambiente["http"].post(
+        "/portaria/ler-placa",
+        files={"arquivo": ("relatorio.pdf", b"%PDF-1.7", "application/pdf")},
+    )
+    assert resp.status_code == 415
+
+
+def test_ler_placa_assinatura_nao_bate_recebe_415(ambiente, monkeypatch):
+    """SEV-13: Content-Type mentindo (.exe disfarçado de JPEG) — mesmo
+    cuidado de test_seguranca_upload.py aplicado aqui."""
+    _ativar_leitura_placa(monkeypatch, True)
+    _como(ambiente, "CONTROLADOR")
+    resp = ambiente["http"].post(
+        "/portaria/ler-placa",
+        files={"arquivo": ("placa.jpg", _EXE_DISFARCADO, "image/jpeg")},
+    )
+    assert resp.status_code == 415
+
+
+def test_ler_placa_stub_sem_engine_devolve_placa_lida_nula(ambiente, monkeypatch):
+    """Sem engine plugada (stub padrão de app/services/leitura_placa.py), o
+    endpoint responde 200 com 'não achou' — nunca 500. É o que sustenta
+    P6/P7 mesmo antes de qualquer motor real existir."""
+    _ativar_leitura_placa(monkeypatch, True)
+    _como(ambiente, "CONTROLADOR")
+    resp = ambiente["http"].post(
+        "/portaria/ler-placa",
+        files={"arquivo": ("placa.jpg", _JPEG_VALIDO, "image/jpeg")},
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json() == {"placa_lida": None, "confianca": 0.0}
+
+
+def test_ler_placa_normaliza_saida_da_engine(ambiente, monkeypatch):
+    """abc-1d23 chega como ABC1D23 — mesma normalizar_placa usada em todo
+    o resto do módulo (§5 do prompt)."""
+    _ativar_leitura_placa(monkeypatch, True)
+    _como(ambiente, "CONTROLADOR")
+    monkeypatch.setattr(
+        leitura_placa_service_mod, "reconhecer_placa",
+        lambda imagem: LeituraPlacaResultado(placa_lida="abc-1d23", confianca=0.87),
+    )
+    resp = ambiente["http"].post(
+        "/portaria/ler-placa",
+        files={"arquivo": ("placa.jpg", _JPEG_VALIDO, "image/jpeg")},
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json() == {"placa_lida": "ABC1D23", "confianca": 0.87}
+
+
+def test_ler_placa_engine_devolve_placa_atipica_sem_recusar(ambiente, monkeypatch):
+    """D10 — placa fora do formato (provisória, outro país) não vira 422
+    aqui, igual ao resto do módulo: só normaliza, nunca valida formato."""
+    _ativar_leitura_placa(monkeypatch, True)
+    _como(ambiente, "CONTROLADOR")
+    monkeypatch.setattr(
+        leitura_placa_service_mod, "reconhecer_placa",
+        lambda imagem: LeituraPlacaResultado(placa_lida="XX 999", confianca=0.4),
+    )
+    resp = ambiente["http"].post(
+        "/portaria/ler-placa",
+        files={"arquivo": ("placa.jpg", _JPEG_VALIDO, "image/jpeg")},
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json() == {"placa_lida": "XX999", "confianca": 0.4}
+
+
+def test_ler_placa_nenhum_arquivo_novo_aparece_no_disco(ambiente, monkeypatch, tmp_path):
+    """🔴 P4 — a garantia escrita: mesmo com a engine 'achando' uma placa,
+    nenhum byte da imagem toca o disco. cwd isolado num diretório vazio
+    (mesma convenção de UPLOAD_ROOT = Path('uploads'), relativo ao cwd, em
+    ocorrencias.py) — se algum código futuro tentar 'salvar a foto pra
+    depois' com um caminho relativo, este teste denuncia."""
+    monkeypatch.chdir(tmp_path)
+    _ativar_leitura_placa(monkeypatch, True)
+    _como(ambiente, "CONTROLADOR")
+    monkeypatch.setattr(
+        leitura_placa_service_mod, "reconhecer_placa",
+        lambda imagem: LeituraPlacaResultado(placa_lida="ABC1D23", confianca=0.9),
+    )
+    resp = ambiente["http"].post(
+        "/portaria/ler-placa",
+        files={"arquivo": ("placa.jpg", _JPEG_VALIDO, "image/jpeg")},
+    )
+    assert resp.status_code == 200, resp.text
+    assert list(tmp_path.rglob("*")) == []

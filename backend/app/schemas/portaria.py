@@ -514,6 +514,19 @@ class ResolverPrefixoResponse(BaseModel):
     motorista_nome_sugerido: Optional[str] = None
 
 
+class LeituraPlacaResponse(BaseModel):
+    """POST /portaria/ler-placa — motor pluggável (ver
+    app/services/leitura_placa.py). `placa_lida=None` é resultado válido
+    (imagem sem placa nenhuma legível), nunca erro 500 — P7 do
+    PROMPT-leitura-placa.md: a câmera é aceleração, nunca pré-requisito, e
+    o card de erro cai de volta pra digitação. ⛔ Sem indicador de formato
+    aqui (D10 já resolve isso na normalização — `placa_valida()` nunca
+    recusa)."""
+
+    placa_lida: Optional[str] = None
+    confianca: float = Field(0.0, ge=0.0, le=1.0)
+
+
 class ResolverReResponse(BaseModel):
     """GET /portaria/resolver-re (§5.3) — confirma visualmente quem é o RE
     digitado, sem devolver nada além do necessário. Procura em
