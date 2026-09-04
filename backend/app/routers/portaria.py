@@ -24,8 +24,8 @@ from app.models.cadastro import Funcionario
 from app.models.portaria import Credencial, MovimentoPortaria, VeiculoPortaria
 from app.schemas.portaria import (
     BuscaVeiculoResponse, LeituraPlacaResponse, MovimentoCreate, MovimentoCreateResponse,
-    MovimentoRead, PortariaDentroResponse, Propriedade, ResolverReResponse, Sentido,
-    VeiculoCandidato,
+    MovimentoRead, PortariaDentroResponse, Propriedade, RecursosPortariaResponse,
+    ResolverReResponse, Sentido, VeiculoCandidato,
 )
 from app.services import leitura_placa
 from app.services.identidade import resolver_por_re
@@ -35,6 +35,21 @@ router = APIRouter(prefix="/portaria", tags=["portaria"])
 
 LeituraAcesso = Annotated[Funcionario, Depends(exige("acesso_veicular"))]
 EscritaAcesso = Annotated[Funcionario, Depends(exige("acesso_veicular", escrever=True))]
+
+
+# ============================================================================
+# RECURSOS (PROMPT-leitura-placa-engine.md, R6) — a tela pergunta o que
+# está ligado em vez de assumir. ⛔ Não é recurso novo de RBAC (P12): usa o
+# mesmo LeituraAcesso do resto do módulo.
+# ============================================================================
+
+@router.get(
+    "/recursos",
+    response_model=RecursosPortariaResponse,
+    summary="Flags de recursos opcionais da Portaria (ex.: leitura de placa) — evita depender do localStorage da sessão",
+)
+def recursos(usuario: LeituraAcesso):
+    return RecursosPortariaResponse(leitura_placa_ativa=get_settings().leitura_placa_ativa)
 
 
 # ============================================================================

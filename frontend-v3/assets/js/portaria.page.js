@@ -897,17 +897,17 @@ async function registrarTerceiro() {
 // contínua — poupa bateria e evita ler a placa errada na fila.
 //
 // ⚠️ `getUserMedia` só funciona em HTTPS ou localhost — não em
-// http://192.168.x.x. P8: o gate agora é `navigator.mediaDevices?.
+// http://192.168.x.x. P8: o primeiro gate é `navigator.mediaDevices?.
 // getUserMedia`, que existe em qualquer navegador atual sob HTTPS — bem
 // mais gente vê o botão do que via BarcodeDetector, então o erro caindo
-// bonito no card (nunca tela branca) deixa de ser detalhe.
+// bonito no card (nunca tela branca) deixa de ser detalhe. O SEGUNDO gate
+// (revelarBotaoLeitorPlaca) é o servidor confirmando LEITURA_PLACA_ATIVA —
+// ver PROMPT-leitura-placa-engine.md R7.
 let cameraPlacaStream = null;
 
 function initLeitorPlaca() {
-    if (!navigator.mediaDevices?.getUserMedia) return;
-    const btn = document.getElementById('btn-ler-placa');
-    btn.style.display = '';
-    btn.addEventListener('click', abrirCameraPlaca);
+    // Listeners internos do modal — sempre ligados; inofensivo enquanto o
+    // botão que abre o modal continuar escondido (revelarBotaoLeitorPlaca).
     document.getElementById('fechar-placa').addEventListener('click', fecharCameraPlaca);
     document.getElementById('btn-cancelar-placa').addEventListener('click', fecharCameraPlaca);
     document.getElementById('btn-cancelar-placa-confirma').addEventListener('click', fecharCameraPlaca);
@@ -917,6 +917,34 @@ function initLeitorPlaca() {
     // A1: máscara + aviso visual, nunca bloqueia (D10) — mesmo padrão de
     // #confirmacao-placa-input/#cad-placa.
     aplicarMascara(document.getElementById('placa-confirma-input'), 'placa');
+
+    revelarBotaoLeitorPlaca();
+}
+
+async function revelarBotaoLeitorPlaca() {
+    // Gate 1 (P8) — suporte do navegador, sem chamada nenhuma ao servidor.
+    if (!navigator.mediaDevices?.getUserMedia) return;
+
+    // Gate 2 (R7) — o servidor confirma que o recurso está ligado.
+    // 🔴 Falha FECHA, não abre: rede fora, 401, 500, timeout — qualquer
+    // erro esconde o botão. Botão escondido é uma tela normal; botão que
+    // aparece e devolve "leitura desativada" na cara do controlador é o
+    // defeito que este bloco corrige.
+    // ⛔ Nunca ler isso do localStorage da sessão — sessão já aberta
+    // quando a flag muda no servidor não veria a mudança (mesma armadilha
+    // de permissão nova que já mordeu este projeto). Consulta sempre no
+    // carregamento da página, nunca em cache local.
+    let recursos;
+    try {
+        recursos = await apiGet('/portaria/recursos');
+    } catch {
+        return;
+    }
+    if (!recursos.leitura_placa_ativa) return;
+
+    const btn = document.getElementById('btn-ler-placa');
+    btn.style.display = '';
+    btn.addEventListener('click', abrirCameraPlaca);
 }
 
 function mostrarViewCameraPlaca() {

@@ -2091,3 +2091,35 @@ def test_warmup_engine_falhando_nao_propaga_excecao(monkeypatch):
 
     monkeypatch.setattr(leitura_placa_service_mod, "_construir_alpr", _construir_que_falha)
     leitura_placa_service_mod.warmup()  # não deve lançar
+
+
+# ============================================================================
+# GET /portaria/recursos (PROMPT-leitura-placa-engine.md, Bloco 2, R6) —
+# flags de recursos opcionais da Portaria, pra tela não depender do
+# localStorage da sessão (armadilha já conhecida: sessão aberta não vê
+# permissão/config nova).
+# ============================================================================
+
+def test_recursos_sem_token_recebe_401(ambiente):
+    resp = ambiente["http"].get("/portaria/recursos")
+    assert resp.status_code == 401
+
+
+def test_recursos_sem_recurso_acesso_veicular_recebe_403(ambiente):
+    _como(ambiente, "MECANICO")  # leitura_acesso=False (§Bloco D)
+    resp = ambiente["http"].get("/portaria/recursos")
+    assert resp.status_code == 403
+
+
+def test_recursos_leitura_placa_ativa_reflete_a_configuracao(ambiente, monkeypatch):
+    _como(ambiente, "CONTROLADOR")
+
+    _ativar_leitura_placa(monkeypatch, True)
+    ligado = ambiente["http"].get("/portaria/recursos")
+    assert ligado.status_code == 200, ligado.text
+    assert ligado.json() == {"leitura_placa_ativa": True}
+
+    _ativar_leitura_placa(monkeypatch, False)
+    desligado = ambiente["http"].get("/portaria/recursos")
+    assert desligado.status_code == 200, desligado.text
+    assert desligado.json() == {"leitura_placa_ativa": False}

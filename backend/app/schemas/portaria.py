@@ -520,6 +520,17 @@ class ResolverPrefixoResponse(BaseModel):
     motorista_nome_sugerido: Optional[str] = None
 
 
+class RecursosPortariaResponse(BaseModel):
+    """GET /portaria/recursos (PROMPT-leitura-placa-engine.md, R6) — flags
+    de recursos opcionais da Portaria. Existe pra tela decidir sem depender
+    do localStorage da sessão: sessão aberta antes de uma flag mudar no
+    servidor não veria a mudança (mesma armadilha de permissão nova, já
+    documentada no projeto). Nasce genérico (objeto, não um único bool)
+    pra um próximo recurso entrar como campo novo, sem endpoint novo."""
+
+    leitura_placa_ativa: bool
+
+
 class LeituraPlacaResponse(BaseModel):
     """POST /portaria/ler-placa — motor pluggável (ver
     app/services/leitura_placa.py). `placa_lida=None` é resultado válido
