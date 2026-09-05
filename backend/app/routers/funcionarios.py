@@ -1,4 +1,5 @@
 """Endpoints do cadastro central de funcionários."""
+import logging
 import re as _re
 from datetime import date, datetime, timezone
 from typing import Annotated, Optional
@@ -11,6 +12,7 @@ from sqlalchemy.orm import Session, joinedload
 
 from app.core.database import get_db
 from app.core.deps import exige, get_current_funcionario
+from app.core.registro import normalizar_re
 from app.core.security import hash_password, verify_password
 from app.models.cadastro import Funcao, FuncionarioFuncao, Funcionario, UsuarioLogin
 from app.models.enums import PerfilUsuarioEnum
@@ -30,6 +32,7 @@ from app.schemas.cadastro import (
 )
 
 router = APIRouter(prefix="/funcionarios", tags=["funcionários"])
+logger = logging.getLogger(__name__)
 
 # Gate RBAC: exige escrita em "usuarios" (não mais o perfil legado ADMIN,
 # que deixaria de fora quem foi criado inteiramente pelo sistema novo).
@@ -121,7 +124,7 @@ def verificar_funcionario(
 
     if re:
         existente = db.execute(
-            select(Funcionario).where(Funcionario.re == re.strip())
+            select(Funcionario).where(Funcionario.re == normalizar_re(re))
         ).scalar_one_or_none()
         if existente:
             return {
@@ -261,9 +264,9 @@ def criar_funcionario(
     _: GerenciaUsuarios,
     db: Annotated[Session, Depends(get_db)] = None,
 ):
-    # Trava de duplicata por RE
+    # Trava de duplicata por RE — dados.re já normalizado pelo schema.
     existente_re = db.execute(
-        select(Funcionario).where(Funcionario.re == dados.re.strip())
+        select(Funcionario).where(Funcionario.re == dados.re)
     ).scalar_one_or_none()
     if existente_re:
         return JSONResponse(
@@ -317,7 +320,7 @@ def criar_funcionario(
 def atualizar_funcionario(
     funcionario_id: UUID,
     dados: FuncionarioUpdate,
-    _: GerenciaUsuarios,
+    usuario: GerenciaUsuarios,
     db: Annotated[Session, Depends(get_db)] = None,
 ):
     func = db.get(Funcionario, funcionario_id)
@@ -345,8 +348,74 @@ def atualizar_funcionario(
                 },
             )
 
-    for campo, valor in dados.model_dump(exclude_unset=True).items():
+    # C1 (PROMPT-RE-ALFANUMERICO): troca de RE tratada à parte, ANTES do
+    # laço genérico de setattr. core/deps.py:87 resolve o espelho `usuario`
+    # PELO RE — se ele ficar pra trás do funcionario.re, a pessoa continua
+    # logando (login novo vai por funcionario_id) mas todos os routers
+    # legados do Pátio passam a devolver 401, porque acham o funcionário
+    # mas não acham mais o espelho pelo RE antigo.
+    re_antigo = func.re
+    troca_re = dados.re is not None and dados.re != re_antigo
+    espelho = None
+
+    if troca_re:
+        conflito_re = db.execute(
+            select(Funcionario).where(
+                Funcionario.re == dados.re, Funcionario.id != funcionario_id
+            )
+        ).scalar_one_or_none()
+        if conflito_re:
+            return JSONResponse(
+                status_code=409,
+                content={
+                    "erro": "Já existe cadastro com este RE",
+                    "status_code": 409,
+                    "conflito": {
+                        "campo": "re",
+                        "funcionario_id": str(conflito_re.id),
+                        "re": conflito_re.re,
+                        "nome": conflito_re.nome,
+                    },
+                },
+            )
+
+        # UNIQUE de usuario.re estouraria como 500 no meio da transação sem
+        # esta checagem — inclui o caso raro de um espelho órfão (RE em
+        # `usuario` sem `funcionario` correspondente).
+        conflito_usuario = db.execute(
+            select(Usuario).where(Usuario.re == dados.re)
+        ).scalar_one_or_none()
+        if conflito_usuario:
+            return JSONResponse(
+                status_code=409,
+                content={
+                    "erro": "Já existe usuário com este RE",
+                    "status_code": 409,
+                    "conflito": {
+                        "campo": "re",
+                        "funcionario_id": None,
+                        "re": conflito_usuario.re,
+                        "nome": conflito_usuario.nome,
+                    },
+                },
+            )
+
+        # Localiza o espelho PELO RE ANTIGO, antes de mudar qualquer coisa.
+        espelho = db.execute(
+            select(Usuario).where(Usuario.re == re_antigo)
+        ).scalar_one_or_none()
+
+    for campo, valor in dados.model_dump(exclude_unset=True, exclude={"re"}).items():
         setattr(func, campo, valor)
+
+    if troca_re:
+        func.re = dados.re
+        if espelho is not None:
+            espelho.re = dados.re
+        logger.warning(
+            "RE alterado: funcionario_id=%s re_antigo=%s re_novo=%s alterado_por=%s",
+            funcionario_id, re_antigo, dados.re, usuario.id,
+        )
 
     func.atualizado_em = datetime.now(timezone.utc)
     db.commit()

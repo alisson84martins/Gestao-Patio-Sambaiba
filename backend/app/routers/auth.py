@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 from app.core.config import get_settings
 from app.core.database import get_db
 from app.core.deps import oauth2_scheme
+from app.core.registro import normalizar_re_obrigatorio
 from app.core.security import JWTError, create_access_token, decode_access_token, verify_password
 from app.models import Usuario
 from app.models.cadastro import Funcao, FuncionarioFuncao, Funcionario, UsuarioLogin
@@ -84,7 +85,11 @@ def _zerar_falhas_conta(re: str) -> None:
 def _autenticar_e_gerar_token(re: str, senha: str, db: Session, ip: str | None = None) -> TokenResponse:
     """Login via sistema novo (usuario_login) com fallback para o sistema antigo (usuario)."""
     settings = get_settings()
-    re = re.strip()
+    # 🔴 Normaliza aqui, não só no schema: /auth/token (OAuth2PasswordRequestForm)
+    # entra por form_data.username e não passa por LoginRequest — sem isso,
+    # "a4011" logava por /auth/login e falhava por /auth/token (e a trava de
+    # tentativas por conta ficaria indexada por chaves diferentes).
+    re = normalizar_re_obrigatorio(re)
     _checar_bloqueio_conta(re)
 
     # ── Sistema novo: usuario_login → funcionario ──────────────────────────

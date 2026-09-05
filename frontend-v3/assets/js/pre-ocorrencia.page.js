@@ -283,8 +283,8 @@ async function iniciar() {
         elForm.style.display = '';
         ligarAutosave();
 
-        aplicarMascara(document.getElementById('f-mot-re'), 're');
-        aplicarMascara(document.getElementById('f-cob-re'), 're');
+        aplicarMascara(document.getElementById('f-mot-re'), 're-numerico');
+        aplicarMascara(document.getElementById('f-cob-re'), 're-numerico');
         aplicarMascara(document.getElementById('f-mot-cpf'), 'cpf');
         aplicarMascara(document.getElementById('f-mot-telefone'), 'telefone');
         aplicarMascara(document.getElementById('f-cob-telefone'), 'telefone');

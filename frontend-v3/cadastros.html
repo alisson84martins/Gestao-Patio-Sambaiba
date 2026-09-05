@@ -81,8 +81,11 @@
         <input type="hidden" id="usuario-id">
 
         <div class="form-group">
-            <label class="form-label" for="usuario-re">RE (Registro de Funcionário) <span style="color:var(--accent)">*</span></label>
-            <input type="text" class="form-input" id="usuario-re" placeholder="Ex: 19042" inputmode="numeric" maxlength="20">
+            <div style="display:flex;align-items:center;justify-content:space-between;gap:8px">
+                <label class="form-label" for="usuario-re" style="margin:0">RE (Registro de Funcionário) <span style="color:var(--accent)">*</span></label>
+                <button type="button" class="btn btn-ghost" id="btn-alterar-re" style="display:none;font-size:11px;padding:4px 10px;white-space:nowrap">Alterar RE</button>
+            </div>
+            <input type="text" class="form-input" id="usuario-re" placeholder="Ex: 19042 ou A4011" inputmode="text" maxlength="20">
         </div>
 
         <div class="form-group">

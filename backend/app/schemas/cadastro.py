@@ -6,6 +6,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from app.core.registro import ReNormalizado, ReNormalizadoObrigatorio
+
 
 class ORMBase(BaseModel):
     model_config = ConfigDict(from_attributes=True)
@@ -45,7 +47,7 @@ class FuncaoRead(ORMBase):
 # ─── FUNCIONARIO ─────────────────────────────────────────────────────────────
 
 class FuncionarioCreate(BaseModel):
-    re: str = Field(..., max_length=20)
+    re: ReNormalizadoObrigatorio = Field(..., min_length=1, max_length=20)
     nome: str = Field(..., max_length=120)
     cpf: Optional[str] = Field(None, description="CPF com ou sem formatação; normalizado para 11 dígitos.")
     telefone: Optional[str] = Field(None, max_length=20)
@@ -67,6 +69,11 @@ class FuncionarioCreate(BaseModel):
 
 
 class FuncionarioUpdate(BaseModel):
+    # C1/C2 (PROMPT-RE-ALFANUMERICO): opcional e normalizado — o router
+    # trata troca de RE à parte (conflito em funcionario/usuario e espelho
+    # em `usuario`, ver atualizar_funcionario em routers/funcionarios.py),
+    # nunca no laço genérico de setattr.
+    re: ReNormalizado = Field(None, max_length=20)
     nome: Optional[str] = Field(None, max_length=120)
     cpf: Optional[str] = None
     telefone: Optional[str] = Field(None, max_length=20)

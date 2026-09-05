@@ -52,6 +52,8 @@ let buscaAtual = '';
 let funcoesCatalogo = [];         // catálogo de funções (GET /funcoes), carregado uma vez
 let funcionarioIdEmEdicao = null; // usado pra não acusar conflito com o próprio registro
 let funcionarioVinculosAtuais = []; // vínculos de função do registro aberto no modal
+let reDestravado = false; // "Alterar RE" (C3) — só true depois da confirmação, reseta a cada abertura do modal
+let reOriginalEmEdicao = ''; // RE com que o modal abriu — só compara pra decidir se manda `re` no PATCH
 let verificacaoDebounce = null;
 
 // ─── Boot ────────────────────────────────────────────────────────
@@ -64,9 +66,10 @@ document.addEventListener('DOMContentLoaded', () => {
     carregarFuncoesCatalogo();
     atualizarVisibilidadeBtnNovo();
 
-    // RE só dígito (zero à esquerda preservado — nunca type="number").
+    // usuario-re aceita letra (alta gestão); motorista-re é sempre numérico
+    // (zero à esquerda preservado nos dois — nunca type="number").
     aplicarMascara(document.getElementById('usuario-re'), 're');
-    aplicarMascara(document.getElementById('motorista-re'), 're');
+    aplicarMascara(document.getElementById('motorista-re'), 're-numerico');
     aplicarMascara(document.getElementById('usuario-cnh'), 'cnh');
     aplicarMascara(document.getElementById('usuario-rg'), 'rg');
 
@@ -395,6 +398,7 @@ function setupModais() {
     document.getElementById('btn-salvar-usuario').addEventListener('click', salvarFuncionario);
     document.getElementById('btn-abrir-existente').addEventListener('click', abrirCadastroExistente);
     document.getElementById('btn-criar-acesso').addEventListener('click', criarAcesso);
+    document.getElementById('btn-alterar-re').addEventListener('click', destravarRe);
     document.getElementById('usuario-re').addEventListener('blur', () => agendarVerificacao('re'));
     document.getElementById('usuario-cpf').addEventListener('blur', () => agendarVerificacao('cpf'));
 
@@ -520,11 +524,14 @@ function abrirModalUsuario(u) {
     const editando = !!u;
     funcionarioIdEmEdicao = u?.id || null;
     funcionarioVinculosAtuais = u?.vinculos || [];
+    reDestravado = false;
+    reOriginalEmEdicao = u?.re || '';
 
     document.getElementById('modal-usuario-titulo').textContent = editando ? 'Editar Funcionário' : 'Novo Funcionário';
     document.getElementById('usuario-id').value     = u?.id || '';
     document.getElementById('usuario-re').value     = u?.re || '';
-    document.getElementById('usuario-re').disabled  = editando; // RE não pode mudar
+    document.getElementById('usuario-re').disabled  = editando; // RE não pode mudar sem destravar (btn-alterar-re)
+    document.getElementById('btn-alterar-re').style.display = editando ? '' : 'none';
     document.getElementById('usuario-nome').value   = u?.nome || '';
     document.getElementById('usuario-cpf').value    = u?.cpf || '';
     document.getElementById('usuario-rg').value     = u?.rg || '';
@@ -545,6 +552,18 @@ function abrirModalUsuario(u) {
     erroModal('modal-usuario-erro', '');
     abrir('modal-usuario');
     document.getElementById(editando ? 'usuario-nome' : 'usuario-re').focus();
+}
+
+// C3: campo usuario-re abre travado em edição (linha do login da pessoa) —
+// este botão é a única porta pra destravar, com confirmação, porque um
+// clique errado troca o acesso de alguém.
+function destravarRe() {
+    const confirmado = confirm('O RE é a chave de acesso da pessoa. Alterar troca o login dela. Confirma?');
+    if (!confirmado) return;
+    reDestravado = true;
+    const input = document.getElementById('usuario-re');
+    input.disabled = false;
+    input.focus();
 }
 
 function renderFuncoesLista(vinculosAtuais) {
@@ -608,7 +627,15 @@ async function salvarFuncionario() {
         let funcionarioId = id;
 
         if (editando) {
-            await apiPatch(`/funcionarios/${id}`, { nome, cpf: cpf || undefined, rg: rg || undefined, cnh: cnh || undefined, status });
+            // C3: `re` só entra no PATCH quando o campo foi destravado (botão
+            // "Alterar RE") E o valor mudou — mandar sempre faria toda edição
+            // de nome passar pelo caminho de troca de RE (conflito em
+            // usuario/funcionario + espelho) à toa.
+            const trocaRe = reDestravado && re !== reOriginalEmEdicao;
+            await apiPatch(`/funcionarios/${id}`, {
+                nome, cpf: cpf || undefined, rg: rg || undefined, cnh: cnh || undefined, status,
+                re: trocaRe ? re : undefined,
+            });
         } else {
             const criado = await apiPost('/funcionarios', { re, nome, cpf, rg: rg || undefined, cnh: cnh || undefined, status });
             funcionarioId = criado.id;

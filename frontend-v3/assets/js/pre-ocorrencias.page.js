@@ -177,8 +177,8 @@ function setupModalAbrir() {
     if (ehCCO) document.getElementById('abrir-coordenador-group').style.display = '';
 
     aplicarMascara(document.getElementById('abrir-telefone'), 'telefone');
-    aplicarMascara(document.getElementById('abrir-re'), 're');
-    if (ehCCO) aplicarMascara(document.getElementById('abrir-coordenador-re'), 're');
+    aplicarMascara(document.getElementById('abrir-re'), 're-numerico');
+    if (ehCCO) aplicarMascara(document.getElementById('abrir-coordenador-re'), 're-numerico');
 
     // Item 5 (15/08/2026): digitar o RE já confirma nome e telefone da
     // pessoa — quem abre inclui o CCO, que só roteia, não lê conteúdo

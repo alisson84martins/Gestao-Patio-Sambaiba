@@ -54,6 +54,7 @@ from sqlalchemy.orm import Session
 from app.core.config import FUSO_OPERACAO
 from app.core.database import get_db
 from app.core.deps import exige, exige_qualquer
+from app.core.registro import normalizar_re
 from app.models.cadastro import Funcionario
 from app.models.frota import Onibus
 from app.models.operacoes import Escala
@@ -63,7 +64,6 @@ from app.schemas.portaria import (
     ContagemPendentesResponse, RecolhidaAnaliseItem, RecolhidaAnaliseResponse,
     RecolhidaAvaliacaoRequest, RecolhidaCreate, RecolhidaEncerramentoRequest,
     RecolhidaGerencialRead, RecolhidaRead, ResolverPrefixoResponse, StatusRecolhida,
-    normalizar_re,
 )
 from app.services.manutencao_recolhida import abrir_ficha_de_recolhida, encerrar_ficha_de_recolhida
 from app.services.pre_cadastro import registrar_pessoa_vista

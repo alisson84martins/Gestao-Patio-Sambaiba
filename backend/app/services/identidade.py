@@ -20,9 +20,9 @@ from typing import Literal, Optional
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.core.registro import normalizar_re
 from app.models.cadastro import Funcionario
 from app.models.pessoas import Motorista
-from app.schemas.portaria import normalizar_re
 
 
 @dataclass

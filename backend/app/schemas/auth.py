@@ -4,13 +4,14 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field
 
+from app.core.registro import ReNormalizadoObrigatorio
 from app.models.enums import PerfilUsuarioEnum
 from app.schemas.cadastro import ModuloDisponivel
 
 
 class LoginRequest(BaseModel):
     """Credenciais para o endpoint /auth/login."""
-    re: str = Field(..., max_length=20, description="Registro de funcionário")
+    re: ReNormalizadoObrigatorio = Field(..., min_length=1, max_length=20, description="Registro de funcionário")
     senha: str = Field(..., min_length=1, max_length=72)
 
 

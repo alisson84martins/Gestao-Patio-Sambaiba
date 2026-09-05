@@ -5,13 +5,14 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field
 
+from app.core.registro import ReNormalizado, ReNormalizadoObrigatorio
 from app.models.enums import PerfilUsuarioEnum, StatusMotoristaEnum
 from app.schemas.base import AuditoriaSchema, ORMBase
 
 
 # =================== MOTORISTA ===================
 class MotoristaBase(BaseModel):
-    re: str = Field(..., max_length=20)
+    re: ReNormalizadoObrigatorio = Field(..., min_length=1, max_length=20)
     nome: str = Field(..., max_length=120)
     cpf: Optional[str] = Field(None, max_length=14)
     status: StatusMotoristaEnum = StatusMotoristaEnum.ATIVO
@@ -23,7 +24,7 @@ class MotoristaCreate(MotoristaBase):
 
 
 class MotoristaUpdate(BaseModel):
-    re: Optional[str] = Field(None, max_length=20)
+    re: ReNormalizado = Field(None, max_length=20)
     nome: Optional[str] = Field(None, max_length=120)
     cpf: Optional[str] = Field(None, max_length=14)
     status: Optional[StatusMotoristaEnum] = None
@@ -36,7 +37,7 @@ class MotoristaRead(MotoristaBase, ORMBase, AuditoriaSchema):
 
 # =================== USUARIO ===================
 class UsuarioBase(BaseModel):
-    re: str = Field(..., max_length=20)
+    re: ReNormalizadoObrigatorio = Field(..., min_length=1, max_length=20)
     nome: str = Field(..., max_length=120)
     perfil: PerfilUsuarioEnum
     ativo: bool = True

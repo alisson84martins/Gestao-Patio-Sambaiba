@@ -152,13 +152,27 @@ export function cnhValida(valor) {
     return somenteDigitos(valor).length === 11;
 }
 
-// ─── RE — somente dígitos ───────────────────────────────────────────────────
+// ─── RE — alfanumérico só na alta gestão ────────────────────────────────────
 // RE pode ter zero à esquerda ("01904") — por isso nunca vira type="number"
-// em lugar nenhum do HTML, só inputmode="numeric" pra abrir o teclado
-// numérico no celular sem mudar o tipo do campo.
+// em lugar nenhum do HTML, só inputmode="numeric"/"text" pra abrir o teclado
+// certo no celular sem mudar o tipo do campo.
+//
+// Letra em RE existe SÓ de gerente geral pra cima (diretoria e secretaria da
+// presidência) — tipo 're' aceita e avisa quando não bate (nunca bloqueia,
+// mesmo espírito do placa_atipica). Motorista, cobrador e as demais funções
+// nunca têm letra — tipo 're-numerico' continua só dígito, é a única coisa
+// que pega "S598" digitado no lugar de "5598".
 
 export function formatarRE(valor) {
+    return (valor || '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 20);
+}
+
+export function formatarRENumerico(valor) {
     return somenteDigitos(valor);
+}
+
+export function reSoNumero(valor) {
+    return !/[A-Z]/.test(valor || '');
 }
 
 // ─── RG — SEM máscara ───────────────────────────────────────────────────────
@@ -187,7 +201,8 @@ const TIPOS = {
     ano: { formatar: formatarAno, validar: anoValido, mensagem: 'Ano inválido' },
     cnh: { formatar: formatarCNH, validar: cnhValida, mensagem: 'CNH incompleta' },
     rg: { formatar: formatarRG, validar: null, mensagem: '' },
-    re: { formatar: formatarRE, validar: null, mensagem: '' },
+    re: { formatar: formatarRE, validar: reSoNumero, mensagem: 'RE com letra — confira. Letra só existe em RE de alta gestão (gerente geral pra cima).' },
+    're-numerico': { formatar: formatarRENumerico, validar: null, mensagem: '' },
 };
 
 function garantirAvisoAoLado(el) {
@@ -225,13 +240,15 @@ export function aplicarMascara(el, tipo) {
     if (!config || !el) return;
 
     el.addEventListener('input', () => {
-        if (tipo === 're') {
-            // Sem separador nenhum pra inserir — só dígito removido. Cursor
-            // acompanha contando quantos dígitos existiam antes dele.
+        if (tipo === 're' || tipo === 're-numerico') {
+            // Sem separador nenhum pra inserir — só caractere removido ou
+            // maiusculizado. Cursor acompanha formatando o trecho antes dele
+            // e medindo o que sobrou (contar dígito não serve mais pro tipo
+            // 're', que também aceita letra).
             const cursor = el.selectionStart;
-            const digitosAntes = somenteDigitos(el.value.slice(0, cursor)).length;
+            const tamanhoAntes = config.formatar(el.value.slice(0, cursor)).length;
             el.value = config.formatar(el.value);
-            el.setSelectionRange(digitosAntes, digitosAntes);
+            el.setSelectionRange(tamanhoAntes, tamanhoAntes);
         } else {
             el.value = config.formatar(el.value);
         }

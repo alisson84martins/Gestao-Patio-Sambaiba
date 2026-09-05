@@ -6,12 +6,13 @@ validação acontece na API antes de chegar no banco, mas a fonte da verdade
 dos valores permitidos é o SQL.
 """
 from datetime import date, datetime
-from typing import Annotated, Literal, Optional
+from typing import Literal, Optional
 from uuid import UUID
 
-from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.core.placa import PlacaNormalizada, PlacaNormalizadaOpcional
+from app.core.registro import ReNormalizado
 from app.schemas.base import AuditoriaSchema, ORMBase
 
 Propriedade = Literal["PARTICULAR", "EMPRESA", "TERCEIRO"]
@@ -21,20 +22,9 @@ Sentido = Literal["ENTRADA", "SAIDA"]
 OrigemMovimento = Literal["MANUAL", "RETROATIVO", "QR", "TAG", "LPR", "CAMERA"]
 
 # normalizar_placa/placa_valida/PlacaNormalizada vivem em app/core/placa.py
-# agora (D10 — mesma regra em portaria/ocorrência/pré-ocorrência, ver
-# docstring lá) — antes duplicada só neste arquivo.
-
-
-def normalizar_re(v: Optional[str]) -> Optional[str]:
-    """Trim + maiúsculas, mesmo cuidado da placa. String vazia vira None —
-    campo em branco é 'não informado', não um RE literal ''."""
-    if v is None:
-        return v
-    limpo = v.strip().upper()
-    return limpo or None
-
-
-ReNormalizado = Annotated[Optional[str], BeforeValidator(normalizar_re)]
+# (D10 — mesma regra em portaria/ocorrência/pré-ocorrência, ver docstring
+# lá). normalizar_re/ReNormalizado vivem em app/core/registro.py, mesmo
+# arranjo — antes os dois viviam duplicados só neste arquivo.
 
 
 # ============================================================================

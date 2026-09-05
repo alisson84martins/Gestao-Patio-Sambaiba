@@ -31,8 +31,8 @@ from typing import Literal, Optional
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.core.registro import normalizar_re
 from app.models.pre_cadastro import PessoaPreCadastro
-from app.schemas.portaria import normalizar_re
 from app.services.identidade import resolver_por_re
 
 # LGPD (§5.2 do prompt): prazo de retenção sugerido pra um pré-cadastro

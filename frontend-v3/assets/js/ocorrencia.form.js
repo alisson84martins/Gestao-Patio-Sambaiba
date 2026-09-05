@@ -155,8 +155,8 @@ function initMascarasCapa() {
     aplicarMascara(document.getElementById('f-condutor-cnh'), 'cnh');
     aplicarMascara(document.getElementById('f-condutor-rg'), 'rg');
     aplicarMascara(document.getElementById('f-condutor-cpf'), 'cpf');
-    aplicarMascara(document.getElementById('f-condutor-re'), 're');
-    aplicarMascara(document.getElementById('f-cobrador-re'), 're');
+    aplicarMascara(document.getElementById('f-condutor-re'), 're-numerico');
+    aplicarMascara(document.getElementById('f-cobrador-re'), 're-numerico');
 }
 
 // ─── Tipo "Outros" — campo de texto livre ─────────────────────────────────
