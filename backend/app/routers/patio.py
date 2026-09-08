@@ -1,6 +1,6 @@
 """Endpoints de visão consolidada do pátio."""
 from collections import defaultdict
-from datetime import date as date_type, datetime, time as time_type, timedelta, timezone
+from datetime import date as date_type, datetime, time as time_type, timedelta
 from typing import Annotated, Any, Optional
 from zoneinfo import ZoneInfo
 import json as _json
@@ -49,7 +49,8 @@ def patio_completo(
     user: CurrentUser,
     db: Annotated[Session, Depends(get_db)],
     data_escala: Annotated[Optional[date_type], Query(
-        description="Data da escala a cruzar. Default: hoje."
+        description="Data da escala a cruzar. Default: data de serviço "
+                     "(o ciclo do pátio, que vira às 20h — ver get_data_servico())."
     )] = None,
 ):
     """Retorna todas as filas com seus ônibus alocados, escala do dia, alertas e fichas abertas.
@@ -57,7 +58,7 @@ def patio_completo(
     Esta é a query principal que alimenta a tela e a impressão do pátio.
     """
     if data_escala is None:
-        data_escala = datetime.now(timezone.utc).date()
+        data_escala = get_data_servico()
 
     stmt = (
         select(
@@ -201,12 +202,12 @@ def remanejamento(
     user: CurrentUser,
     db: Annotated[Session, Depends(get_db)],
     data_escala: Annotated[Optional[date_type], Query(
-        description="Default: hoje"
+        description="Default: data de serviço (ciclo do pátio, que vira às 20h)."
     )] = None,
 ):
     """Lista ônibus que precisam de remanejamento: estão em manutenção mas têm linha escalada."""
     if data_escala is None:
-        data_escala = datetime.now(timezone.utc).date()
+        data_escala = get_data_servico()
     stmt = (
         select(
             Onibus.id, Onibus.numero_frota,

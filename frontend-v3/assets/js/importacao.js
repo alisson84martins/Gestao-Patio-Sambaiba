@@ -14,7 +14,7 @@ import { apiGet, apiUpload, ApiError } from './api.js';
 import { API_BASE_URL, TOKEN_KEY } from './config.js';
 import { podeEscrever } from './sessao.js';
 import { escapeHtml } from './escape.js';
-import { dataLocalISO } from './data.util.js';
+import { dataServicoISO } from './data.util.js';
 
 // ─── Guard de autenticação ────────────────────────────────────────────────────
 if (!requireAuth()) {
@@ -31,10 +31,12 @@ if (!podeEscrever('escala')) {
 document.addEventListener('DOMContentLoaded', () => {
     initHeader();
     initFormUpload();
-    // Define data default como hoje
+    // Sugere a data de SERVIÇO (ciclo do pátio, vira às 20h) — não a data de
+    // calendário. Depois das 20h, importar "escala de hoje" na cabeça do
+    // operador já significa a escala de amanhã. Campo continua editável.
     const inputData = document.getElementById('input-data-escala');
     if (inputData) {
-        inputData.value = dataLocalISO();
+        inputData.value = dataServicoISO();
     }
     fetchHistorico();
 

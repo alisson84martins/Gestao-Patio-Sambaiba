@@ -11,6 +11,7 @@ from app.core.database import get_db
 from app.core.deps import CurrentUser, OperadorOuAdmin
 from app.core.utils import PaginationParams, set_create_audit, set_update_audit
 from app.models import Alerta, Escala, Linha, Motorista, Onibus, OrigemEscalaEnum, PerfilUsuarioEnum, TipoAlertaEnum
+from app.routers.alocacoes import get_data_servico
 from app.schemas import EscalaCreate, EscalaRead, EscalaUpdate
 
 router = APIRouter(prefix="/escalas", tags=["escala"])
@@ -105,7 +106,8 @@ def limpar_dia(
     db: Annotated[Session, Depends(get_db)],
     data: Annotated[
         Optional[date_type],
-        Query(description="Data a limpar (YYYY-MM-DD). Default: hoje UTC."),
+        Query(description="Data a limpar (YYYY-MM-DD). Default: data de serviço "
+                           "(ciclo do pátio, que vira às 20h)."),
     ] = None,
 ):
     """Soft-delete em lote das escalas de uma data. Usado pelo botao Limpar Escala.
@@ -113,7 +115,7 @@ def limpar_dia(
     Também resolve todos os alertas PRESO pendentes para não ficarem presos nos chips.
     """
     if data is None:
-        data = datetime.now(timezone.utc).date()
+        data = get_data_servico()
     agora = datetime.now(timezone.utc)
     result = db.execute(
         update(Escala)
