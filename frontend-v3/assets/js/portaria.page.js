@@ -25,12 +25,22 @@ import { POLLING_INTERVAL_MS } from './config.js';
 import { aplicarMascara } from './mascaras.js';
 import { podeEscrever } from './sessao.js';
 import { buscarPorRe } from './identidade.js';
+import {
+    preencherSelectEmpresas, cadastrarEmpresa, empresaNomePorId,
+} from './portaria-empresas.js';
+import { preencherSelectSetores } from './portaria-setores.js';
 
 if (!requireAuth()) {
     throw new Error('Sessão não autenticada — interrompendo carga da página');
 }
 
 const HORAS_DENTRO = 36;
+const CHAVE_FROTA_DISPONIVEIS_ABERTA = 'portaria_frota_disponiveis_aberta';
+
+// Ícone por veiculo_tipo (D18) — só na lista, nunca linha de texto nova
+// (§4.1: a meta de saída em 1 toque e entrada em <=8s não sobrevive a item
+// mais alto). Carro não ganha ícone — é a maioria, não precisa se destacar.
+const ICONE_TIPO = { MOTO: '🏍', VAN: '🚐', GUINCHO: '🚛', CAMINHAO: '🚛' };
 
 // Contexto do card de confirmação aberto no momento — null quando fechado.
 // { veiculo: VeiculoRead|null, ultimoMovimento: MovimentoRead|null,
@@ -38,11 +48,13 @@ const HORAS_DENTRO = 36;
 //   placaChute: string, origem: 'MANUAL'|'CAMERA', placaLidaBruta: string|null }
 let contexto = null;
 let pollHandle = null;
-let empresasCache = null;
 // RE do condutor (C2) — só relevante quando o carro é da empresa: achou
 // funcionário -> vai por funcionario_id; não achou -> vai por texto livre
 // (re_registrado/nome_registrado). Nunca em veiculo.funcionario_id (D2).
 let condutorFuncionarioId = null;
+// P1 — qual select/modal retomar quando #modal-nova-empresa salva com
+// sucesso. null = nenhum cadastro de empresa em andamento.
+let novaEmpresaRetorno = null;
 
 // Leitura de placa por câmera (P13) — a busca disparada pela confirmação
 // da leitura (confirmarPlacaLida) cai na MESMA executarBusca() da digitação
@@ -125,25 +137,40 @@ function mostrarErroTopo(msg) {
     el.style.display = 'block';
 }
 
-// ─── "Dentro agora" + "sem_saida" (D17/§1.4) ───────────────────────────
+// ─── "Dentro agora" + "sem_saida" (D17/§1.4) + Frota de apoio (D18) ────
 async function carregarDentro() {
     try {
-        const resp = await apiGet(`/portaria/dentro?horas=${HORAS_DENTRO}`);
-        document.getElementById('portaria-contador-numero').textContent = String(resp.dentro.length);
-        renderListaDentro(resp.dentro);
-        renderListaSemSaida(resp.sem_saida);
+        const [dentroResp, frotaResp] = await Promise.all([
+            apiGet(`/portaria/dentro?horas=${HORAS_DENTRO}`),
+            apiGet('/portaria/frota'),
+        ]);
+        document.getElementById('dentro-loading').style.display = 'none';
+        document.getElementById('portaria-contador-numero').textContent = String(dentroResp.dentro.length);
+        renderListaDentro(dentroResp.dentro);
+        renderListaSemSaida(dentroResp.sem_saida);
+        renderFrota(frotaResp);
     } catch (err) {
         if (err instanceof ApiError && err.status === 401) return;
         console.error('[portaria] erro ao carregar dentro:', err);
     }
 }
 
+// D18 — duas seções: "Particular" (avulso entra aqui, com a etiqueta "não
+// cadastrado" que já existe) e "Terceiros". Seção vazia não aparece.
 function renderListaDentro(itens) {
-    const el = document.getElementById('lista-dentro');
+    renderSecaoDentro('secao-dentro-particular', 'lista-dentro-particular', itens.filter(m => m.grupo !== 'TERCEIRO'));
+    renderSecaoDentro('secao-dentro-terceiros', 'lista-dentro-terceiros', itens.filter(m => m.grupo === 'TERCEIRO'));
+}
+
+function renderSecaoDentro(secaoId, listaId, itens) {
+    const secao = document.getElementById(secaoId);
+    const el = document.getElementById(listaId);
     if (itens.length === 0) {
-        el.innerHTML = '<div class="oc-vazio">Nenhum veículo dentro agora.</div>';
+        secao.style.display = 'none';
+        el.innerHTML = '';
         return;
     }
+    secao.style.display = 'block';
     el.innerHTML = '';
     for (const mov of itens) {
         el.appendChild(criarItemLista(mov, `Entrou ${fmtHora(mov.momento)}`, () => iniciarSaidaDaLista(mov)));
@@ -165,6 +192,12 @@ function renderListaSemSaida(itens) {
     }
 }
 
+// Ícone por veiculo_tipo — só acrescenta na MESMA linha da placa, nunca uma
+// linha nova (§4.1: a meta de 1 toque na saída não sobrevive a item mais alto).
+function iconeTipo(tipo) {
+    return ICONE_TIPO[tipo] ? `${ICONE_TIPO[tipo]} ` : '';
+}
+
 function criarItemLista(mov, subtitulo, aoTocar) {
     const btn = document.createElement('button');
     btn.type = 'button';
@@ -173,13 +206,98 @@ function criarItemLista(mov, subtitulo, aoTocar) {
     const nome = mov.nome_registrado || (mov.cadastrado ? '' : 'não cadastrado');
     btn.innerHTML = `
         <div>
-            <div class="portaria-item-placa">${escapeHtml(mov.placa_registrada)}</div>
+            <div class="portaria-item-placa">${iconeTipo(mov.veiculo_tipo)}${escapeHtml(mov.placa_registrada)}</div>
             <div class="portaria-item-sub">${escapeHtml(nome || subtitulo)}</div>
         </div>
         <div class="portaria-item-hora">${nome ? subtitulo : ''}</div>
     `;
     btn.addEventListener('click', aoTocar);
     return btn;
+}
+
+// ─── Frota de apoio (D18/R3) — painel invertido: a pergunta é "cadê a   ──
+// moto", não "quem está dentro". Quem está na rua fica aberto; as
+// disponíveis ficam colapsadas (estado em localStorage). Nunca soma no
+// contador principal — o backend nem manda essas passagens em /dentro.
+function renderFrota(resp) {
+    const secao = document.getElementById('secao-frota');
+    if (resp.na_rua.length === 0 && resp.disponiveis.length === 0) {
+        secao.style.display = 'none';
+        return;
+    }
+    secao.style.display = 'block';
+    document.getElementById('frota-titulo').textContent = `Frota de apoio — ${resp.na_rua.length} na rua`;
+
+    const naRuaEl = document.getElementById('lista-frota-na-rua');
+    naRuaEl.innerHTML = '';
+    for (const item of resp.na_rua) naRuaEl.appendChild(criarItemFrota(item));
+
+    const disponiveisEl = document.getElementById('lista-frota-disponiveis');
+    disponiveisEl.innerHTML = '';
+    for (const item of resp.disponiveis) disponiveisEl.appendChild(criarItemFrota(item));
+
+    const aberto = localStorage.getItem(CHAVE_FROTA_DISPONIVEIS_ABERTA) === 'true';
+    disponiveisEl.style.display = aberto ? '' : 'none';
+    document.getElementById('btn-frota-disponiveis-toggle').textContent =
+        `${aberto ? '▾' : '▸'} Disponíveis na garagem (${resp.disponiveis.length})`;
+}
+
+function criarItemFrota(item) {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'portaria-item';
+    btn.style.marginBottom = '8px';
+    const sub = item.na_rua
+        ? `com ${item.condutor_nome || (item.condutor_re ? `RE ${item.condutor_re}` : '—')} · desde ${fmtHora(item.desde)}`
+        : 'Na garagem';
+    btn.innerHTML = `
+        <div>
+            <div class="portaria-item-placa">${iconeTipo(item.tipo)}${escapeHtml(item.placa)}</div>
+            <div class="portaria-item-sub">${escapeHtml(sub)}</div>
+        </div>
+    `;
+    // Nada de fluxo novo (D15): mesmo card de confirmação de sempre. Toque
+    // numa linha da rua abre já em ENTRADA (registrar a volta); numa
+    // disponível abre em SAIDA — ver abrirConfirmacaoParaFrota.
+    btn.addEventListener('click', () => abrirConfirmacaoParaFrota(item));
+    return btn;
+}
+
+async function abrirConfirmacaoParaFrota(item) {
+    let candidato = null;
+    try {
+        const resp = await apiGet(`/portaria/buscar?q=${encodeURIComponent(item.placa)}`);
+        if (resp.exato && resp.candidatos.length === 1) candidato = resp.candidatos[0];
+    } catch (err) {
+        if (err instanceof ApiError && err.status === 401) return;
+        console.error('[portaria] erro ao buscar veículo da frota:', err);
+    }
+    contexto = {
+        veiculo: candidato ? candidato.veiculo : null,
+        ultimoMovimento: candidato ? candidato.ultimo_movimento : null,
+        // D18 — invertido em relação ao particular: na_rua (saiu) significa
+        // que a próxima ação é a VOLTA (ENTRADA); disponível (na garagem,
+        // com ou sem histórico) significa que a próxima ação é SAIR.
+        // ⛔ Nunca reaproveitar a inferência de abrirConfirmacaoParaCandidato
+        // aqui — ela assume "sem histórico = nunca entrou", o oposto do
+        // que vale pra frota (sem histórico = sempre esteve na garagem).
+        sentido: item.na_rua ? 'ENTRADA' : 'SAIDA',
+        movimentoEntradaId: null,
+        placaChute: item.placa,
+    };
+    renderEstadoConfirmacao();
+    abrirModal('modal-confirmacao');
+}
+
+function initFrotaToggle() {
+    document.getElementById('btn-frota-disponiveis-toggle').addEventListener('click', () => {
+        const el = document.getElementById('lista-frota-disponiveis');
+        const abrir = el.style.display === 'none';
+        el.style.display = abrir ? '' : 'none';
+        localStorage.setItem(CHAVE_FROTA_DISPONIVEIS_ABERTA, String(abrir));
+        document.getElementById('btn-frota-disponiveis-toggle').textContent =
+            `${abrir ? '▾' : '▸'} Disponíveis na garagem (${el.children.length})`;
+    });
 }
 
 // Toque numa linha de "dentro agora"/"sem_saida" registra a SAÍDA — busca
@@ -332,6 +450,8 @@ function renderEstadoConfirmacao() {
     const condutorRe = document.getElementById('confirmacao-condutor-re');
     const condutorStatus = document.getElementById('confirmacao-condutor-status');
     const condutorNome = document.getElementById('confirmacao-condutor-nome');
+    const setorWrap = document.getElementById('confirmacao-setor-wrap');
+    const setorSelect = document.getElementById('confirmacao-setor');
     const erro = document.getElementById('confirmacao-erro');
     const btnConfirmar = document.getElementById('btn-confirmar-movimento');
     const btnCadastrar = document.getElementById('btn-cadastrar-agora');
@@ -348,6 +468,7 @@ function renderEstadoConfirmacao() {
     condutorNome.value = '';
     condutorNome.style.display = 'none';
     condutorFuncionarioId = null;
+    setorSelect.value = '';
     document.getElementById('confirmacao-titulo').textContent =
         contexto.sentido === 'SAIDA' ? 'Confirmar saída' : 'Confirmar entrada';
     sentidoSelect.value = contexto.sentido;
@@ -356,6 +477,7 @@ function renderEstadoConfirmacao() {
 
     if (!v) {
         // ⚪ não encontrado — regra número um: cadastra ou registra avulso.
+        // P3/R4/R6: setor de destino vale pra ⚪ igual a TERCEIRO.
         textoPlaca.style.display = 'none';
         inputPlaca.style.display = 'block';
         inputPlaca.value = contexto.placaChute || '';
@@ -363,6 +485,7 @@ function renderEstadoConfirmacao() {
         semaforo.className = 'portaria-semaforo portaria-semaforo-cinza';
         semaforo.textContent = '⚪ Veículo não cadastrado — cadastre agora ou registre a passagem avulsa.';
         hodWrap.style.display = 'none';
+        setorWrap.style.display = 'block';
         obsObrigatoria.style.display = 'none';
         btnConfirmar.style.display = 'none';
         btnCadastrar.style.display = 'block';
@@ -374,12 +497,16 @@ function renderEstadoConfirmacao() {
     textoPlaca.style.display = 'block';
     inputPlaca.style.display = 'none';
     textoPlaca.textContent = v.placa;
+    // P3/R4/R6: quem trabalha aqui (PARTICULAR/frota) não visita setor.
+    setorWrap.style.display = v.propriedade === 'TERCEIRO' ? 'block' : 'none';
 
     let donoTexto = '—';
     if (v.propriedade === 'TERCEIRO') {
         donoTexto = v.empresa_terceira_nome || 'Terceiro';
     } else if (v.propriedade === 'EMPRESA') {
-        donoTexto = 'Veículo da empresa';
+        // D18 — "Frota · MOTO" em vez do genérico "Veículo da empresa",
+        // mesmo rótulo de donoTexto() em portaria-veiculos.page.js.
+        donoTexto = `Frota · ${v.tipo}`;
         condutorWrap.style.display = 'block';
     } else if (v.funcionario_nome) {
         donoTexto = v.funcionario_re ? `${v.funcionario_nome} · RE ${v.funcionario_re}` : v.funcionario_nome;
@@ -476,6 +603,9 @@ function initConfirmacao() {
     document.getElementById('btn-cancelar-confirmacao').addEventListener('click', () => fecharModal('modal-confirmacao'));
     // A1: máscara + aviso visual, nunca bloqueia (D10) — mesmo padrão de ocorrencia.form.js.
     aplicarMascara(document.getElementById('confirmacao-placa-input'), 'placa');
+    // P3/R4/R6 — opções fixas (3 setores, sem "Outro"), carregadas uma vez;
+    // renderEstadoConfirmacao só reseta o valor e alterna visibilidade.
+    preencherSelectSetores('confirmacao-setor');
 
     document.getElementById('confirmacao-observacao').addEventListener('input', (e) => {
         if (!contexto || !contexto.veiculo) return;
@@ -573,10 +703,13 @@ async function enviarMovimento(payload) {
     // P13 — origem/placa_lida_bruta vêm do contexto (câmera ou digitação
     // manual, ver _consumirLeituraCamera). Central aqui em vez de em cada
     // submeter*: cobre confirmar, avulso e o "Cadastrar agora" sem repetir.
+    // P3/R4/R6 — setor_codigo pelo mesmo motivo: só aparece visível (⚪/
+    // TERCEIRO), mas o valor já vem resetado pra '' quando escondido.
     const corpo = {
         ...payload,
         origem: (contexto && contexto.origem) || 'MANUAL',
         placa_lida_bruta: (contexto && contexto.placaLidaBruta) || null,
+        setor_codigo: document.getElementById('confirmacao-setor').value || null,
     };
     try {
         const resp = await apiPost('/portaria/movimentos', corpo);
@@ -657,26 +790,6 @@ async function resolverDonoPorRe() {
     }
 }
 
-async function preencherSelectEmpresas(selectId) {
-    const select = document.getElementById(selectId);
-    if (!empresasCache) {
-        try {
-            empresasCache = await apiGet('/portaria/empresas?apenas_ativas=true');
-        } catch (err) {
-            if (err instanceof ApiError && err.status === 401) return;
-            console.error('[portaria] erro ao carregar empresas:', err);
-            empresasCache = [];
-        }
-    }
-    select.innerHTML = '<option value="">Selecione…</option>';
-    for (const emp of empresasCache) {
-        const opt = document.createElement('option');
-        opt.value = emp.id;
-        opt.textContent = emp.nome;
-        select.appendChild(opt);
-    }
-}
-
 function initCadastroRapido() {
     document.getElementById('fechar-cadastro-rapido').addEventListener('click', () => fecharModal('modal-cadastro-rapido'));
     document.getElementById('btn-cancelar-cadastro-rapido').addEventListener('click', () => fecharModal('modal-cadastro-rapido'));
@@ -691,6 +804,15 @@ function initCadastroRapido() {
     });
 
     document.getElementById('btn-salvar-cadastro-rapido').addEventListener('click', salvarCadastroRapido);
+
+    // P1 — "+ Nova" também no cadastro de veículo TERCEIRO (aqui a empresa
+    // continua obrigatória, o CHECK exige, mas resolve-se sem sair do modal).
+    if (podeEscrever('veiculo_portaria')) {
+        document.getElementById('btn-cad-nova-empresa').style.display = '';
+    }
+    document.getElementById('btn-cad-nova-empresa').addEventListener('click', () => {
+        abrirNovaEmpresa({ selectId: 'cad-empresa', modalParaReabrir: 'modal-cadastro-rapido', incluirOutra: false });
+    });
 }
 
 async function salvarCadastroRapido() {
@@ -784,6 +906,8 @@ async function salvarCadastroRapido() {
 }
 
 // ─── Terceiro (D5) — empresa + veículo + condutor/destino do dia ───────
+// P1 — empresa deixa de ser pré-requisito (escolhida, digitada via
+// "__OUTRA__" ou cadastrada na hora) e P3/R4/R6 acrescenta o setor.
 function initTerceiro() {
     document.getElementById('btn-terceiro').addEventListener('click', abrirModalTerceiro);
     document.getElementById('fechar-terceiro').addEventListener('click', () => fecharModal('modal-terceiro'));
@@ -791,6 +915,14 @@ function initTerceiro() {
     // A1: máscara + aviso visual, nunca bloqueia (D10).
     aplicarMascara(document.getElementById('terc-placa'), 'placa');
     document.getElementById('btn-registrar-terceiro').addEventListener('click', registrarTerceiro);
+    document.getElementById('terc-empresa').addEventListener('change', atualizarVisibilidadeNovaEmpresa);
+
+    if (podeEscrever('veiculo_portaria')) {
+        document.getElementById('btn-terc-nova-empresa').style.display = '';
+    }
+    document.getElementById('btn-terc-nova-empresa').addEventListener('click', () => {
+        abrirNovaEmpresa({ selectId: 'terc-empresa', modalParaReabrir: 'modal-terceiro', incluirOutra: true });
+    });
 
     let handlePlaca = null;
     document.getElementById('terc-placa').addEventListener('input', () => {
@@ -799,14 +931,31 @@ function initTerceiro() {
     });
 }
 
+// __OUTRA__ revela o nome livre + (se a pessoa cadastra) o checkbox —
+// escondido de quem não tem veiculo_portaria, porque sem o recurso o POST
+// /portaria/empresas daria 403 mesmo marcado.
+function atualizarVisibilidadeNovaEmpresa() {
+    const ehOutra = document.getElementById('terc-empresa').value === '__OUTRA__';
+    document.getElementById('terc-empresa-outra-wrap').style.display = ehOutra ? 'block' : 'none';
+    document.getElementById('terc-empresa-cadastrar-wrap').style.display =
+        (ehOutra && podeEscrever('veiculo_portaria')) ? 'flex' : 'none';
+}
+
 async function abrirModalTerceiro() {
     document.getElementById('terc-placa').value = '';
     document.getElementById('terc-placa-status').textContent = '';
     document.getElementById('terc-condutor').value = '';
     document.getElementById('terc-destino').value = '';
     document.getElementById('terc-sentido').value = 'ENTRADA';
+    document.getElementById('terc-empresa-nome').value = '';
+    document.getElementById('terc-empresa-cadastrar').checked = true;
     document.getElementById('terceiro-erro').style.display = 'none';
-    await preencherSelectEmpresas('terc-empresa');
+    veiculoTerceiroEncontrado = null;
+    await Promise.all([
+        preencherSelectEmpresas('terc-empresa', { incluirOutra: true }),
+        preencherSelectSetores('terc-setor'),
+    ]);
+    atualizarVisibilidadeNovaEmpresa();
     abrirModal('modal-terceiro');
 }
 
@@ -826,7 +975,10 @@ async function checarPlacaTerceiro() {
             statusEl.textContent = `Já cadastrado — ${c.veiculo.empresa_terceira_nome || 'sem empresa vinculada'} (${badgeCurto(c.veiculo.situacao)} ${c.veiculo.situacao})`;
             statusEl.style.color = 'var(--muted)';
             const empresaSelect = document.getElementById('terc-empresa');
-            if (c.veiculo.empresa_terceira_id) empresaSelect.value = c.veiculo.empresa_terceira_id;
+            if (c.veiculo.empresa_terceira_id) {
+                empresaSelect.value = c.veiculo.empresa_terceira_id;
+                atualizarVisibilidadeNovaEmpresa();
+            }
         } else {
             statusEl.textContent = 'Veículo novo — será cadastrado nesta empresa ao registrar.';
             statusEl.style.color = 'var(--muted)';
@@ -837,29 +989,63 @@ async function checarPlacaTerceiro() {
     }
 }
 
+// P1 — três caminhos, nenhum bloqueio (⛔ apagado o `return` que recusava
+// o registro sem empresa selecionada):
+//   empresa da lista            -> veículo TERCEIRO nasce vinculado (como hoje)
+//   __OUTRA__ + nome + cadastrar -> POST /portaria/empresas, pega o id, cai no caminho de cima
+//   __OUTRA__ + nome, sem marcar -> registra assim mesmo, terceiro_empresa em texto, sem criar veículo
+//   nada preenchido             -> registra assim mesmo, terceiro_empresa=null
 async function registrarTerceiro() {
     const erro = document.getElementById('terceiro-erro');
     erro.style.display = 'none';
 
-    const empresaId = document.getElementById('terc-empresa').value;
+    const empresaSelecionada = document.getElementById('terc-empresa').value;
     const placa = document.getElementById('terc-placa').value.trim();
     const condutor = document.getElementById('terc-condutor').value.trim();
+    const setorCodigo = document.getElementById('terc-setor').value || null;
     const destino = document.getElementById('terc-destino').value.trim();
     const sentido = document.getElementById('terc-sentido').value;
 
-    if (!empresaId) { erro.textContent = 'Selecione a empresa.'; erro.style.display = 'block'; return; }
     if (!placa) { erro.textContent = 'Digite a placa.'; erro.style.display = 'block'; return; }
     if (!condutor) { erro.textContent = 'Informe quem está dirigindo hoje.'; erro.style.display = 'block'; return; }
 
-    const empresaNome = (empresasCache || []).find(e => e.id === empresaId)?.nome || '';
     const btn = document.getElementById('btn-registrar-terceiro');
     btn.disabled = true;
+    let avisoEmpresa = null;
     try {
-        // Veículo de terceiro desconhecido: cadastra na hora (nasce
-        // PENDENTE, D6) antes de registrar o movimento — regra número um
-        // não impede o registro, mas o cadastro fica pendurado na empresa
-        // certa em vez de virar avulso perdido.
-        if (!veiculoTerceiroEncontrado) {
+        let empresaId = (empresaSelecionada && empresaSelecionada !== '__OUTRA__') ? empresaSelecionada : null;
+        let empresaNomeTexto = empresaId ? empresaNomePorId(empresaId) : '';
+
+        if (empresaSelecionada === '__OUTRA__') {
+            const nomeDigitado = document.getElementById('terc-empresa-nome').value.trim();
+            const cadastrarAgora = document.getElementById('terc-empresa-cadastrar').checked
+                && podeEscrever('veiculo_portaria');
+            if (nomeDigitado && cadastrarAgora) {
+                // 🔴 ck_veiculo_dono exige empresa_terceira_id pra TERCEIRO —
+                // nunca criar o veículo com empresa em texto (D5/R1).
+                const nova = await cadastrarEmpresa({ nome: nomeDigitado });
+                empresaId = nova.id;
+                empresaNomeTexto = nova.nome;
+            } else {
+                empresaNomeTexto = nomeDigitado;
+                // "avulso" só é verdade quando NÃO há veículo já cadastrado —
+                // com veiculoTerceiroEncontrado, o backend vincula pela
+                // placa mesmo assim; avisar "avulso" aqui ensinaria errado.
+                if (!nomeDigitado && !veiculoTerceiroEncontrado) {
+                    avisoEmpresa = 'Empresa não informada — passagem registrada como avulsa.';
+                }
+            }
+        } else if (!empresaId && !veiculoTerceiroEncontrado) {
+            avisoEmpresa = 'Empresa não informada — passagem registrada como avulsa.';
+        }
+
+        // Veículo de terceiro desconhecido COM empresa de verdade: cadastra
+        // na hora (nasce PENDENTE, D6) antes de registrar o movimento — a
+        // regra número um não impede o registro, mas o cadastro fica
+        // pendurado na empresa certa em vez de virar avulso perdido. Sem
+        // empresaId (empresa só em texto ou nada), pula direto pro
+        // movimento avulso — criar o veículo exigiria inventar um dono.
+        if (!veiculoTerceiroEncontrado && empresaId) {
             await apiPost('/portaria/veiculos', {
                 propriedade: 'TERCEIRO',
                 empresa_terceira_id: empresaId,
@@ -872,10 +1058,210 @@ async function registrarTerceiro() {
             placa,
             terceiro_nome: condutor,
             terceiro_destino: destino || null,
-            terceiro_empresa: empresaNome || null,
+            terceiro_empresa: empresaNomeTexto || null,
+            setor_codigo: setorCodigo,
         });
         fecharModal('modal-terceiro');
         veiculoTerceiroEncontrado = null;
+        await carregarDentro();
+        const avisos = [...(avisoEmpresa ? [avisoEmpresa] : []), ...(resp.avisos || [])];
+        if (avisos.length > 0) mostrarAvisoTopo(avisos.join(' · '));
+    } catch (err) {
+        if (err instanceof ApiError && err.status === 401) return;
+        erro.textContent = err.message;
+        erro.style.display = 'block';
+    } finally {
+        btn.disabled = false;
+    }
+}
+
+// ─── "+ Nova" empresa — compartilhado entre #terc-empresa e #cad-empresa ──
+// (Bloco D/modal Terceiro). ⚠️ O modal de origem fecha antes do de empresa
+// abrir (os dois são .modal-overlay de tela cheia, nunca dois ao mesmo
+// tempo) e reabre depois, com os campos preservados — abrirModalTerceiro
+// limpa tudo, então NUNCA é chamado de novo aqui.
+function abrirNovaEmpresa({ selectId, modalParaReabrir, incluirOutra }) {
+    novaEmpresaRetorno = { selectId, modalParaReabrir, incluirOutra };
+    document.getElementById('ne-nome').value = '';
+    document.getElementById('ne-cnpj').value = '';
+    document.getElementById('ne-observacao').value = '';
+    document.getElementById('nova-empresa-erro').style.display = 'none';
+    fecharModal(modalParaReabrir);
+    abrirModal('modal-nova-empresa');
+}
+
+function initNovaEmpresa() {
+    document.getElementById('fechar-nova-empresa').addEventListener('click', () => {
+        fecharModal('modal-nova-empresa');
+        if (novaEmpresaRetorno) abrirModal(novaEmpresaRetorno.modalParaReabrir);
+        novaEmpresaRetorno = null;
+    });
+    document.getElementById('btn-cancelar-nova-empresa').addEventListener('click', () => {
+        fecharModal('modal-nova-empresa');
+        if (novaEmpresaRetorno) abrirModal(novaEmpresaRetorno.modalParaReabrir);
+        novaEmpresaRetorno = null;
+    });
+    document.getElementById('btn-salvar-nova-empresa').addEventListener('click', salvarNovaEmpresa);
+}
+
+async function salvarNovaEmpresa() {
+    const erro = document.getElementById('nova-empresa-erro');
+    erro.style.display = 'none';
+    const nome = document.getElementById('ne-nome').value.trim();
+    if (!nome) { erro.textContent = 'Digite o nome.'; erro.style.display = 'block'; return; }
+
+    const btn = document.getElementById('btn-salvar-nova-empresa');
+    btn.disabled = true;
+    try {
+        const nova = await cadastrarEmpresa({
+            nome,
+            cnpj: document.getElementById('ne-cnpj').value.trim() || null,
+            observacao: document.getElementById('ne-observacao').value.trim() || null,
+        });
+        fecharModal('modal-nova-empresa');
+        if (novaEmpresaRetorno) {
+            const { selectId, modalParaReabrir, incluirOutra } = novaEmpresaRetorno;
+            await preencherSelectEmpresas(selectId, { incluirOutra });
+            document.getElementById(selectId).value = nova.id;
+            if (selectId === 'terc-empresa') atualizarVisibilidadeNovaEmpresa();
+            abrirModal(modalParaReabrir);
+        }
+        novaEmpresaRetorno = null;
+    } catch (err) {
+        if (err instanceof ApiError && err.status === 401) return;
+        erro.textContent = err.message;
+        erro.style.display = 'block';
+    } finally {
+        btn.disabled = false;
+    }
+}
+
+// ─── Reservado (P4/R1) — o ônibus que sai levando funcionário ──────────
+// ⛔ SEM placa (R1.b): nem no formulário, nem no payload. Não cadastra
+// veículo nenhum — POST /portaria/movimentos comum com `prefixo`
+// preenchido e `placa` ausente; o backend resolve onibus_id por
+// conveniência e nunca some com contador algum (D18).
+let motoristaReservadoFuncionarioId = null;
+
+function initReservado() {
+    if (!podeEscrever('acesso_veicular')) return;
+    const btn = document.getElementById('btn-reservado');
+    btn.style.display = '';
+    btn.addEventListener('click', abrirModalReservado);
+
+    document.getElementById('fechar-reservado').addEventListener('click', () => fecharModal('modal-reservado'));
+    document.getElementById('btn-cancelar-reservado').addEventListener('click', () => fecharModal('modal-reservado'));
+    document.getElementById('res-prefixo').addEventListener('blur', resolverPrefixoReservado);
+    document.getElementById('res-motorista-re').addEventListener('blur', resolverMotoristaReservado);
+    document.getElementById('btn-registrar-reservado').addEventListener('click', registrarReservado);
+}
+
+function abrirModalReservado() {
+    document.getElementById('res-prefixo').value = '';
+    document.getElementById('res-prefixo-status').textContent = '';
+    document.getElementById('res-motorista-re').value = '';
+    document.getElementById('res-motorista-status').textContent = '';
+    document.getElementById('res-motorista-nome').value = '';
+    document.getElementById('res-motorista-nome').style.display = 'none';
+    document.getElementById('res-hodometro').value = '';
+    document.getElementById('res-observacao').value = '';
+    document.getElementById('res-sentido').value = 'SAIDA';
+    document.getElementById('reservado-erro').style.display = 'none';
+    motoristaReservadoFuncionarioId = null;
+    abrirModal('modal-reservado');
+}
+
+// Mesma UX de resolver-prefixo em portaria-recolhida.page.js — mostra
+// "cadastrado"/"não cadastrado" ao sair do campo, nunca bloqueia o registro.
+async function resolverPrefixoReservado() {
+    const prefixo = document.getElementById('res-prefixo').value.trim();
+    const status = document.getElementById('res-prefixo-status');
+    status.textContent = '';
+    if (!prefixo) return;
+    try {
+        const resp = await apiGet(`/portaria/resolver-prefixo?prefixo=${encodeURIComponent(prefixo)}`);
+        if (resp.encontrado) {
+            status.textContent = resp.placa ? `Cadastrado — ${resp.placa}` : 'Cadastrado.';
+            status.style.color = 'var(--accent3)';
+        } else {
+            status.textContent = 'Não cadastrado — registra assim mesmo.';
+            status.style.color = 'var(--muted)';
+        }
+    } catch (err) {
+        if (err instanceof ApiError && err.status === 401) return;
+        console.error('[portaria] erro ao resolver prefixo do reservado:', err);
+    }
+}
+
+async function resolverMotoristaReservado() {
+    const campoRe = document.getElementById('res-motorista-re');
+    const status = document.getElementById('res-motorista-status');
+    const campoNome = document.getElementById('res-motorista-nome');
+    const re = campoRe.value.trim();
+    status.textContent = '';
+    motoristaReservadoFuncionarioId = null;
+    if (re.length < 3) {
+        campoNome.style.display = 'none';
+        return;
+    }
+    try {
+        const resp = await buscarPorRe(re);
+        if (resp.encontrado) {
+            motoristaReservadoFuncionarioId = resp.id;
+            campoNome.style.display = 'none';
+            campoNome.value = '';
+            if (resp.ativo === false) {
+                status.textContent = `${resp.nome} — desligado/inativo. Registra assim mesmo.`;
+                status.style.color = '#f59e0b';
+            } else {
+                status.textContent = resp.nome;
+                status.style.color = 'var(--accent3)';
+            }
+        } else {
+            status.textContent = 'Não encontrado — pode informar o nome.';
+            status.style.color = 'var(--muted)';
+            campoNome.style.display = 'block';
+        }
+    } catch (err) {
+        if (err instanceof ApiError && err.status === 401) return;
+        console.error('[portaria] erro ao resolver RE do motorista reservado:', err);
+    }
+}
+
+async function registrarReservado() {
+    const erro = document.getElementById('reservado-erro');
+    erro.style.display = 'none';
+    const prefixo = document.getElementById('res-prefixo').value.trim();
+    if (!prefixo) { erro.textContent = 'Digite o prefixo do ônibus.'; erro.style.display = 'block'; return; }
+
+    const condutorRe = document.getElementById('res-motorista-re').value.trim();
+    const hodometroStr = document.getElementById('res-hodometro').value.trim();
+    const observacao = document.getElementById('res-observacao').value.trim();
+    const sentido = document.getElementById('res-sentido').value;
+
+    // RE digitado: achou -> funcionario_id; não achou -> snapshot em texto
+    // (re_registrado/nome_registrado) — nunca bloqueia (regra número um).
+    const condutorPayload = {};
+    if (condutorRe) {
+        if (motoristaReservadoFuncionarioId) {
+            condutorPayload.funcionario_id = motoristaReservadoFuncionarioId;
+        } else {
+            condutorPayload.re_registrado = condutorRe;
+            condutorPayload.nome_registrado = document.getElementById('res-motorista-nome').value.trim() || null;
+        }
+    }
+
+    const btn = document.getElementById('btn-registrar-reservado');
+    btn.disabled = true;
+    try {
+        const resp = await apiPost('/portaria/movimentos', {
+            sentido,
+            prefixo,
+            hodometro_km: hodometroStr ? Number(hodometroStr) : null,
+            observacao: observacao || null,
+            ...condutorPayload,
+        });
+        fecharModal('modal-reservado');
         await carregarDentro();
         if (resp.avisos && resp.avisos.length > 0) mostrarAvisoTopo(resp.avisos.join(' · '));
     } catch (err) {
@@ -1100,6 +1486,9 @@ initConfirmacao();
 initEntradaAvulsa();
 initCadastroRapido();
 initTerceiro();
+initNovaEmpresa();
+initReservado();
+initFrotaToggle();
 initRecolhida();
 initAvaria();
 initLeitorPlaca();

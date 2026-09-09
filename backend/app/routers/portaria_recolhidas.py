@@ -56,7 +56,6 @@ from app.core.database import get_db
 from app.core.deps import exige, exige_qualquer
 from app.core.registro import normalizar_re
 from app.models.cadastro import Funcionario
-from app.models.frota import Onibus
 from app.models.operacoes import Escala
 from app.models.pessoas import Motorista
 from app.models.portaria import RecolhidaAnormal
@@ -66,6 +65,7 @@ from app.schemas.portaria import (
     RecolhidaGerencialRead, RecolhidaRead, ResolverPrefixoResponse, StatusRecolhida,
 )
 from app.services.manutencao_recolhida import abrir_ficha_de_recolhida, encerrar_ficha_de_recolhida
+from app.services.portaria import resolver_onibus_por_prefixo as _resolver_onibus_por_prefixo
 from app.services.pre_cadastro import registrar_pessoa_vista
 
 router = APIRouter(prefix="/portaria", tags=["portaria"])
@@ -95,26 +95,12 @@ _TETO_SUGESTAO_ESCALA = timedelta(hours=20)
 
 
 # ============================================================================
-# Resolução de prefixo -> ônibus e de escala -> sugestão de motorista.
-# Privadas deste router de propósito — regra de fronteira: portaria não
-# importa lógica de outro router (mesma convenção duplicada, não
-# compartilhada, de routers/ocorrencias.py:normalizar_prefixo).
+# Resolução de escala -> sugestão de motorista. Privada deste router de
+# propósito — regra de fronteira: portaria não importa lógica de outro
+# router (mesma convenção duplicada, não compartilhada, de
+# routers/ocorrencias.py:normalizar_prefixo). A resolução de prefixo ->
+# ônibus mudou de endereço: ver services/portaria.py::resolver_onibus_por_prefixo.
 # ============================================================================
-
-def _resolver_onibus_por_prefixo(db: Session, prefixo: str) -> Optional[Onibus]:
-    digitos = prefixo.strip()
-    if not digitos.isdigit():
-        return None
-    if len(digitos) == 5 and digitos[0] == "2":
-        numero = int(digitos[1:])
-    elif len(digitos) == 4:
-        numero = int(digitos)
-    else:
-        return None
-    if not (1000 <= numero <= 2999):
-        return None
-    return db.execute(select(Onibus).where(Onibus.numero_frota == numero)).scalar_one_or_none()
-
 
 def _sugerir_motorista_pela_escala(
     db: Session, onibus_id: UUID, momento_local: datetime

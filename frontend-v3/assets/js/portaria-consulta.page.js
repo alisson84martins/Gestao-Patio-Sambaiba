@@ -15,6 +15,7 @@ import { requireAuth, getCurrentUser, logout } from './auth.js';
 import { apiGet, ApiError } from './api.js';
 import { escapeHtml } from './escape.js';
 import { aplicarMascara } from './mascaras.js';
+import { preencherSelectSetores } from './portaria-setores.js';
 
 if (!requireAuth()) {
     throw new Error('Sessão não autenticada — interrompendo carga da página');
@@ -45,9 +46,11 @@ function lerFiltros() {
         placa: document.getElementById('filtro-placa').value.trim() || null,
         re: document.getElementById('filtro-re').value.trim() || null,
         propriedade: document.getElementById('filtro-propriedade').value || null,
+        setor_codigo: document.getElementById('filtro-setor').value || null,
         sentido: document.getElementById('filtro-sentido').value || null,
         apenas_nao_cadastrados: document.getElementById('filtro-nao-cadastrados').checked || null,
         apenas_suspensos: document.getElementById('filtro-suspensos').checked || null,
+        apenas_reservados: document.getElementById('filtro-reservados').checked || null,
     };
 }
 
@@ -69,13 +72,16 @@ function initFiltros() {
     // A1: só uppercase, sem agrupar nem exigir placa completa (é filtro
     // parcial) — mesma regra da máscara, importada de mascaras.js.
     aplicarMascara(document.getElementById('filtro-placa'), 'placa-parcial');
+    // P3/migration 041 — mesmo select fechado em três setores do registro,
+    // placeholder diferente porque aqui o vazio significa "todo setor".
+    preencherSelectSetores('filtro-setor', { placeholder: 'Todo setor' });
 
     // Mexer em qualquer filtro sai do atalho "sem saída há 24h+" — senão a
     // mudança de filtro parece não fazer nada, porque a lista continua
     // presa no /alertas/sem-saida.
     const recarregarDaPagina0 = () => { modoSemSaida = false; paginaAtual = 0; carregarLista(); };
-    ['filtro-data-inicio', 'filtro-data-fim', 'filtro-propriedade', 'filtro-sentido',
-        'filtro-nao-cadastrados', 'filtro-suspensos'].forEach(id => {
+    ['filtro-data-inicio', 'filtro-data-fim', 'filtro-propriedade', 'filtro-setor', 'filtro-sentido',
+        'filtro-nao-cadastrados', 'filtro-suspensos', 'filtro-reservados'].forEach(id => {
         document.getElementById(id).addEventListener('change', recarregarDaPagina0);
     });
     let handlePlaca = null;
@@ -95,9 +101,11 @@ function initFiltros() {
         document.getElementById('filtro-placa').value = '';
         document.getElementById('filtro-re').value = '';
         document.getElementById('filtro-propriedade').value = '';
+        document.getElementById('filtro-setor').value = '';
         document.getElementById('filtro-sentido').value = '';
         document.getElementById('filtro-nao-cadastrados').checked = false;
         document.getElementById('filtro-suspensos').checked = false;
+        document.getElementById('filtro-reservados').checked = false;
         modoSemSaida = false;
         recarregarDaPagina0();
     });
@@ -124,7 +132,7 @@ async function carregarLista() {
     const corpo = document.getElementById('consulta-corpo');
     const erro = document.getElementById('consulta-erro');
     erro.style.display = 'none';
-    corpo.innerHTML = '<tr><td colspan="7" class="oc-vazio">Carregando…</td></tr>';
+    corpo.innerHTML = '<tr><td colspan="8" class="oc-vazio">Carregando…</td></tr>';
     try {
         let dados;
         if (modoSemSaida) {
@@ -173,14 +181,17 @@ function fmtDataHora(iso) {
 function renderTabela(movimentos) {
     const corpo = document.getElementById('consulta-corpo');
     if (movimentos.length === 0) {
-        corpo.innerHTML = '<tr><td colspan="7" class="oc-vazio">Nenhum movimento encontrado.</td></tr>';
+        corpo.innerHTML = '<tr><td colspan="8" class="oc-vazio">Nenhum movimento encontrado.</td></tr>';
         return;
     }
+    // P4/R1.b — reservado não tem placa: a coluna Placa fica vazia e a
+    // coluna Prefixo mostra o número de frota (as duas nunca vêm juntas).
     corpo.innerHTML = movimentos.map(m => `
         <tr>
             <td>${fmtDataHora(m.momento)}</td>
             <td>${m.sentido === 'ENTRADA' ? 'Entrada' : 'Saída'}</td>
-            <td>${escapeHtml(m.placa_registrada)}${m.cadastrado ? '' : ' <span style="color:var(--muted)">(avulso)</span>'}</td>
+            <td>${escapeHtml(m.placa_registrada || '')}${(m.placa_registrada && !m.cadastrado) ? ' <span style="color:var(--muted)">(avulso)</span>' : ''}</td>
+            <td>${escapeHtml(m.prefixo || '')}</td>
             <td>${escapeHtml(m.re_registrado || '—')}</td>
             <td>${escapeHtml(m.nome_registrado || m.terceiro_nome || '—')}</td>
             <td>${escapeHtml(m.origem)}</td>
@@ -197,11 +208,12 @@ async function exportarCsv() {
         const qs = montarQueryString(lerFiltros(), { paginado: false });
         const dados = await apiGet(`/portaria/movimentos?${qs}`);
 
-        const cabecalho = ['Data/hora', 'Sentido', 'Placa', 'Cadastrado', 'RE', 'Nome', 'Origem', 'Observação'];
+        const cabecalho = ['Data/hora', 'Sentido', 'Placa', 'Prefixo', 'Cadastrado', 'RE', 'Nome', 'Origem', 'Observação'];
         const linhas = dados.map(m => [
             fmtDataHora(m.momento),
             m.sentido === 'ENTRADA' ? 'Entrada' : 'Saída',
-            m.placa_registrada,
+            m.placa_registrada || '',
+            m.prefixo || '',
             m.cadastrado ? 'Sim' : 'Não',
             m.re_registrado || '',
             m.nome_registrado || m.terceiro_nome || '',

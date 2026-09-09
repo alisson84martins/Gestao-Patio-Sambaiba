@@ -17,12 +17,14 @@ import { podeEscrever } from './sessao.js';
 import { escapeHtml } from './escape.js';
 import { API_BASE_URL, TOKEN_KEY } from './config.js';
 import { aplicarMascara } from './mascaras.js';
+import { preencherSelectEmpresas, cadastrarEmpresa } from './portaria-empresas.js';
 
 if (!requireAuth()) {
     throw new Error('Sessão não autenticada — interrompendo carga da página');
 }
 
-let empresasCache = null;
+// P1 — qual select retomar quando #modal-nova-empresa salva com sucesso.
+let novaEmpresaRetorno = null;
 let fichaVeiculoAtual = null; // VeiculoRead do modal de ficha aberto no momento
 let situacaoAlvo = null;      // 'AUTORIZADO' | 'SUSPENSO' | 'BAIXADO' — ação pendente de motivo
 
@@ -66,6 +68,14 @@ function badgeSituacao(situacao) {
     return `<span class="portaria-badge ${classe}">${escapeHtml(label)}</span>`;
 }
 
+// D18 — badge de propriedade no item da lista (classes de portaria-badge já
+// existentes, neutras — a cor que importa é a de situação).
+function badgePropriedade(propriedade) {
+    const mapa = { PARTICULAR: 'Particular', EMPRESA: 'Frota', TERCEIRO: 'Terceiro' };
+    const label = mapa[propriedade] || propriedade;
+    return `<span class="portaria-badge portaria-badge-propriedade">${escapeHtml(label)}</span>`;
+}
+
 // Complemento à base limpa de placa (migration 031): nunca barra o
 // cadastro, só sinaliza pra revisão manual depois — ver filtro da aba Todos.
 function badgeAtipica(v) {
@@ -76,32 +86,14 @@ function badgeAtipica(v) {
 
 function donoTexto(v) {
     if (v.propriedade === 'TERCEIRO') return v.empresa_terceira_nome || 'Terceiro';
-    if (v.propriedade === 'EMPRESA') return 'Veículo da empresa';
+    // D18 — "Frota · MOTO" em vez do genérico "Veículo da empresa", mesmo
+    // rótulo de renderEstadoConfirmacao() em portaria.page.js.
+    if (v.propriedade === 'EMPRESA') return `Frota · ${v.tipo}`;
     if (v.funcionario_nome) return v.funcionario_re ? `${v.funcionario_nome} · RE ${v.funcionario_re}` : v.funcionario_nome;
     // C1 (migration 039): RE digitado que não resolveu — regra número um,
     // o cadastro não foi recusado, mas o dono ainda não é funcionário.
     if (v.re_dono_texto) return `RE ${v.re_dono_texto} (não cadastrado)`;
     return '—';
-}
-
-async function preencherSelectEmpresas(selectId) {
-    const select = document.getElementById(selectId);
-    if (!empresasCache) {
-        try {
-            empresasCache = await apiGet('/portaria/empresas?apenas_ativas=true');
-        } catch (err) {
-            if (err instanceof ApiError && err.status === 401) return;
-            console.error('[portaria-veiculos] erro ao carregar empresas:', err);
-            empresasCache = [];
-        }
-    }
-    select.innerHTML = '<option value="">Selecione…</option>';
-    for (const emp of empresasCache) {
-        const opt = document.createElement('option');
-        opt.value = emp.id;
-        opt.textContent = emp.nome;
-        select.appendChild(opt);
-    }
 }
 
 // ─── Permissões (só decoram a UI — a trava real é o backend) ───────────
@@ -160,7 +152,7 @@ function renderLista(containerId, veiculos, { vazio, extra, selecionavel } = {})
                 <div class="portaria-item-placa">${escapeHtml(v.placa)}</div>
                 <div class="portaria-item-sub">${escapeHtml(donoTexto(v))}${linhaExtra}</div>
             </div>
-            <div class="portaria-item-hora">${badgeSituacao(v.situacao)}</div>
+            <div class="portaria-item-hora">${badgePropriedade(v.propriedade)} ${badgeSituacao(v.situacao)}</div>
         `;
         btn.addEventListener('click', (e) => {
             if (e.target.classList.contains('portaria-item-check')) return;
@@ -614,6 +606,14 @@ function initNovoVeiculo() {
     });
 
     document.getElementById('btn-salvar-novo-veiculo').addEventListener('click', salvarNovoVeiculo);
+
+    // P1 — "+ Nova" resolve sem sair do modal (a empresa continua
+    // obrigatória pra TERCEIRO, o CHECK exige — só o cadastro da empresa
+    // deixa de exigir trocar de tela).
+    document.getElementById('btn-nv-nova-empresa').style.display = '';
+    document.getElementById('btn-nv-nova-empresa').addEventListener('click', () => {
+        abrirNovaEmpresa({ selectId: 'nv-empresa', modalParaReabrir: 'modal-novo-veiculo' });
+    });
 }
 
 function atualizarCamposPropriedadeNv() {
@@ -707,17 +707,31 @@ async function salvarNovoVeiculo() {
 }
 
 // ─── Cadastrar empresa terceira ─────────────────────────────────────────
+// P1 — mesmo desenho de portaria.page.js: "+ Empresa" do topo cadastra
+// solto (selectId/modalParaReabrir nulos); "+ Nova" de dentro do cadastro
+// de veículo (#nv-empresa) fecha modal-novo-veiculo, cadastra, e volta com
+// a empresa nova já selecionada.
 function initNovaEmpresa() {
-    document.getElementById('btn-nova-empresa').addEventListener('click', () => {
-        document.getElementById('ne-nome').value = '';
-        document.getElementById('ne-cnpj').value = '';
-        document.getElementById('ne-observacao').value = '';
-        document.getElementById('nova-empresa-erro').style.display = 'none';
-        abrirModal('modal-nova-empresa');
-    });
-    document.getElementById('fechar-nova-empresa').addEventListener('click', () => fecharModal('modal-nova-empresa'));
-    document.getElementById('btn-cancelar-nova-empresa').addEventListener('click', () => fecharModal('modal-nova-empresa'));
+    document.getElementById('btn-nova-empresa').addEventListener('click', () => abrirNovaEmpresa());
+    document.getElementById('fechar-nova-empresa').addEventListener('click', fecharNovaEmpresaEVoltar);
+    document.getElementById('btn-cancelar-nova-empresa').addEventListener('click', fecharNovaEmpresaEVoltar);
     document.getElementById('btn-salvar-nova-empresa').addEventListener('click', salvarNovaEmpresa);
+}
+
+function fecharNovaEmpresaEVoltar() {
+    fecharModal('modal-nova-empresa');
+    if (novaEmpresaRetorno && novaEmpresaRetorno.modalParaReabrir) abrirModal(novaEmpresaRetorno.modalParaReabrir);
+    novaEmpresaRetorno = null;
+}
+
+function abrirNovaEmpresa({ selectId = null, modalParaReabrir = null } = {}) {
+    novaEmpresaRetorno = { selectId, modalParaReabrir };
+    document.getElementById('ne-nome').value = '';
+    document.getElementById('ne-cnpj').value = '';
+    document.getElementById('ne-observacao').value = '';
+    document.getElementById('nova-empresa-erro').style.display = 'none';
+    if (modalParaReabrir) fecharModal(modalParaReabrir);
+    abrirModal('modal-nova-empresa');
 }
 
 async function salvarNovaEmpresa() {
@@ -729,13 +743,19 @@ async function salvarNovaEmpresa() {
     const btn = document.getElementById('btn-salvar-nova-empresa');
     btn.disabled = true;
     try {
-        await apiPost('/portaria/empresas', {
+        const nova = await cadastrarEmpresa({
             nome,
             cnpj: document.getElementById('ne-cnpj').value.trim() || null,
             observacao: document.getElementById('ne-observacao').value.trim() || null,
         });
-        empresasCache = null; // força recarregar na próxima abertura de select
         fecharModal('modal-nova-empresa');
+        if (novaEmpresaRetorno && novaEmpresaRetorno.selectId) {
+            const { selectId, modalParaReabrir } = novaEmpresaRetorno;
+            await preencherSelectEmpresas(selectId);
+            document.getElementById(selectId).value = nova.id;
+            if (modalParaReabrir) abrirModal(modalParaReabrir);
+        }
+        novaEmpresaRetorno = null;
     } catch (err) {
         if (err instanceof ApiError && err.status === 401) return;
         erro.textContent = err.message;

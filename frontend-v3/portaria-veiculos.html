@@ -203,14 +203,23 @@
         </div>
         <div class="form-group" id="nv-empresa-wrap" style="display:none">
             <label class="form-label" for="nv-empresa">Empresa terceira</label>
-            <select class="form-select" id="nv-empresa"></select>
+            <div style="display:flex;gap:8px;align-items:center">
+                <select class="form-select" id="nv-empresa" style="flex:1"></select>
+                <button type="button" class="btn btn-ghost" id="btn-nv-nova-empresa" style="display:none;white-space:nowrap">+ Nova</button>
+            </div>
         </div>
         <div class="portaria-form-grid">
             <div class="form-group">
                 <label class="form-label" for="nv-tipo">Tipo</label>
+                <!-- D18/migration 041 — frota de apoio: sem ONIBUS de
+                     propósito, reservado é passagem, nunca cadastro (R1). -->
                 <select class="form-select" id="nv-tipo">
                     <option value="CARRO">Carro</option>
                     <option value="MOTO">Moto</option>
+                    <option value="VAN">Van</option>
+                    <option value="GUINCHO">Guincho</option>
+                    <option value="CAMINHAO">Caminhão</option>
+                    <option value="UTILITARIO">Utilitário</option>
                     <option value="OUTRO">Outro</option>
                 </select>
             </div>

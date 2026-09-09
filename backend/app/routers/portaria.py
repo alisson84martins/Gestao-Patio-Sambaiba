@@ -12,7 +12,7 @@ from typing import Annotated, Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile, status
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from app.core.config import FUSO_OPERACAO, get_settings
@@ -21,15 +21,16 @@ from app.core.deps import exige
 from app.core.placa import normalizar_placa
 from app.core.uploads import ler_upload_limitado, validar_assinatura
 from app.models.cadastro import Funcionario
-from app.models.portaria import Credencial, MovimentoPortaria, VeiculoPortaria
+from app.models.portaria import Credencial, MovimentoPortaria, PortariaSetor, VeiculoPortaria
 from app.schemas.portaria import (
-    BuscaVeiculoResponse, LeituraPlacaResponse, MovimentoCreate, MovimentoCreateResponse,
-    MovimentoRead, PortariaDentroResponse, Propriedade, RecursosPortariaResponse,
-    ResolverReResponse, Sentido, VeiculoCandidato,
+    BuscaVeiculoResponse, FrotaItemRead, FrotaResponse, LeituraPlacaResponse, MovimentoCreate,
+    MovimentoCreateResponse, MovimentoDentroRead, MovimentoRead, PortariaDentroResponse,
+    Propriedade, RecursosPortariaResponse, ResolverPrefixoAcessoResponse, ResolverReResponse,
+    Sentido, SetorRead, VeiculoCandidato,
 )
 from app.services import leitura_placa
 from app.services.identidade import resolver_por_re
-from app.services.portaria import veiculo_read
+from app.services.portaria import resolver_onibus_por_prefixo, veiculo_read
 
 router = APIRouter(prefix="/portaria", tags=["portaria"])
 
@@ -53,11 +54,18 @@ def recursos(usuario: LeituraAcesso):
 
 
 # ============================================================================
-# "DENTRO AGORA" (D3, D17) — deriva o mesmo estado de portaria.vw_dentro via
-# ORM, sem depender da view: a view usa DISTINCT ON (Postgres puro) e os
+# "DENTRO AGORA" (D3, D17, D18) — deriva o mesmo estado de portaria.vw_dentro
+# via ORM, sem depender da view: a view usa DISTINCT ON (Postgres puro) e os
 # testes deste módulo rodam em SQLite (Bloco D). ⛔ Não filtra dentro da
 # view, e ⛔ não "fecha" movimento nenhum automaticamente — só separa em
 # duas listas o que já existe.
+#
+# 🔴 D18: frota de apoio (veiculo.propriedade='EMPRESA') e reservado
+# (prefixo preenchido) ficam de fora — têm painel/contador próprios
+# (GET /portaria/frota; reservado não soma em nenhum). A exclusão entra
+# DENTRO da subquery que acha o último movimento por placa, nunca só no
+# resultado final — senão a última passagem de uma placa excluída ainda
+# mascararia a entrada anterior de um veículo de verdade com aquela placa.
 # ============================================================================
 
 def _dentro_e_sem_saida(
@@ -67,6 +75,12 @@ def _dentro_e_sem_saida(
         select(
             MovimentoPortaria.placa_registrada.label("placa"),
             func.max(MovimentoPortaria.momento).label("momento_max"),
+        )
+        .outerjoin(VeiculoPortaria, VeiculoPortaria.id == MovimentoPortaria.veiculo_id)
+        .where(
+            MovimentoPortaria.prefixo.is_(None),
+            MovimentoPortaria.placa_registrada.isnot(None),
+            or_(VeiculoPortaria.id.is_(None), VeiculoPortaria.propriedade != "EMPRESA"),
         )
         .group_by(MovimentoPortaria.placa_registrada)
         .subquery()
@@ -91,6 +105,55 @@ def _dentro_e_sem_saida(
     return dentro, sem_saida
 
 
+def _enriquecer_dentro(db: Session, movimentos: list[MovimentoPortaria]) -> list[MovimentoDentroRead]:
+    """D18: uma query pra veículo + uma pra setor, nunca uma por item — a
+    tela faz polling a cada POLLING_INTERVAL_MS, N+1 aqui roda pra sempre."""
+    veiculo_ids = {m.veiculo_id for m in movimentos if m.veiculo_id}
+    veiculos = {
+        v.id: v for v in db.execute(
+            select(VeiculoPortaria).where(VeiculoPortaria.id.in_(veiculo_ids))
+        ).scalars()
+    } if veiculo_ids else {}
+
+    setor_codigos = {m.setor_codigo for m in movimentos if m.setor_codigo}
+    setores = {
+        s.codigo: s.nome for s in db.execute(
+            select(PortariaSetor).where(PortariaSetor.codigo.in_(setor_codigos))
+        ).scalars()
+    } if setor_codigos else {}
+
+    resultado: list[MovimentoDentroRead] = []
+    for mov in movimentos:
+        veiculo = veiculos.get(mov.veiculo_id) if mov.veiculo_id else None
+        # EMPRESA já saiu na subquery de _dentro_e_sem_saida — só resta
+        # PARTICULAR/TERCEIRO (cadastrado). Sem veiculo_id (P1): terceiro
+        # avulso — empresa sem cadastro (__OUTRA__ sem marcar "cadastrar")
+        # ou placa desconhecida com condutor identificado — ainda é
+        # TERCEIRO se veio terceiro_empresa OU terceiro_nome; só cai em
+        # AVULSO de verdade quando não sobrou identificação nenhuma. Sem
+        # isso, o prestador sem empresa cadastrada aparecia em "Particular"
+        # na tela em vez de "Terceiros".
+        if veiculo is not None:
+            grupo = veiculo.propriedade
+        elif mov.terceiro_empresa or mov.terceiro_nome:
+            grupo = "TERCEIRO"
+        else:
+            grupo = "AVULSO"
+        # setor_nome já é campo de MovimentoRead (resolvido aqui, não é
+        # coluna) — entra no dump antes do spread, não como kwarg separado,
+        # senão colide com o que o dump já carrega.
+        base = MovimentoRead.model_validate(mov).model_dump()
+        base["setor_nome"] = setores.get(mov.setor_codigo) if mov.setor_codigo else None
+        resultado.append(MovimentoDentroRead(
+            **base,
+            veiculo_propriedade=veiculo.propriedade if veiculo else None,
+            veiculo_tipo=veiculo.tipo if veiculo else None,
+            marca_modelo=veiculo.marca_modelo if veiculo else None,
+            grupo=grupo,
+        ))
+    return resultado
+
+
 @router.get(
     "/dentro",
     response_model=PortariaDentroResponse,
@@ -102,7 +165,118 @@ def dentro_agora(
     horas: int = Query(36, ge=1, description="Limite para separar 'dentro' de 'sem_saida'"),
 ):
     dentro, sem_saida = _dentro_e_sem_saida(db, horas)
-    return PortariaDentroResponse(dentro=dentro, sem_saida=sem_saida, horas=horas)
+    dentro_enriquecido = _enriquecer_dentro(db, dentro)
+
+    contagem = {"PARTICULAR": 0, "TERCEIRO": 0, "AVULSO": 0}
+    for mov in dentro_enriquecido:
+        contagem[mov.grupo] = contagem.get(mov.grupo, 0) + 1
+
+    return PortariaDentroResponse(
+        dentro=dentro_enriquecido, sem_saida=sem_saida, horas=horas, contagem=contagem,
+    )
+
+
+# ============================================================================
+# FROTA DE APOIO (D18, migration 041) — leitura INVERTIDA: a pergunta é
+# "cadê a moto", não "quem está dentro". ⛔ Duas queries no total (veículos
+# + último movimento por placa), nunca uma por veículo.
+# ============================================================================
+
+@router.get(
+    "/frota",
+    response_model=FrotaResponse,
+    summary="Painel da frota de apoio (moto/van/guincho/...) — quem está na rua, com quem e desde quando (D18)",
+)
+def frota(usuario: LeituraAcesso, db: Annotated[Session, Depends(get_db)]):
+    veiculos = db.execute(
+        select(VeiculoPortaria)
+        .where(VeiculoPortaria.propriedade == "EMPRESA", VeiculoPortaria.ativo.is_(True))
+        .order_by(VeiculoPortaria.placa)
+    ).scalars().all()
+
+    placas = [v.placa for v in veiculos]
+    ultimo_por_placa = (
+        select(
+            MovimentoPortaria.placa_registrada.label("placa"),
+            func.max(MovimentoPortaria.momento).label("momento_max"),
+        )
+        .where(MovimentoPortaria.placa_registrada.in_(placas))
+        .group_by(MovimentoPortaria.placa_registrada)
+        .subquery()
+    ) if placas else None
+    ultimos: dict[str, MovimentoPortaria] = {}
+    if ultimo_por_placa is not None:
+        linhas = db.execute(
+            select(MovimentoPortaria).join(
+                ultimo_por_placa,
+                (MovimentoPortaria.placa_registrada == ultimo_por_placa.c.placa)
+                & (MovimentoPortaria.momento == ultimo_por_placa.c.momento_max),
+            )
+        ).scalars().all()
+        ultimos = {m.placa_registrada: m for m in linhas}
+
+    na_rua: list[FrotaItemRead] = []
+    disponiveis: list[FrotaItemRead] = []
+    for v in veiculos:
+        ultimo = ultimos.get(v.placa)
+        base = dict(veiculo_id=v.id, placa=v.placa, tipo=v.tipo, marca_modelo=v.marca_modelo)
+        if ultimo is not None and ultimo.sentido == "SAIDA":
+            na_rua.append(FrotaItemRead(
+                **base, na_rua=True, desde=ultimo.momento,
+                condutor_re=ultimo.re_registrado, condutor_nome=ultimo.nome_registrado,
+                hodometro_km=ultimo.hodometro_km,
+            ))
+        else:
+            # ENTRADA ou nenhum movimento -> disponível na garagem.
+            disponiveis.append(FrotaItemRead(**base, na_rua=False))
+
+    return FrotaResponse(na_rua=na_rua, disponiveis=disponiveis)
+
+
+# ============================================================================
+# SETOR de destino da visita (P3/R4/R6, migration 041) — espelha
+# listar_empresas. Lista fechada em três (R6), mas vem do banco, não de
+# Literal — desativar é UPDATE, nunca exige deploy.
+# ============================================================================
+
+@router.get(
+    "/setores",
+    response_model=list[SetorRead],
+    summary="Lista setores de destino da visita (Manutenção/Operação/Administração — R6)",
+)
+def listar_setores(
+    usuario: LeituraAcesso,
+    db: Annotated[Session, Depends(get_db)],
+    apenas_ativos: bool = True,
+):
+    stmt = select(PortariaSetor)
+    if apenas_ativos:
+        stmt = stmt.where(PortariaSetor.ativo.is_(True))
+    stmt = stmt.order_by(PortariaSetor.ordem)
+    return db.execute(stmt).scalars().all()
+
+
+# ============================================================================
+# RESOLVER PREFIXO (P4, migration 041) — mesma UX de "cadastrado"/"não
+# cadastrado" que /portaria/recolhidas/resolver-prefixo já dava, mas gated
+# por acesso_veicular (quem registra passagem), não recolhida_anormal.
+# ⛔ Não achar NÃO bloqueia — o reservado registra com o prefixo digitado.
+# ============================================================================
+
+@router.get(
+    "/resolver-prefixo",
+    response_model=ResolverPrefixoAcessoResponse,
+    summary="Mostra 'cadastrado'/'não cadastrado' pro prefixo do reservado (P4) — nunca bloqueia o registro",
+)
+def resolver_prefixo_acesso(
+    usuario: LeituraAcesso,
+    db: Annotated[Session, Depends(get_db)],
+    prefixo: str = Query(..., min_length=1, max_length=10),
+):
+    onibus = resolver_onibus_por_prefixo(db, prefixo)
+    if onibus is None:
+        return ResolverPrefixoAcessoResponse(encontrado=False)
+    return ResolverPrefixoAcessoResponse(encontrado=True, placa=onibus.placa)
 
 
 @router.get(
@@ -362,9 +536,38 @@ def registrar_movimento(
 ):
     avisos: list[str] = []
 
-    veiculo = db.execute(
-        select(VeiculoPortaria).where(VeiculoPortaria.placa == payload.placa, VeiculoPortaria.ativo.is_(True))
-    ).scalar_one_or_none()
+    # R1.b: reservado não tem placa — sem ela, ⛔ nem consultar veículo
+    # (reservado nunca tem cadastro; e `placa == None` viraria `placa IS
+    # NULL` em SQL, que casaria sorrateiramente com outro movimento sem
+    # placa se isto fosse reaproveitado pra buscar veículo).
+    veiculo = None
+    if payload.placa:
+        veiculo = db.execute(
+            select(VeiculoPortaria).where(VeiculoPortaria.placa == payload.placa, VeiculoPortaria.ativo.is_(True))
+        ).scalar_one_or_none()
+
+    # P4/R1: resolve onibus_id por conveniência de leitura — ⛔ nunca
+    # preenche placa a partir do prefixo (R1.b). Não achou: registra assim
+    # mesmo, com o prefixo digitado (regra número um).
+    onibus_id: Optional[UUID] = None
+    if payload.prefixo:
+        onibus = resolver_onibus_por_prefixo(db, payload.prefixo)
+        onibus_id = onibus.id if onibus is not None else None
+
+    # P3/R4/R6: setor opcional. Código inexistente -> aviso, nunca 422
+    # (regra número um aplicada ao campo novo) — o destino fica só no
+    # texto digitado. Setor válido sem texto -> terceiro_destino herda o
+    # nome do setor (os dois convivem, nunca um substitui o outro).
+    setor_codigo_valido: Optional[str] = None
+    terceiro_destino = payload.terceiro_destino
+    if payload.setor_codigo:
+        setor = db.get(PortariaSetor, payload.setor_codigo)
+        if setor is not None:
+            setor_codigo_valido = setor.codigo
+            if not (terceiro_destino or "").strip():
+                terceiro_destino = setor.nome
+        else:
+            avisos.append(f"Setor '{payload.setor_codigo}' não encontrado — destino ficou só no texto.")
 
     # Snapshots (D4) — sempre preenchidos, mesmo com veiculo_id.
     re_registrado = payload.re_registrado
@@ -407,12 +610,21 @@ def registrar_movimento(
     if veiculo is not None and veiculo.exige_hodometro and payload.hodometro_km is None:
         avisos.append("Hodômetro não informado — ficou pendente.")
 
-    if veiculo is None:
+    # P4: reservado não tem veiculo cadastrado (nunca passa pelo `exige_hodometro`
+    # acima), mas o hodômetro é pedido sempre mesmo assim — regra número um,
+    # em branco avisa, nunca bloqueia.
+    if payload.prefixo and payload.hodometro_km is None:
+        avisos.append("Hodômetro não informado — ficou pendente.")
+
+    if veiculo is None and payload.placa:
         avisos.append("Placa não cadastrada — passagem registrada como avulsa.")
 
     # Conveniência (D3) — nunca requisito. Se não bater, ignora o vínculo.
+    # ⛔ Exige payload.placa — com ela None (reservado), `entrada.placa_registrada
+    # == payload.placa` comparando None == None casaria com qualquer outra
+    # entrada de reservado sem relação nenhuma com esta passagem.
     movimento_entrada_id: Optional[UUID] = None
-    if payload.sentido == "SAIDA" and payload.movimento_entrada_id is not None:
+    if payload.sentido == "SAIDA" and payload.movimento_entrada_id is not None and payload.placa:
         entrada = db.get(MovimentoPortaria, payload.movimento_entrada_id)
         if entrada is not None and entrada.sentido == "ENTRADA" and entrada.placa_registrada == payload.placa:
             movimento_entrada_id = payload.movimento_entrada_id
@@ -441,8 +653,11 @@ def registrar_movimento(
         re_registrado=re_registrado,
         nome_registrado=nome_registrado,
         terceiro_nome=payload.terceiro_nome,
-        terceiro_destino=payload.terceiro_destino,
+        terceiro_destino=terceiro_destino,
         terceiro_empresa=payload.terceiro_empresa,
+        prefixo=payload.prefixo,
+        onibus_id=onibus_id,
+        setor_codigo=setor_codigo_valido,
         hodometro_km=payload.hodometro_km,
         cadastrado=veiculo is not None,
         origem=payload.origem,
@@ -484,6 +699,11 @@ def listar_movimentos(
     sentido: Optional[Sentido] = None,
     apenas_nao_cadastrados: bool = False,
     apenas_suspensos: bool = False,
+    # P3/P4 (migration 041) — é o que faz setor e reservado valerem a pena:
+    # "quantos terceiros foram à manutenção em setembro", "quantos
+    # reservados saíram hoje".
+    setor_codigo: Optional[str] = None,
+    apenas_reservados: bool = False,
     skip: int = Query(0, ge=0),
     limit: int = Query(200, ge=1, le=1000),
 ):
@@ -504,6 +724,10 @@ def listar_movimentos(
         stmt = stmt.where(VeiculoPortaria.propriedade == propriedade)
     if local_codigo:
         stmt = stmt.where(MovimentoPortaria.local_codigo == local_codigo)
+    if setor_codigo:
+        stmt = stmt.where(MovimentoPortaria.setor_codigo == setor_codigo)
+    if apenas_reservados:
+        stmt = stmt.where(MovimentoPortaria.prefixo.isnot(None))
     if sentido:
         stmt = stmt.where(MovimentoPortaria.sentido == sentido)
     if apenas_nao_cadastrados:

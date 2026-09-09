@@ -4,12 +4,23 @@
 era importada por portaria.py — função privada cruzando módulo, sem ciclo,
 mas num repo que é vitrine isso pertence a services, não a um router
 importando outro.
+
+`resolver_onibus_por_prefixo` (migration 041/P4): morava como função
+privada em routers/portaria_recolhidas.py. Move pra cá porque o reservado
+(routers/portaria.py, recurso acesso_veicular) precisa da mesma resolução
+que a recolhida anormal (recurso recolhida_anormal) já fazia — dois
+routers, mesma lógica, nunca um importando o outro. A rota antiga
+GET /portaria/recolhidas/resolver-prefixo continua intacta; a nova
+GET /portaria/resolver-prefixo existe porque aquela exige
+`recolhida_anormal` e quem registra passagem é gated por `acesso_veicular`.
 """
 from typing import Optional
 
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models.cadastro import Funcionario
+from app.models.frota import Onibus
 from app.models.portaria import EmpresaTerceira, VeiculoPortaria
 from app.schemas.portaria import VeiculoRead
 
@@ -36,3 +47,23 @@ def veiculo_read(veiculo: VeiculoPortaria, db: Session) -> VeiculoRead:
         if decisor is not None:
             extras["situacao_por_nome"] = decisor.nome
     return VeiculoRead.model_validate(veiculo).model_copy(update=extras)
+
+
+def resolver_onibus_por_prefixo(db: Session, prefixo: str) -> Optional[Onibus]:
+    """Mesma regra de routers/ocorrencias.py:normalizar_prefixo — número de
+    frota é '1' + 4 dígitos (ex.: 21234) ou só os 4 dígitos (1234), sempre
+    na faixa 1000-2999. ⛔ Nunca recusa quem chama: prefixo fora do padrão
+    ou não cadastrado devolve None, nunca levanta exceção (regra número
+    um — quem chama decide o aviso)."""
+    digitos = prefixo.strip()
+    if not digitos.isdigit():
+        return None
+    if len(digitos) == 5 and digitos[0] == "2":
+        numero = int(digitos[1:])
+    elif len(digitos) == 4:
+        numero = int(digitos)
+    else:
+        return None
+    if not (1000 <= numero <= 2999):
+        return None
+    return db.execute(select(Onibus).where(Onibus.numero_frota == numero)).scalar_one_or_none()

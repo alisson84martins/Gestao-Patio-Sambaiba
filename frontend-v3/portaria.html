@@ -40,10 +40,12 @@
 
 <main class="patio-main">
 
-    <!-- D17/§1.4 — número grande é SÓ `dentro`; `sem_saida` nunca soma aqui. -->
+    <!-- D17/§1.4 — número grande é SÓ `dentro` (particular+terceiro+avulso,
+         D18); frota e reservado nunca somam aqui — o backend já não manda. -->
     <div class="portaria-contador">
         <div class="portaria-contador-numero" id="portaria-contador-numero">—</div>
         <div class="portaria-contador-label">Dentro agora</div>
+        <div class="portaria-contador-sublabel">particular · terceiro</div>
     </div>
 
     <div class="portaria-busca-bar">
@@ -56,6 +58,8 @@
     <div class="portaria-acoes-rapidas">
         <button type="button" class="btn btn-primary" id="btn-entrada-avulsa">+ Entrada</button>
         <button type="button" class="btn btn-ghost" id="btn-terceiro">Terceiro</button>
+        <!-- P4 — reservado (ônibus que sai levando funcionário); revelado só com podeEscrever('acesso_veicular'). -->
+        <button type="button" class="btn btn-ghost" id="btn-reservado" style="display:none">Reservado</button>
         <!-- Bloco C — Recolhida saiu da barra e virou botão; revelado só com podeEscrever('recolhida_anormal'). -->
         <button type="button" class="btn btn-ghost" id="btn-recolhida" style="display:none">Recolhida</button>
         <!-- Bloco G — Avaria na saída da frota; revelado só com podeEscrever('acesso_veicular'). -->
@@ -66,9 +70,30 @@
     <div id="portaria-busca-vazia" class="oc-vazio" style="display:none">Nenhum veículo encontrado para esta busca.</div>
     <div id="portaria-busca-erro" style="display:none;color:var(--accent);font-size:0.85rem;margin-bottom:12px"></div>
 
-    <section class="portaria-secao">
-        <div class="portaria-secao-titulo">Dentro agora</div>
-        <div id="lista-dentro" aria-live="polite"><div class="patio-loading">Carregando…</div></div>
+    <!-- D18 — duas seções de "dentro agora": Particular (avulso entra aqui,
+         com a etiqueta "não cadastrado" que já existe) e Terceiros. Seção
+         vazia não aparece — nada de "Nenhum veículo" duas vezes. -->
+    <section class="portaria-secao" id="secao-dentro-particular" style="display:none">
+        <div class="portaria-secao-titulo">Particular</div>
+        <div id="lista-dentro-particular" aria-live="polite"></div>
+    </section>
+
+    <section class="portaria-secao" id="secao-dentro-terceiros" style="display:none">
+        <div class="portaria-secao-titulo">Terceiros</div>
+        <div id="lista-dentro-terceiros" aria-live="polite"></div>
+    </section>
+
+    <div id="dentro-loading" class="patio-loading">Carregando…</div>
+
+    <!-- D18 — painel invertido da frota de apoio: a pergunta é "cadê a
+         moto", não "quem está dentro". Quem está na rua fica aberto; as
+         disponíveis ficam colapsadas (ver portaria_frota_disponiveis_aberta
+         no localStorage). Nunca soma no contador principal (R3/D18). -->
+    <section class="portaria-secao" id="secao-frota" style="display:none">
+        <div class="portaria-secao-titulo" id="frota-titulo">Frota de apoio</div>
+        <div id="lista-frota-na-rua"></div>
+        <button type="button" class="portaria-frota-toggle" id="btn-frota-disponiveis-toggle"></button>
+        <div id="lista-frota-disponiveis" style="display:none"></div>
     </section>
 
     <section class="portaria-secao portaria-secao-apagada" id="secao-sem-saida" style="display:none">
@@ -123,6 +148,13 @@
             <div class="portaria-ficha-linha" id="confirmacao-km-entrada"></div>
         </div>
 
+        <!-- P3/R4/R6 — só TERCEIRO ou ⚪ (não cadastrado): quem trabalha
+             aqui (PARTICULAR/frota) não visita setor. -->
+        <div class="form-group" id="confirmacao-setor-wrap" style="display:none">
+            <label class="form-label" for="confirmacao-setor">Setor de destino</label>
+            <select class="form-select" id="confirmacao-setor"></select>
+        </div>
+
         <div class="form-group" id="confirmacao-observacao-wrap">
             <label class="form-label" for="confirmacao-observacao">Observação<span id="confirmacao-obs-obrigatoria" style="display:none;color:var(--accent)"> (obrigatória)</span></label>
             <textarea class="form-input form-textarea" id="confirmacao-observacao" rows="2" placeholder="Opcional"></textarea>
@@ -173,15 +205,24 @@
 
         <div class="form-group" id="cad-empresa-wrap" style="display:none">
             <label class="form-label" for="cad-empresa">Empresa terceira</label>
-            <select class="form-select" id="cad-empresa"></select>
+            <div style="display:flex;gap:8px;align-items:center">
+                <select class="form-select" id="cad-empresa" style="flex:1"></select>
+                <button type="button" class="btn btn-ghost" id="btn-cad-nova-empresa" style="display:none;white-space:nowrap">+ Nova</button>
+            </div>
         </div>
 
         <div class="portaria-form-grid">
             <div class="form-group">
                 <label class="form-label" for="cad-tipo">Tipo</label>
+                <!-- D18/migration 041 — frota de apoio: sem ONIBUS de
+                     propósito, reservado é passagem, nunca cadastro (R1). -->
                 <select class="form-select" id="cad-tipo">
                     <option value="CARRO">Carro</option>
                     <option value="MOTO">Moto</option>
+                    <option value="VAN">Van</option>
+                    <option value="GUINCHO">Guincho</option>
+                    <option value="CAMINHAO">Caminhão</option>
+                    <option value="UTILITARIO">Utilitário</option>
                     <option value="OUTRO">Outro</option>
                 </select>
             </div>
@@ -213,9 +254,21 @@
         <button type="button" class="modal-close" id="fechar-terceiro">✕</button>
         <div class="modal-title">Veículo de terceiro</div>
 
+        <!-- P1 — empresa deixa de ser pré-requisito: escolhida, digitada ou
+             cadastrada na hora, nunca uma parede (⛔ o antigo `return` no
+             registrarTerceiro recusava o registro sem ela). -->
         <div class="form-group">
             <label class="form-label" for="terc-empresa">Empresa prestadora</label>
-            <select class="form-select" id="terc-empresa"></select>
+            <div style="display:flex;gap:8px;align-items:center">
+                <select class="form-select" id="terc-empresa" style="flex:1"></select>
+                <button type="button" class="btn btn-ghost" id="btn-terc-nova-empresa" style="display:none;white-space:nowrap">+ Nova</button>
+            </div>
+            <div id="terc-empresa-outra-wrap" style="display:none;margin-top:8px">
+                <input type="text" class="form-input" id="terc-empresa-nome" autocomplete="off" placeholder="Nome da empresa">
+                <label class="portaria-ficha-linha" id="terc-empresa-cadastrar-wrap" style="display:none;align-items:center;gap:6px;margin-top:6px">
+                    <input type="checkbox" id="terc-empresa-cadastrar" checked> Cadastrar esta empresa
+                </label>
+            </div>
         </div>
 
         <div class="form-group">
@@ -229,8 +282,16 @@
             <input type="text" class="form-input" id="terc-condutor" autocomplete="off">
         </div>
 
+        <!-- P3/R4/R6 — setor fechado em três (sem "Outro": R6) + o texto
+             livre que já existia, só com rótulo novo (R6: "a ideia do
+             Alisson tira campo, não acrescenta"). Os dois convivem. -->
         <div class="form-group">
-            <label class="form-label" for="terc-destino">Destino na garagem</label>
+            <label class="form-label" for="terc-setor">Setor de destino</label>
+            <select class="form-select" id="terc-setor"></select>
+        </div>
+
+        <div class="form-group">
+            <label class="form-label" for="terc-destino">Quem vai visitar / onde</label>
             <input type="text" class="form-input" id="terc-destino" autocomplete="off">
         </div>
 
@@ -293,6 +354,89 @@
                 <button type="button" class="btn btn-ghost btn-full btn-modal-stack" id="btn-ler-placa-de-novo">Ler de novo</button>
                 <button type="button" class="btn btn-ghost btn-full btn-modal-stack" id="btn-cancelar-placa-confirma">Cancelar</button>
             </div>
+        </div>
+    </div>
+</div>
+
+<!-- ========================================================= -->
+<!-- Cadastrar empresa terceira (D5) — cópia literal de          -->
+<!-- portaria-veiculos.html (mesmos ids, mesma UX). Aberto pelo   -->
+<!-- "+ Nova" do modal Terceiro ou do cadastro rápido (P1).       -->
+<!-- ========================================================= -->
+<div class="modal-overlay" id="modal-nova-empresa">
+    <div class="modal">
+        <button type="button" class="modal-close" id="fechar-nova-empresa">✕</button>
+        <div class="modal-title">Cadastrar empresa terceira</div>
+
+        <div class="form-group">
+            <label class="form-label" for="ne-nome">Nome</label>
+            <input type="text" class="form-input" id="ne-nome" autocomplete="off">
+        </div>
+        <div class="form-group">
+            <label class="form-label" for="ne-cnpj">CNPJ (opcional)</label>
+            <input type="text" class="form-input" id="ne-cnpj" autocomplete="off">
+        </div>
+        <div class="form-group">
+            <label class="form-label" for="ne-observacao">Observação (opcional)</label>
+            <textarea class="form-input form-textarea" id="ne-observacao" rows="2"></textarea>
+        </div>
+
+        <div id="nova-empresa-erro" style="display:none;color:var(--accent);font-size:0.85rem;margin-bottom:10px"></div>
+
+        <button type="button" class="btn btn-primary btn-full" id="btn-salvar-nova-empresa">Cadastrar</button>
+        <button type="button" class="btn btn-ghost btn-full btn-modal-stack" id="btn-cancelar-nova-empresa">Cancelar</button>
+    </div>
+</div>
+
+<!-- ========================================================= -->
+<!-- Modal Reservado (P4/R1) — o ônibus que sai levando          -->
+<!-- funcionário. ⛔ SEM campo de placa (R1.b) — coletivo é       -->
+<!-- sempre prefixo neste módulo. Não cadastra veículo nenhum:    -->
+<!-- só marca a passagem (POST /portaria/movimentos comum, com    -->
+<!-- prefixo preenchido e sem placa).                             -->
+<!-- ========================================================= -->
+<div class="modal-overlay" id="modal-reservado">
+    <div class="modal">
+        <button type="button" class="modal-close" id="fechar-reservado">✕</button>
+        <div class="modal-title">Reservado</div>
+
+        <div class="form-group">
+            <label class="form-label" for="res-prefixo">Prefixo do ônibus</label>
+            <input type="text" class="form-input" id="res-prefixo" inputmode="numeric" autocomplete="off" placeholder="Número de frota">
+            <div class="portaria-ficha-linha" id="res-prefixo-status"></div>
+        </div>
+
+        <div class="form-group">
+            <label class="form-label" for="res-motorista-re">RE do motorista</label>
+            <input type="text" class="form-input" id="res-motorista-re" inputmode="numeric" autocomplete="off">
+            <div class="portaria-ficha-linha" id="res-motorista-status"></div>
+            <input type="text" class="form-input" id="res-motorista-nome"
+                   placeholder="Nome (RE não encontrado)" style="display:none;margin-top:6px">
+        </div>
+
+        <div class="form-group">
+            <label class="form-label" for="res-hodometro">Hodômetro (km)</label>
+            <input type="text" inputmode="numeric" class="form-input" id="res-hodometro" autocomplete="off" placeholder="Km atual">
+        </div>
+
+        <div class="form-group">
+            <label class="form-label" for="res-observacao">Observação</label>
+            <textarea class="form-input form-textarea" id="res-observacao" rows="2" placeholder="Opcional"></textarea>
+        </div>
+
+        <div class="form-group">
+            <label class="form-label" for="res-sentido">Sentido</label>
+            <select class="form-select" id="res-sentido">
+                <option value="SAIDA">Saída</option>
+                <option value="ENTRADA">Entrada</option>
+            </select>
+        </div>
+
+        <div id="reservado-erro" style="display:none;color:var(--accent);font-size:0.85rem;margin-bottom:10px"></div>
+
+        <div class="modal-acoes">
+            <button type="button" class="btn btn-primary btn-full" id="btn-registrar-reservado">Registrar</button>
+            <button type="button" class="btn btn-ghost btn-full btn-modal-stack" id="btn-cancelar-reservado">Cancelar</button>
         </div>
     </div>
 </div>

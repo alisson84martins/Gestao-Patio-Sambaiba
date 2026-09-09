@@ -16,10 +16,18 @@ from app.core.registro import ReNormalizado
 from app.schemas.base import AuditoriaSchema, ORMBase
 
 Propriedade = Literal["PARTICULAR", "EMPRESA", "TERCEIRO"]
-TipoVeiculo = Literal["CARRO", "MOTO", "OUTRO"]
+# Migration 041 (D18): VAN/GUINCHO/CAMINHAO/UTILITARIO entraram porque a
+# frota de apoio caía toda em OUTRO e a tela não a separava do particular.
+# ⛔ Sem ONIBUS de propósito — reservado é passagem (movimento.prefixo),
+# nunca cadastro de veículo (R1).
+TipoVeiculo = Literal["CARRO", "MOTO", "VAN", "GUINCHO", "CAMINHAO", "UTILITARIO", "OUTRO"]
 SituacaoVeiculo = Literal["PENDENTE", "AUTORIZADO", "SUSPENSO", "BAIXADO"]
 Sentido = Literal["ENTRADA", "SAIDA"]
 OrigemMovimento = Literal["MANUAL", "RETROATIVO", "QR", "TAG", "LPR", "CAMERA"]
+# D18 — "quanta gente de fora está dentro": particular, terceiro e avulso.
+# ⛔ Frota (EMPRESA) e reservado (prefixo) nunca entram aqui; têm painel e
+# contagem próprios (GET /portaria/frota) — nunca somam no contador principal.
+GrupoPortaria = Literal["PARTICULAR", "TERCEIRO", "AVULSO"]
 
 # normalizar_placa/placa_valida/PlacaNormalizada vivem em app/core/placa.py
 # (D10 — mesma regra em portaria/ocorrência/pré-ocorrência, ver docstring
@@ -44,6 +52,21 @@ class EmpresaTerceiraRead(ORMBase):
     observacao: Optional[str] = None
     ativo: bool
     criado_em: datetime
+
+
+# ============================================================================
+# SETOR (P3/R4/R6, migration 041) — destino da visita, nunca atributo do
+# veículo. Três categorias fechadas, lista vem do banco (espelha
+# EmpresaTerceiraRead/PortariaLocal — tabela, não Literal, porque a lista
+# muda com a estrutura da garagem sem exigir deploy).
+# ============================================================================
+
+class SetorRead(ORMBase):
+    codigo: str
+    nome: str
+    descricao: Optional[str] = None
+    ordem: int
+    ativo: bool
 
 
 # ============================================================================
@@ -219,7 +242,14 @@ class BloquearPorReResponse(BaseModel):
 class MovimentoCreate(BaseModel):
     sentido: Sentido
     local_codigo: str = "LEVES"
-    placa: PlacaNormalizada = Field(..., max_length=8)
+    # Migration 041 (R1.b): deixa de ser obrigatória — passagem de RESERVADO
+    # não tem placa, só prefixo. O validador abaixo espelha exatamente o
+    # CHECK ck_movimento_identificacao do banco: placa OU prefixo.
+    placa: Optional[PlacaNormalizada] = Field(None, max_length=8)
+    # P4/R1: número de frota do coletivo RESERVADO. ⛔ Nunca junto de
+    # veiculo_id — reservado não tem cadastro (R1). O router resolve
+    # onibus_id por conveniência, nunca preenche `placa` a partir daqui.
+    prefixo: Optional[str] = Field(None, max_length=10)
 
     # Condutor desta passagem (D2) — quando é um funcionário cadastrado.
     funcionario_id: Optional[UUID] = None
@@ -231,6 +261,10 @@ class MovimentoCreate(BaseModel):
     terceiro_nome: Optional[str] = Field(None, max_length=120)
     terceiro_destino: Optional[str] = Field(None, max_length=120)
     terceiro_empresa: Optional[str] = Field(None, max_length=120)
+    # P3/R4/R6: código de portaria.setor, sempre opcional (regra número um).
+    # Inexistente -> aviso no router, nunca 422; terceiro_destino continua
+    # sendo o snapshot de texto (D4) e convive com este campo.
+    setor_codigo: Optional[str] = Field(None, max_length=20)
 
     hodometro_km: Optional[int] = Field(None, ge=0)
     observacao: Optional[str] = None
@@ -260,6 +294,16 @@ class MovimentoCreate(BaseModel):
                 raise ValueError("origem RETROATIVO exige `observacao`.")
         return self
 
+    @model_validator(mode="after")
+    def _placa_ou_prefixo(self) -> "MovimentoCreate":
+        # Espelho exato de ck_movimento_identificacao (migration 041) — a
+        # ÚNICA recusa nova deste trabalho, e não é sobre a situação de
+        # ninguém (regra número um intacta): é sobre linha órfã, sem
+        # nenhuma identificação do que passou pelo portão.
+        if not self.placa and not self.prefixo:
+            raise ValueError("Informe `placa` (veículo leve) ou `prefixo` (reservado).")
+        return self
+
 
 class MovimentoRead(ORMBase):
     id: UUID
@@ -269,17 +313,26 @@ class MovimentoRead(ORMBase):
     data_referencia: date
     veiculo_id: Optional[UUID] = None
     funcionario_id: Optional[UUID] = None
-    placa_registrada: str
+    # Migration 041 (R1.b): passa a aceitar None — só na passagem de
+    # RESERVADO, onde `prefixo` é quem identifica o coletivo.
+    placa_registrada: Optional[str] = None
     re_registrado: Optional[str] = None
     nome_registrado: Optional[str] = None
     terceiro_nome: Optional[str] = None
     terceiro_destino: Optional[str] = None
     terceiro_empresa: Optional[str] = None
+    # P4/R1 — número de frota do RESERVADO; sempre None fora dessas passagens.
+    prefixo: Optional[str] = None
+    onibus_id: Optional[UUID] = None
     hodometro_km: Optional[int] = None
     cadastrado: bool
     origem: OrigemMovimento
     placa_lida_bruta: Optional[str] = None
     movimento_entrada_id: Optional[UUID] = None
+    # P3/R4/R6 — setor de destino da visita. setor_nome é resolvido pelo
+    # backend via join (routers/portaria.py) — não existe como coluna.
+    setor_codigo: Optional[str] = None
+    setor_nome: Optional[str] = None
     registrado_por: UUID
     observacao: Optional[str] = None
     criado_em: datetime
@@ -289,6 +342,38 @@ class MovimentoCreateResponse(MovimentoRead):
     # Regra número um: o registro nunca é recusado — avisos substituem
     # bloqueio (veículo suspenso/baixado, hodômetro faltando, etc.).
     avisos: list[str] = Field(default_factory=list)
+
+
+class MovimentoDentroRead(MovimentoRead):
+    """Enriquecido só para a tela do controlador (D18) — GET /portaria/dentro.
+    ⛔ Não usar em /movimentos nem em /alertas/sem-saida: campo que vem
+    sempre None mente (a enriquecida depende do join feito ali, não existe
+    fora dele)."""
+
+    veiculo_propriedade: Optional[Propriedade] = None
+    veiculo_tipo: Optional[TipoVeiculo] = None
+    marca_modelo: Optional[str] = None
+    grupo: GrupoPortaria = "AVULSO"
+
+
+class FrotaItemRead(BaseModel):
+    """Uma linha do painel da frota de apoio (D18) — a pergunta aqui é
+    'cadê a moto', não 'quem está dentro'."""
+
+    veiculo_id: UUID
+    placa: str
+    tipo: TipoVeiculo
+    marca_modelo: Optional[str] = None
+    na_rua: bool
+    desde: Optional[datetime] = None  # momento da última passagem
+    condutor_re: Optional[str] = None  # quem levou (snapshot do movimento)
+    condutor_nome: Optional[str] = None
+    hodometro_km: Optional[int] = None
+
+
+class FrotaResponse(BaseModel):
+    na_rua: list[FrotaItemRead]
+    disponiveis: list[FrotaItemRead]
 
 
 # ============================================================================
@@ -322,9 +407,16 @@ class BuscaVeiculoResponse(BaseModel):
 # ============================================================================
 
 class PortariaDentroResponse(BaseModel):
-    dentro: list[MovimentoRead]
+    # D18: enriquecido (propriedade/tipo/grupo) — já vem sem frota/reservado,
+    # o backend não manda mais (ver _dentro_e_sem_saida).
+    dentro: list[MovimentoDentroRead]
     sem_saida: list[MovimentoRead]
     horas: int
+    # Sempre as 3 chaves de GrupoPortaria, zeradas inclusive — a tela não
+    # pode ter que se defender de chave ausente.
+    contagem: dict[str, int] = Field(
+        default_factory=lambda: {"PARTICULAR": 0, "TERCEIRO": 0, "AVULSO": 0}
+    )
 
 
 # ============================================================================
@@ -508,6 +600,17 @@ class ResolverPrefixoResponse(BaseModel):
     placa: Optional[str] = None
     motorista_re_sugerido: Optional[str] = None
     motorista_nome_sugerido: Optional[str] = None
+
+
+class ResolverPrefixoAcessoResponse(BaseModel):
+    """GET /portaria/resolver-prefixo (P4) — mesma UX de
+    ResolverPrefixoResponse (mostrar 'cadastrado'/'não cadastrado' ao sair
+    do campo), mas pra quem só tem acesso_veicular — recolhida_anormal não
+    é exigida aqui, e não há sugestão de motorista (reservado não tem
+    escala associada)."""
+
+    encontrado: bool
+    placa: Optional[str] = None
 
 
 class RecursosPortariaResponse(BaseModel):

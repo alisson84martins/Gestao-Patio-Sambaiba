@@ -3298,6 +3298,15 @@ body.modal-open {
     margin-top: 4px;
 }
 
+/* D18 — deixa explícito que o número grande é só particular+terceiro;
+   frota e reservado têm painel/contador próprios (R3). */
+.portaria-contador-sublabel {
+    font-size: 10px;
+    color: var(--muted);
+    opacity: 0.7;
+    margin-top: 2px;
+}
+
 .portaria-busca-bar {
     display: flex;
     gap: 8px;
@@ -3531,6 +3540,15 @@ body.modal-open {
     border: 1px solid var(--border);
 }
 
+/* D18 — badge de propriedade (Particular/Frota/Terceiro) no item da lista
+   de portaria-veiculos.html. Neutro de propósito: a cor que chama atenção
+   é a de situação, ao lado. */
+.portaria-badge-propriedade {
+    background: transparent;
+    color: var(--muted);
+    border: 1px solid var(--border);
+}
+
 .portaria-linha-lista {
     display: flex;
     justify-content: space-between;
@@ -3608,6 +3626,25 @@ body.modal-open {
     height: 20px;
     flex-shrink: 0;
     accent-color: var(--accent3);
+}
+
+/* D18 — toggle das disponíveis na frota de apoio: colapsado por padrão,
+   estado em localStorage (portaria_frota_disponiveis_aberta). */
+.portaria-frota-toggle {
+    display: block;
+    width: 100%;
+    text-align: left;
+    background: none;
+    border: none;
+    color: var(--muted);
+    font-family: var(--mono);
+    font-size: 12px;
+    padding: 8px 2px;
+    cursor: pointer;
+}
+
+.portaria-frota-toggle:hover {
+    color: var(--text);
 }
 
 /* Bloco F — recolhida anormal. Poucos campos, alvos grandes, botões em vez

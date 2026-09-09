@@ -51,6 +51,8 @@
             <option value="EMPRESA">Empresa</option>
             <option value="TERCEIRO">Terceiro</option>
         </select>
+        <!-- P3/migration 041 — filtro novo, ao lado do de propriedade. -->
+        <select class="form-select" id="filtro-setor" style="max-width:170px"></select>
         <select class="form-select" id="filtro-sentido" style="max-width:150px">
             <option value="">Entrada e saída</option>
             <option value="ENTRADA">Só entrada</option>
@@ -64,6 +66,10 @@
         </label>
         <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:var(--muted)">
             <input type="checkbox" id="filtro-suspensos"> Só de veículos suspensos
+        </label>
+        <!-- P4 — reservado (ônibus que sai levando funcionário). -->
+        <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:var(--muted)">
+            <input type="checkbox" id="filtro-reservados"> Só reservados
         </label>
         <button type="button" class="btn btn-ghost" id="btn-limpar-filtros">Limpar</button>
         <button type="button" class="btn btn-ghost" id="btn-sem-saida-24h">Sem saída há 24h+</button>
@@ -80,6 +86,9 @@
                     <th>Data/hora</th>
                     <th>Sentido</th>
                     <th>Placa</th>
+                    <!-- P4 — reservado não tem placa (R1.b); a linha mostra
+                         o prefixo aqui, e a coluna de placa fica vazia. -->
+                    <th>Prefixo</th>
                     <th>RE</th>
                     <th>Nome</th>
                     <th>Origem</th>
@@ -87,7 +96,7 @@
                 </tr>
             </thead>
             <tbody id="consulta-corpo">
-                <tr><td colspan="7" class="oc-vazio">Carregando…</td></tr>
+                <tr><td colspan="8" class="oc-vazio">Carregando…</td></tr>
             </tbody>
         </table>
     </div>

@@ -38,6 +38,22 @@ class PortariaLocal(Base):
     ativo: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
 
 
+class PortariaSetor(Base):
+    """Para onde a visita vai dentro da garagem (R4/R6). Espelha
+    database/migrations/041-portaria-frota-reservado-e-setor.sql — mesmo
+    desenho de PortariaLocal. ⛔ Não é atributo do veículo: mora em
+    MovimentoPortaria.setor_codigo."""
+
+    __tablename__ = "setor"
+    __table_args__ = {"schema": SCHEMA}
+
+    codigo: Mapped[str] = mapped_column(String(20), primary_key=True)
+    nome: Mapped[str] = mapped_column(String(60), nullable=False)
+    descricao: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    ordem: Mapped[int] = mapped_column(SmallInteger, nullable=False, default=1)
+    ativo: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+
+
 class EmpresaTerceira(Base):
     __tablename__ = "empresa_terceira"
     __table_args__ = {"schema": SCHEMA}
@@ -130,7 +146,10 @@ class VeiculoSituacaoHist(Base):
 class MovimentoPortaria(Base):
     """Registro de entrada/saída — a tabela que importa. "Dentro agora" (D3)
     é derivado do último movimento por placa via vw_dentro, nunca de um par
-    entrada/saída."""
+    entrada/saída. Migration 041 (D18): movimento de RESERVADO (prefixo
+    preenchido) e de FROTA DE APOIO (veiculo.propriedade='EMPRESA') ficam
+    fora de "dentro agora" e de contador algum — ver
+    routers/portaria.py::_dentro_e_sem_saida."""
 
     __tablename__ = "movimento"
     __table_args__ = {"schema": SCHEMA}
@@ -160,8 +179,11 @@ class MovimentoPortaria(Base):
         PG_UUID(as_uuid=True), ForeignKey("funcionario.id"), nullable=True
     )
 
-    # Snapshots (D4), sempre preenchidos, mesmo com veiculo_id.
-    placa_registrada: Mapped[str] = mapped_column(String(8), nullable=False)
+    # Snapshots (D4), sempre preenchidos, mesmo com veiculo_id. Migration 041
+    # (R1.b): aceita NULL só na passagem de RESERVADO, onde `prefixo` é quem
+    # identifica o coletivo — ck_movimento_identificacao garante placa OU
+    # prefixo, nunca os dois nulos.
+    placa_registrada: Mapped[Optional[str]] = mapped_column(String(8), nullable=True)
     re_registrado: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
     nome_registrado: Mapped[Optional[str]] = mapped_column(String(120), nullable=True)
 
@@ -169,6 +191,21 @@ class MovimentoPortaria(Base):
     terceiro_nome: Mapped[Optional[str]] = mapped_column(String(120), nullable=True)
     terceiro_destino: Mapped[Optional[str]] = mapped_column(String(120), nullable=True)
     terceiro_empresa: Mapped[Optional[str]] = mapped_column(String(120), nullable=True)
+
+    # Migration 041 (R1/P4): prefixo do coletivo RESERVADO — passagem, nunca
+    # cadastro de veículo. ⛔ SEM FK (regra de fronteira), mesmo arranjo de
+    # RecolhidaAnormal.prefixo/onibus_id. NULL fora de passagem de reservado.
+    # D18: movimento com prefixo não entra em "dentro agora" nem em
+    # contador algum — ver routers/portaria.py::_dentro_e_sem_saida.
+    prefixo: Mapped[Optional[str]] = mapped_column(String(10), nullable=True)
+    onibus_id: Mapped[Optional[UUID]] = mapped_column(PG_UUID(as_uuid=True), nullable=True)
+
+    # Migration 041 (R4/R6): setor de destino da VISITA — opcional, nunca
+    # atributo do veículo. NULL quando o controlador digitou fora da lista
+    # (vale terceiro_destino, texto) ou quando não se aplica.
+    setor_codigo: Mapped[Optional[str]] = mapped_column(
+        String(20), ForeignKey(f"{SCHEMA}.setor.codigo"), nullable=True
+    )
 
     hodometro_km: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
 

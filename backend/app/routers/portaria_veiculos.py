@@ -135,7 +135,7 @@ def listar_veiculos(
     "/veiculos",
     response_model=VeiculoRead,
     status_code=status.HTTP_201_CREATED,
-    summary="Cadastra veículo — PENDENTE, salvo dono com função de gestão (D6, Bloco D)",
+    summary="Cadastra veículo — PENDENTE, salvo dono com função de gestão (D6, Bloco D) ou propriedade EMPRESA (R5)",
 )
 def cadastrar_veiculo(payload: VeiculoCreate, usuario: EscritaCadastro, db: Annotated[Session, Depends(get_db)]):
     if payload.funcionario_id and db.get(Funcionario, payload.funcionario_id) is None:
@@ -149,15 +149,20 @@ def cadastrar_veiculo(payload: VeiculoCreate, usuario: EscritaCadastro, db: Anno
         exige_hodometro = payload.propriedade == "EMPRESA"
 
     # Bloco D (migration 035): dono PARTICULAR com função de gestão responde
-    # pelo próprio carro — nasce AUTORIZADO em vez de PENDENTE. Continua
-    # sendo o único valor inicial decidido aqui; PATCH /veiculos/{id} (dados
-    # cadastrais) e PATCH /veiculos/{id}/situacao (D6) não mudam.
+    # pelo próprio carro — nasce AUTORIZADO em vez de PENDENTE.
+    # R5 (migration 041): veículo da EMPRESA (frota de apoio) nasce
+    # AUTORIZADO do mesmo jeito — a casa não autoriza o próprio guincho, e
+    # assim a aba Pendentes volta a significar só "pessoas a conferir".
+    # PARTICULAR/TERCEIRO sem função de gestão continuam nascendo PENDENTE
+    # — nada disso afrouxa a regra número um nem a D6.
     agora = datetime.now(timezone.utc)
-    auto_autorizado = (
+    auto_autorizado_gestao = (
         payload.propriedade == "PARTICULAR"
         and payload.funcionario_id is not None
         and payload.funcionario_id in _funcionarios_auto_autorizados({payload.funcionario_id}, db)
     )
+    nasce_autorizado_empresa = payload.propriedade == "EMPRESA"
+    nasce_autorizado = auto_autorizado_gestao or nasce_autorizado_empresa
 
     novo = VeiculoPortaria(
         propriedade=payload.propriedade,
@@ -171,20 +176,26 @@ def cadastrar_veiculo(payload: VeiculoCreate, usuario: EscritaCadastro, db: Anno
         marca_modelo=payload.marca_modelo,
         cor=payload.cor,
         exige_hodometro=exige_hodometro,
-        situacao="AUTORIZADO" if auto_autorizado else "PENDENTE",
+        situacao="AUTORIZADO" if nasce_autorizado else "PENDENTE",
         observacao=payload.observacao,
         placa_atipica=not placa_valida(payload.placa),
         criado_por=usuario.id,
     )
-    if auto_autorizado:
+    if auto_autorizado_gestao:
         novo.situacao_por = payload.funcionario_id
         novo.situacao_em = agora
         novo.situacao_motivo = "Autorização automática por função de gestão"
+    elif nasce_autorizado_empresa:
+        # 🔴 decidido_por NOT NULL em VeiculoSituacaoHist e aqui não existe
+        # dono — usa quem cadastrou (R5).
+        novo.situacao_por = usuario.id
+        novo.situacao_em = agora
+        novo.situacao_motivo = "Frota própria — autorização automática (R5)"
 
     db.add(novo)
     db.flush()
 
-    if auto_autorizado:
+    if nasce_autorizado:
         # Auditoria não pode ter buraco só porque a autorização foi
         # automática — mesmo histórico que o PATCH /situacao grava.
         db.add(VeiculoSituacaoHist(
@@ -192,7 +203,7 @@ def cadastrar_veiculo(payload: VeiculoCreate, usuario: EscritaCadastro, db: Anno
             situacao_de=None,
             situacao_para="AUTORIZADO",
             motivo=novo.situacao_motivo,
-            decidido_por=payload.funcionario_id,
+            decidido_por=payload.funcionario_id if auto_autorizado_gestao else usuario.id,
         ))
 
     # C1/Bloco F: RE digitado que não resolveu vira pré-cadastro — de graça,

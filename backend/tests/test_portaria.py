@@ -41,7 +41,7 @@ from app.models.enums import OrigemEscalaEnum, SetorEnum, StatusFichaEnum, TipoE
 from app.models.operacoes import Escala, FichaManutencao, ImportacaoEscala
 from app.models.pessoas import Motorista, Usuario
 from app.models.portaria import (
-    AvariaSaida, Credencial, EmpresaTerceira, MovimentoPortaria, PortariaLocal,
+    AvariaSaida, Credencial, EmpresaTerceira, MovimentoPortaria, PortariaLocal, PortariaSetor,
     RecolhidaAnormal, VeiculoPortaria, VeiculoSituacaoHist,
 )
 from app.models.pre_cadastro import PessoaPreCadastro
@@ -74,7 +74,7 @@ _DONO_A = Funcionario(id=uuid4(), re="60010", nome="Dono A")
 _DONO_B = Funcionario(id=uuid4(), re="60011", nome="Dono B")
 
 _TABELAS = [
-    Funcionario.__table__, PortariaLocal.__table__, EmpresaTerceira.__table__,
+    Funcionario.__table__, PortariaLocal.__table__, PortariaSetor.__table__, EmpresaTerceira.__table__,
     VeiculoPortaria.__table__, VeiculoSituacaoHist.__table__, MovimentoPortaria.__table__,
     Credencial.__table__, RecolhidaAnormal.__table__, AvariaSaida.__table__,
     Motorista.__table__, Linha.__table__, TipoDefeito.__table__,
@@ -184,6 +184,11 @@ def ambiente():
         for f in (_CONTROLADOR, _ENCARREGADO, _ADMIN, _MECANICO, _DONO_A, _DONO_B):
             setup.add(Funcionario(id=f.id, re=f.re, nome=f.nome, status="ATIVO"))
         setup.add(PortariaLocal(codigo="LEVES", nome="Portaria de leves", ordem=1, ativo=True))
+        # R6/migration 041 — mesmas três categorias fechadas que o seed de
+        # produção grava.
+        setup.add(PortariaSetor(codigo="MANUTENCAO", nome="Manutenção", ordem=1, ativo=True))
+        setup.add(PortariaSetor(codigo="OPERACAO", nome="Operação", ordem=2, ativo=True))
+        setup.add(PortariaSetor(codigo="ADMINISTRACAO", nome="Administração", ordem=3, ativo=True))
         setup.commit()
 
     def _get_db_teste():
@@ -2123,3 +2128,401 @@ def test_recursos_leitura_placa_ativa_reflete_a_configuracao(ambiente, monkeypat
     desligado = ambiente["http"].get("/portaria/recursos")
     assert desligado.status_code == 200, desligado.text
     assert desligado.json() == {"leitura_placa_ativa": False}
+
+
+# ============================================================================
+# Migration 041 — frota de apoio, reservado e setor de destino (D18, R1-R6).
+# Ver _handoff-claude/PROMPT-portaria-frota-e-empresa-2026-09-08.md, seção
+# "Testes" (14 itens) — numeração dos comentários abaixo segue aquela lista.
+# ============================================================================
+
+def _entrada_retroativa(ambiente, *, placa=None, prefixo=None, minutos_atras, **extra):
+    """Mesmo truque de test_dentro_deriva_ultimo_movimento_por_placa: RETROATIVO
+    com `momento` explícito, minutos apartados — o relógio do SQLite só tem
+    resolução de 1s."""
+    agora = datetime.now(FUSO_OPERACAO)
+    payload = {
+        "sentido": extra.pop("sentido", "ENTRADA"),
+        "origem": "RETROATIVO",
+        "momento": (agora - timedelta(minutes=minutos_atras)).isoformat(),
+        "observacao": "Lançamento de teste",
+        **extra,
+    }
+    if placa:
+        payload["placa"] = placa
+    if prefixo:
+        payload["prefixo"] = prefixo
+    resp = ambiente["http"].post("/portaria/movimentos", json=payload)
+    assert resp.status_code == 201, resp.text
+    return resp
+
+
+def _criar_empresa_terceira(ambiente, nome="Empresa Teste 041") -> UUID:
+    empresa_id = uuid4()
+    with Session(ambiente["engine"]) as db:
+        db.add(EmpresaTerceira(id=empresa_id, nome=nome, ativo=True))
+        db.commit()
+    return empresa_id
+
+
+# ─── 1 — P1 (backend): terceiro sem empresa cadastrada nunca é recusado ──
+
+def test_terceiro_avulso_com_empresa_em_texto_registra_201(ambiente):
+    """Garantia do P1: o frontend some (empresa deixa de travar o modal),
+    o teste do backend fica — registrar_movimento já suportava isto antes
+    da 041."""
+    _como(ambiente, "CONTROLADOR")
+    resp = ambiente["http"].post("/portaria/movimentos", json={
+        "sentido": "ENTRADA", "placa": "ZZZ8888",
+        "terceiro_empresa": "Posto Ipiranga (não cadastrado)",
+        "terceiro_nome": "Fornecedor Teste",
+    })
+    assert resp.status_code == 201, resp.text
+    corpo = resp.json()
+    assert corpo["cadastrado"] is False
+    assert corpo["terceiro_empresa"] == "Posto Ipiranga (não cadastrado)"
+    assert any("não cadastrada" in a.lower() for a in corpo["avisos"])
+
+
+# ─── 2 — GET /dentro separa particular/terceiro/avulso, exclui frota e ──
+# reservado, contagem com as 3 chaves de GrupoPortaria (D18)
+
+def test_dentro_separa_particular_terceiro_avulso_e_exclui_frota_e_reservado(ambiente):
+    _como(ambiente, "CONTROLADOR")
+    _criar_veiculo(ambiente, placa="PPP1111", funcionario_id=_DONO_A.id, situacao="AUTORIZADO", tipo="CARRO")
+    empresa_id = _criar_empresa_terceira(ambiente)
+    _criar_veiculo(ambiente, placa="TTT2222", propriedade="TERCEIRO", empresa_terceira_id=empresa_id, situacao="AUTORIZADO")
+    _criar_veiculo(ambiente, placa="EEE3333", propriedade="EMPRESA", situacao="AUTORIZADO", tipo="GUINCHO")
+
+    _entrada_retroativa(ambiente, placa="PPP1111", minutos_atras=40)
+    _entrada_retroativa(ambiente, placa="TTT2222", minutos_atras=30)
+    _entrada_retroativa(ambiente, placa="ZZZ9999", minutos_atras=20)  # avulso
+    _entrada_retroativa(ambiente, placa="EEE3333", minutos_atras=10)  # frota — fora
+    _entrada_retroativa(ambiente, prefixo="1234", minutos_atras=5)  # reservado — fora
+
+    resp = ambiente["http"].get("/portaria/dentro")
+    assert resp.status_code == 200, resp.text
+    corpo = resp.json()
+    placas_dentro = {m["placa_registrada"] for m in corpo["dentro"]}
+    assert placas_dentro == {"PPP1111", "TTT2222", "ZZZ9999"}
+    assert corpo["contagem"] == {"PARTICULAR": 1, "TERCEIRO": 1, "AVULSO": 1}
+
+    grupos = {m["placa_registrada"]: m["grupo"] for m in corpo["dentro"]}
+    assert grupos == {"PPP1111": "PARTICULAR", "TTT2222": "TERCEIRO", "ZZZ9999": "AVULSO"}
+
+
+# ─── 2b — P1: terceiro SEM cadastro (empresa sem cadastrar, ou placa ────
+# desconhecida com condutor identificado) tem que cair em TERCEIRO, não
+# em AVULSO — senão a correção do P1 empurra o prestador pra seção
+# "Particular" da tela em vez de "Terceiros".
+
+def test_dentro_terceiro_sem_cadastro_cai_em_terceiro_nao_em_avulso(ambiente):
+    _como(ambiente, "CONTROLADOR")
+    # __OUTRA__ sem marcar "cadastrar esta empresa": terceiro_empresa em
+    # texto, sem veiculo_id (tabela 2 do P1 no prompt).
+    _entrada_retroativa(
+        ambiente, placa="OUT1111", minutos_atras=20,
+        terceiro_empresa="Posto Ipiranga (não cadastrado)",
+    )
+    # Placa desconhecida, mas o controlador identificou quem dirigia —
+    # ainda é visita de terceiro, não um avulso sem nome nenhum.
+    _entrada_retroativa(
+        ambiente, placa="OUT2222", minutos_atras=15,
+        terceiro_nome="Motorista de Entrega",
+    )
+    # Avulso de verdade: nem placa cadastrada, nem terceiro_empresa, nem
+    # terceiro_nome — aqui sim é AVULSO.
+    _entrada_retroativa(ambiente, placa="OUT3333", minutos_atras=10)
+
+    resp = ambiente["http"].get("/portaria/dentro")
+    assert resp.status_code == 200, resp.text
+    corpo = resp.json()
+    grupos = {m["placa_registrada"]: m["grupo"] for m in corpo["dentro"]}
+    assert grupos == {"OUT1111": "TERCEIRO", "OUT2222": "TERCEIRO", "OUT3333": "AVULSO"}
+    assert corpo["contagem"] == {"PARTICULAR": 0, "TERCEIRO": 2, "AVULSO": 1}
+
+
+# ─── 3 — 🔴 exclusão de frota tem que estar DENTRO da subquery ──────────
+# (senão uma entrada de frota antiga ainda vaza em sem_saida, que D17 não
+# filtra por propriedade por conta própria)
+
+def test_dentro_e_sem_saida_nunca_trazem_movimento_de_frota(ambiente):
+    _como(ambiente, "CONTROLADOR")
+    veiculo_id = _criar_veiculo(ambiente, placa="FFF4444", propriedade="EMPRESA", situacao="AUTORIZADO", tipo="VAN")
+
+    with Session(ambiente["engine"]) as db:
+        db.add(MovimentoPortaria(
+            id=uuid4(), local_codigo="LEVES", sentido="ENTRADA",
+            momento=datetime.now(timezone.utc) - timedelta(hours=40),
+            data_referencia=date.today(), veiculo_id=veiculo_id,
+            placa_registrada="FFF4444", cadastrado=True, origem="MANUAL",
+            registrado_por=_CONTROLADOR.id,
+        ))
+        db.commit()
+
+    resp = ambiente["http"].get("/portaria/dentro")
+    assert resp.status_code == 200, resp.text
+    corpo = resp.json()
+    placas = {m["placa_registrada"] for m in corpo["dentro"]} | {m["placa_registrada"] for m in corpo["sem_saida"]}
+    assert "FFF4444" not in placas
+
+
+# ─── 4 — GET /dentro não dispara query por item ─────────────────────────
+
+def test_dentro_nao_dispara_query_por_item(ambiente):
+    _como(ambiente, "CONTROLADOR")
+    placas = [f"NQQ{i:04d}" for i in range(6)]
+    for i, placa in enumerate(placas):
+        _criar_veiculo(ambiente, placa=placa, funcionario_id=_DONO_A.id, situacao="AUTORIZADO")
+        _entrada_retroativa(ambiente, placa=placa, minutos_atras=i + 1)
+
+    queries: list[str] = []
+
+    def _contar(conn, cursor, statement, parameters, context, executemany):
+        queries.append(statement)
+
+    event.listen(ambiente["engine"], "before_cursor_execute", _contar)
+    try:
+        resp = ambiente["http"].get("/portaria/dentro")
+    finally:
+        event.remove(ambiente["engine"], "before_cursor_execute", _contar)
+
+    assert resp.status_code == 200, resp.text
+    selects = [q for q in queries if q.strip().upper().startswith("SELECT")]
+    # Fixo (último-movimento + veículos, nunca setores aqui pois nenhum
+    # setor_codigo foi usado) — bem menor que 1 por veículo (6).
+    assert len(selects) <= 3, f"esperado poucas SELECTs fixas, veio {len(selects)}: {selects}"
+
+
+# ─── 5 — GET /frota: na_rua × disponíveis (D18) ─────────────────────────
+
+def test_frota_separa_na_rua_e_disponiveis(ambiente):
+    _como(ambiente, "CONTROLADOR")
+    _criar_veiculo(ambiente, placa="MOT0001", propriedade="EMPRESA", situacao="AUTORIZADO", tipo="MOTO")
+    _criar_veiculo(ambiente, placa="VAN0002", propriedade="EMPRESA", situacao="AUTORIZADO", tipo="VAN")
+    _criar_veiculo(ambiente, placa="GUI0003", propriedade="EMPRESA", situacao="AUTORIZADO", tipo="GUINCHO")
+    # GUI0003 nunca teve movimento -> disponível por ausência de histórico.
+
+    _entrada_retroativa(
+        ambiente, placa="MOT0001", minutos_atras=20, sentido="SAIDA",
+        re_registrado="4102", nome_registrado="José Silva",
+    )
+    _entrada_retroativa(ambiente, placa="VAN0002", minutos_atras=30, sentido="SAIDA")
+    _entrada_retroativa(ambiente, placa="VAN0002", minutos_atras=10, sentido="ENTRADA")
+
+    resp = ambiente["http"].get("/portaria/frota")
+    assert resp.status_code == 200, resp.text
+    corpo = resp.json()
+    na_rua = {item["placa"]: item for item in corpo["na_rua"]}
+    disponiveis = {item["placa"] for item in corpo["disponiveis"]}
+
+    assert set(na_rua) == {"MOT0001"}
+    assert na_rua["MOT0001"]["condutor_nome"] == "José Silva"
+    assert na_rua["MOT0001"]["condutor_re"] == "4102"
+    assert na_rua["MOT0001"]["desde"] is not None
+    assert disponiveis == {"VAN0002", "GUI0003"}
+
+
+# ─── 6 — cadastro aceita a frota de apoio, mas reservado não se cadastra ─
+
+def test_cadastro_aceita_tipos_da_frota_de_apoio_mas_nao_onibus(ambiente):
+    _como(ambiente, "CONTROLADOR")
+    ok = ambiente["http"].post("/portaria/veiculos", json={
+        "propriedade": "EMPRESA", "placa": "GUI9999", "tipo": "GUINCHO",
+    })
+    assert ok.status_code == 201, ok.text
+
+    recusado = ambiente["http"].post("/portaria/veiculos", json={
+        "propriedade": "EMPRESA", "placa": "ONI0001", "tipo": "ONIBUS",
+    })
+    assert recusado.status_code == 422, recusado.text
+
+
+# ─── 7 — reservado com prefixo válido resolve onibus_id e fica fora do ──
+# "dentro agora" (R1/P4)
+
+def test_reservado_com_prefixo_valido_resolve_onibus_e_fica_fora_do_dentro(ambiente):
+    _como(ambiente, "CONTROLADOR")
+    onibus_id = _criar_onibus(ambiente["engine"], 1234)
+
+    resp = ambiente["http"].post("/portaria/movimentos", json={
+        "sentido": "ENTRADA", "prefixo": "1234",
+        "re_registrado": "5001", "nome_registrado": "Motorista Reservado",
+    })
+    assert resp.status_code == 201, resp.text
+    corpo = resp.json()
+    assert corpo["onibus_id"] == str(onibus_id)
+    assert corpo["placa_registrada"] is None
+
+    dentro = ambiente["http"].get("/portaria/dentro")
+    assert dentro.status_code == 200, dentro.text
+    assert "1234" not in [m.get("prefixo") for m in dentro.json()["dentro"]]
+
+
+# ─── 7b — reservado sem hodômetro avisa (nunca bloqueia): reservado não ──
+# tem veiculo cadastrado, então nunca passa pelo aviso de exige_hodometro
+# de um VeiculoPortaria — mas o KM é pedido sempre mesmo assim (P4).
+
+def test_reservado_sem_hodometro_avisa_mas_registra(ambiente):
+    _como(ambiente, "CONTROLADOR")
+    resp = ambiente["http"].post("/portaria/movimentos", json={"sentido": "ENTRADA", "prefixo": "9999"})
+    assert resp.status_code == 201, resp.text
+    corpo = resp.json()
+    assert any("hodômetro" in a.lower() for a in corpo["avisos"])
+
+
+def test_reservado_com_hodometro_nao_avisa(ambiente):
+    _como(ambiente, "CONTROLADOR")
+    resp = ambiente["http"].post("/portaria/movimentos", json={
+        "sentido": "ENTRADA", "prefixo": "9999", "hodometro_km": 12345,
+    })
+    assert resp.status_code == 201, resp.text
+    corpo = resp.json()
+    assert not any("hodômetro" in a.lower() for a in corpo["avisos"])
+
+
+# ─── 8/9 — setor opcional: válido preenche destino, inexistente nunca ───
+# bloqueia (regra número um aplicada ao campo novo — R4/R6)
+
+def test_movimento_com_setor_valido_preenche_destino_pelo_nome(ambiente):
+    _como(ambiente, "CONTROLADOR")
+    resp = ambiente["http"].post("/portaria/movimentos", json={
+        "sentido": "ENTRADA", "placa": "SET0001", "setor_codigo": "MANUTENCAO",
+    })
+    assert resp.status_code == 201, resp.text
+    corpo = resp.json()
+    assert corpo["setor_codigo"] == "MANUTENCAO"
+    assert corpo["terceiro_destino"] == "Manutenção"
+
+
+def test_movimento_com_setor_inexistente_nunca_bloqueia(ambiente):
+    _como(ambiente, "CONTROLADOR")
+    resp = ambiente["http"].post("/portaria/movimentos", json={
+        "sentido": "ENTRADA", "placa": "SET0002", "setor_codigo": "NAO_EXISTE",
+    })
+    assert resp.status_code == 201, resp.text
+    corpo = resp.json()
+    assert corpo["setor_codigo"] is None
+    assert any("setor" in a.lower() for a in corpo["avisos"])
+
+
+# ─── 10 — histórico filtra por setor_codigo e por apenas_reservados ─────
+
+def test_listar_movimentos_filtra_por_setor_e_por_reservado(ambiente):
+    _como(ambiente, "CONTROLADOR")
+    ambiente["http"].post("/portaria/movimentos", json={
+        "sentido": "ENTRADA", "placa": "SET0003", "setor_codigo": "OPERACAO",
+    })
+    ambiente["http"].post("/portaria/movimentos", json={"sentido": "ENTRADA", "placa": "SET0004"})
+    ambiente["http"].post("/portaria/movimentos", json={"sentido": "ENTRADA", "prefixo": "5678"})
+
+    por_setor = ambiente["http"].get("/portaria/movimentos", params={"setor_codigo": "OPERACAO"})
+    assert por_setor.status_code == 200, por_setor.text
+    assert [m["placa_registrada"] for m in por_setor.json()] == ["SET0003"]
+
+    reservados = ambiente["http"].get("/portaria/movimentos", params={"apenas_reservados": True})
+    assert reservados.status_code == 200, reservados.text
+    assert [m["prefixo"] for m in reservados.json()] == ["5678"]
+
+
+# ─── 11 — GET /movimentos continua devolvendo MovimentoRead, nunca os ───
+# campos de MovimentoDentroRead
+
+def test_listar_movimentos_nunca_devolve_campos_de_dentro_enriquecido(ambiente):
+    _como(ambiente, "CONTROLADOR")
+    ambiente["http"].post("/portaria/movimentos", json={"sentido": "ENTRADA", "placa": "SET0005"})
+    resp = ambiente["http"].get("/portaria/movimentos", params={"placa": "SET0005"})
+    assert resp.status_code == 200, resp.text
+    corpo = resp.json()[0]
+    for campo in ("veiculo_propriedade", "veiculo_tipo", "grupo"):
+        assert campo not in corpo
+
+
+# ─── 12 — placa/prefixo: um OU outro, nunca os dois nulos (espelho do ──
+# ck_movimento_identificacao da migration 041 — R1.b)
+
+def test_reservado_sem_placa_mantem_placa_registrada_nula(ambiente):
+    _como(ambiente, "CONTROLADOR")
+    resp = ambiente["http"].post("/portaria/movimentos", json={"sentido": "ENTRADA", "prefixo": "9999"})
+    assert resp.status_code == 201, resp.text
+    assert resp.json()["placa_registrada"] is None
+
+
+def test_movimento_sem_placa_e_sem_prefixo_e_422(ambiente):
+    """A ÚNICA recusa nova deste trabalho — não é sobre a situação de
+    ninguém (regra número um intacta), é sobre linha órfã."""
+    _como(ambiente, "CONTROLADOR")
+    resp = ambiente["http"].post("/portaria/movimentos", json={"sentido": "ENTRADA"})
+    assert resp.status_code == 422, resp.text
+
+
+def test_reservado_com_onibus_cadastrado_resolve_id_mas_nao_preenche_placa(ambiente):
+    _como(ambiente, "CONTROLADOR")
+    # Faixa válida de numero_frota é 1000-2999 (services/portaria.py::
+    # resolver_onibus_por_prefixo) — mesma regra de routers/ocorrencias.py.
+    onibus_id = _criar_onibus(ambiente["engine"], 2222)
+    resp = ambiente["http"].post("/portaria/movimentos", json={"sentido": "ENTRADA", "prefixo": "2222"})
+    assert resp.status_code == 201, resp.text
+    corpo = resp.json()
+    assert corpo["onibus_id"] == str(onibus_id)
+    assert corpo["placa_registrada"] is None
+
+
+# ─── 13 — R5: veículo EMPRESA nasce AUTORIZADO, com histórico auditável ─
+
+def test_veiculo_empresa_nasce_autorizado_e_grava_historico_com_decidido_por(ambiente):
+    _como(ambiente, "CONTROLADOR")
+    resp = ambiente["http"].post("/portaria/veiculos", json={
+        "propriedade": "EMPRESA", "placa": "EMP0001", "tipo": "VAN",
+    })
+    assert resp.status_code == 201, resp.text
+    corpo = resp.json()
+    assert corpo["situacao"] == "AUTORIZADO"
+
+    with Session(ambiente["engine"]) as db:
+        hist = db.execute(
+            select(VeiculoSituacaoHist).where(VeiculoSituacaoHist.veiculo_id == UUID(corpo["id"]))
+        ).scalars().all()
+    assert len(hist) == 1
+    assert hist[0].situacao_de is None
+    assert hist[0].situacao_para == "AUTORIZADO"
+    # 🔴 decidido_por é NOT NULL e aqui não existe dono — usa quem cadastrou.
+    assert hist[0].decidido_por == _CONTROLADOR.id
+
+    # R5 só vale pra EMPRESA — PARTICULAR sem função de gestão continua
+    # nascendo PENDENTE (não-regressão da D6).
+    particular = ambiente["http"].post("/portaria/veiculos", json={
+        "propriedade": "PARTICULAR", "funcionario_id": str(_DONO_B.id), "placa": "PAR0001",
+    })
+    assert particular.status_code == 201, particular.text
+    assert particular.json()["situacao"] == "PENDENTE"
+
+
+# ─── extra — GET /resolver-prefixo e GET /setores (superfície nova) ─────
+
+def test_resolver_prefixo_acesso_encontrado_e_nao_encontrado(ambiente):
+    _como(ambiente, "CONTROLADOR")
+    _criar_onibus(ambiente["engine"], 1111)
+
+    encontrado = ambiente["http"].get("/portaria/resolver-prefixo", params={"prefixo": "1111"})
+    assert encontrado.status_code == 200, encontrado.text
+    assert encontrado.json()["encontrado"] is True
+
+    nao_encontrado = ambiente["http"].get("/portaria/resolver-prefixo", params={"prefixo": "9876"})
+    assert nao_encontrado.status_code == 200, nao_encontrado.text
+    assert nao_encontrado.json() == {"encontrado": False, "placa": None}
+
+
+def test_listar_setores_filtra_ativos_por_padrao(ambiente):
+    _como(ambiente, "CONTROLADOR")
+    with Session(ambiente["engine"]) as db:
+        db.add(PortariaSetor(codigo="DESATIVADO_041", nome="Desativado", ordem=9, ativo=False))
+        db.commit()
+
+    resp = ambiente["http"].get("/portaria/setores")
+    assert resp.status_code == 200, resp.text
+    codigos = [s["codigo"] for s in resp.json()]
+    assert codigos == ["MANUTENCAO", "OPERACAO", "ADMINISTRACAO"]
+
+    todos = ambiente["http"].get("/portaria/setores", params={"apenas_ativos": False})
+    assert "DESATIVADO_041" in [s["codigo"] for s in todos.json()]
