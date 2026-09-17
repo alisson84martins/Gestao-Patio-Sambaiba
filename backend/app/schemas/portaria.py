@@ -73,6 +73,32 @@ class SetorRead(ORMBase):
 # VEICULO (D1, D6, D7, D12)
 # ============================================================================
 
+def _validar_dono(
+    propriedade: str,
+    funcionario_id: Optional[UUID],
+    empresa_terceira_id: Optional[UUID],
+    re_dono_texto: Optional[str],
+) -> None:
+    """Mesmo par de exigências do CHECK ck_veiculo_dono da migration (039
+    apertou as duas pontas) — falhar aqui como 422 é mais claro pro chamador
+    que um IntegrityError. Compartilhado por VeiculoCreate e
+    VeiculoAdminUpdate (17/09/2026, Gestão de cadastro — ADMIN também troca
+    propriedade, então precisa da mesma trava)."""
+    if propriedade == "PARTICULAR":
+        if not funcionario_id and not re_dono_texto:
+            raise ValueError("PARTICULAR exige funcionario_id ou re_dono_texto (o dono).")
+        if empresa_terceira_id:
+            raise ValueError("PARTICULAR não pode ter empresa_terceira_id.")
+    elif propriedade == "EMPRESA":
+        if funcionario_id or empresa_terceira_id:
+            raise ValueError("EMPRESA não tem dono individual nem empresa terceira.")
+    elif propriedade == "TERCEIRO":
+        if not empresa_terceira_id:
+            raise ValueError("TERCEIRO exige empresa_terceira_id.")
+        if funcionario_id:
+            raise ValueError("TERCEIRO não pode ter funcionario_id.")
+
+
 class VeiculoCreate(BaseModel):
     """Cadastro pelo controlador — nasce sempre PENDENTE (D6). `situacao`
     não existe neste schema de propósito: quem cadastra não autoriza."""
@@ -94,21 +120,7 @@ class VeiculoCreate(BaseModel):
 
     @model_validator(mode="after")
     def _valida_dono(self) -> "VeiculoCreate":
-        # Mesmo par de exigências do CHECK ck_veiculo_dono da migration —
-        # falhar aqui como 422 é mais claro pro chamador que um IntegrityError.
-        if self.propriedade == "PARTICULAR":
-            if not self.funcionario_id and not self.re_dono_texto:
-                raise ValueError("PARTICULAR exige funcionario_id ou re_dono_texto (o dono).")
-            if self.empresa_terceira_id:
-                raise ValueError("PARTICULAR não pode ter empresa_terceira_id.")
-        elif self.propriedade == "EMPRESA":
-            if self.funcionario_id or self.empresa_terceira_id:
-                raise ValueError("EMPRESA não tem dono individual nem empresa terceira.")
-        elif self.propriedade == "TERCEIRO":
-            if not self.empresa_terceira_id:
-                raise ValueError("TERCEIRO exige empresa_terceira_id.")
-            if self.funcionario_id:
-                raise ValueError("TERCEIRO não pode ter funcionario_id.")
+        _validar_dono(self.propriedade, self.funcionario_id, self.empresa_terceira_id, self.re_dono_texto)
         return self
 
 
@@ -134,6 +146,51 @@ class VeiculoUpdate(BaseModel):
     # encarregado nem gerência conseguiam desfazer pela API, porque os
     # endpoints de situação filtravam `ativo` também. BAIXADO já cobre a
     # intenção legítima de "esse carro não vale mais".
+
+
+class VeiculoAdminUpdate(BaseModel):
+    """PATCH /portaria/veiculos/{id}/cadastro-admin — só ADMIN (GestaoAdmin,
+    routers/portaria_veiculos.py). 17/09/2026, Gestão de cadastro: caso real
+    em produção — um guincho da frota foi cadastrado como PARTICULAR e não
+    havia como corrigir a `propriedade`/o dono pela API (VeiculoUpdate acima
+    não tem esses campos de propósito, ver comentário). Este schema É o
+    conserto — troca `propriedade` e dono inteiros, não um PATCH parcial:
+    o formulário sempre manda o estado final completo (a tela limpa/exige os
+    campos certos ANTES de enviar, mesma exigência de VeiculoCreate), porque
+    misturar "propriedade nova" com "dono antigo perdido no exclude_unset"
+    é exatamente o jeito de violar ck_veiculo_dono sem perceber.
+
+    Mesmo assim, `situacao`/`ativo` continuam de fora — D6 não muda: ADMIN
+    corrige cadastro aqui, autoriza/suspende/baixa em /situacao, reativa em
+    /reativar. Três atos, três endpoints, nunca um fazendo o papel do outro."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    propriedade: Propriedade
+    funcionario_id: Optional[UUID] = None
+    empresa_terceira_id: Optional[UUID] = None
+    re_dono_texto: ReNormalizado = Field(None, max_length=20)
+    placa: PlacaNormalizada = Field(..., max_length=8)
+    tipo: TipoVeiculo = "CARRO"
+    marca_modelo: Optional[str] = Field(None, max_length=60)
+    cor: Optional[str] = Field(None, max_length=30)
+    exige_hodometro: Optional[bool] = None
+    observacao: Optional[str] = None
+
+    @model_validator(mode="after")
+    def _valida_dono(self) -> "VeiculoAdminUpdate":
+        _validar_dono(self.propriedade, self.funcionario_id, self.empresa_terceira_id, self.re_dono_texto)
+        return self
+
+
+class VeiculoExclusaoImpacto(BaseModel):
+    """GET /portaria/veiculos/{id}/exclusao — o que o DELETE de verdade
+    levaria junto. 17/09/2026: obrigatório mostrar ANTES de apagar (decisão
+    do Alisson) — a tela nunca chama o DELETE sem antes buscar isto."""
+
+    movimentos: int
+    credenciais: int
+    historico_situacao: int
 
 
 class VeiculoRead(ORMBase, AuditoriaSchema):

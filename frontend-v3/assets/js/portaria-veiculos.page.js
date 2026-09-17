@@ -12,7 +12,7 @@
  */
 
 import { requireAuth, getCurrentUser, logout } from './auth.js';
-import { apiGet, apiPatch, apiPost, ApiError } from './api.js';
+import { apiGet, apiPatch, apiPost, apiDelete, ApiError } from './api.js';
 import { podeEscrever } from './sessao.js';
 import { escapeHtml } from './escape.js';
 import { API_BASE_URL, TOKEN_KEY } from './config.js';
@@ -84,6 +84,15 @@ function badgeAtipica(v) {
         : '';
 }
 
+// Gestão de cadastro (17/09/2026) — ativo=false só existe hoje por conserto
+// manual (SQL direto, caso do guincho) ou, daqui pra frente, por decisão
+// futura fora deste bloco; aqui só sinaliza pra quem pode reativar achar.
+function badgeInativo(v) {
+    return v.ativo
+        ? ''
+        : ' <span class="portaria-badge portaria-badge-baixado" title="ativo=false — reative em Gestão de cadastro (ADMIN), na ficha">Inativo</span>';
+}
+
 function donoTexto(v) {
     if (v.propriedade === 'TERCEIRO') return v.empresa_terceira_nome || 'Terceiro';
     // D18 — "Frota · MOTO" em vez do genérico "Veículo da empresa", mesmo
@@ -103,6 +112,12 @@ function aplicarPermissoes() {
     document.getElementById('btn-bloquear-re').style.display = podeAutorizar ? 'block' : 'none';
     document.getElementById('btn-novo-veiculo').style.display = podeCadastrar ? 'block' : 'none';
     document.getElementById('btn-nova-empresa').style.display = podeCadastrar ? 'block' : 'none';
+    // Gestão de cadastro (17/09/2026) — mesmo recurso ("usuarios" escrever)
+    // que já restringe Cadastros e Permissões a ADMIN (GerenciaUsuarios no
+    // backend). Sem este filtro não há caminho pela tela até um veículo
+    // ativo=false (carregarTodos() sempre mandava apenas_ativos=true).
+    document.getElementById('filtro-mostrar-inativos-wrap').style.display =
+        podeEscrever('usuarios') ? 'flex' : 'none';
 }
 
 // ─── Tabs ───────────────────────────────────────────────────────────────
@@ -194,7 +209,11 @@ let todosCache = [];
 
 async function carregarTodos() {
     const filtros = lerFiltrosTodos();
-    const params = new URLSearchParams({ apenas_ativos: 'true', limit: '500' });
+    // Gestão de cadastro (17/09/2026) — só ADMIN vê a caixa (aplicarPermissoes
+    // esconde pros demais); pra eles o checkbox nunca existe marcado, então
+    // o comportamento de sempre (só ativos) não muda.
+    const mostrarInativos = document.getElementById('filtro-mostrar-inativos').checked;
+    const params = new URLSearchParams({ apenas_ativos: mostrarInativos ? 'false' : 'true', limit: '500' });
     if (filtros.propriedade) params.set('propriedade', filtros.propriedade);
     if (filtros.situacao) params.set('situacao', filtros.situacao);
     try {
@@ -220,7 +239,7 @@ function renderTodosFiltrado() {
         // da ficha. barra-imprimir-etiquetas nunca aparece sem checkbox
         // nenhuma marcada; endpoint de etiquetas (abrirEtiquetas) intacto.
         selecionavel: false,
-        extra: v => badgeAtipica(v),
+        extra: v => badgeAtipica(v) + badgeInativo(v),
     });
 }
 
@@ -228,6 +247,10 @@ function initFiltrosTodos() {
     document.getElementById('filtro-propriedade').addEventListener('change', carregarTodos);
     document.getElementById('filtro-situacao').addEventListener('change', carregarTodos);
     document.getElementById('filtro-placa-atipica').addEventListener('change', renderTodosFiltrado);
+    // apenas_ativos é parâmetro de servidor (não dá pra filtrar client-side
+    // como placa_atipica) — precisa de um carregarTodos() novo, não só um
+    // re-render.
+    document.getElementById('filtro-mostrar-inativos').addEventListener('change', carregarTodos);
     let handle = null;
     document.getElementById('filtro-texto').addEventListener('input', () => {
         clearTimeout(handle);
@@ -284,7 +307,7 @@ function renderFicha(v) {
     document.getElementById('ficha-tipo').textContent =
         [v.tipo, v.marca_modelo, v.cor].filter(Boolean).join(' · ') || '—';
     document.getElementById('ficha-dono').textContent = donoTexto(v);
-    document.getElementById('ficha-situacao-badge').innerHTML = badgeSituacao(v.situacao) + badgeAtipica(v);
+    document.getElementById('ficha-situacao-badge').innerHTML = badgeSituacao(v.situacao) + badgeAtipica(v) + badgeInativo(v);
 
     const detalhe = document.getElementById('ficha-situacao-detalhe');
     if (v.situacao === 'SUSPENSO' || v.situacao === 'BAIXADO') {
@@ -303,6 +326,13 @@ function renderFicha(v) {
     document.getElementById('btn-ficha-autorizar').disabled = v.situacao === 'AUTORIZADO';
     document.getElementById('btn-ficha-suspender').disabled = v.situacao === 'SUSPENSO';
     document.getElementById('btn-ficha-baixar').disabled = v.situacao === 'BAIXADO';
+
+    // Gestão de cadastro (17/09/2026) — só ADMIN (mesma trava de
+    // filtro-mostrar-inativos-wrap acima). Reativar só faz sentido pro
+    // veículo que já está ativo=false.
+    const souAdmin = podeEscrever('usuarios');
+    document.getElementById('ficha-gestao-admin').style.display = souAdmin ? 'block' : 'none';
+    document.getElementById('btn-ficha-reativar').style.display = (souAdmin && !v.ativo) ? 'block' : 'none';
 }
 
 function renderHistorico(historico) {
@@ -765,6 +795,215 @@ async function salvarNovaEmpresa() {
     }
 }
 
+// ─── Gestão de cadastro — ADMIN (17/09/2026) ────────────────────────────
+// Editar cadastro completo (inclusive propriedade/dono), excluir de
+// verdade e reativar. Nasceu de um caso real: guincho da frota cadastrado
+// como PARTICULAR sem jeito de corrigir pela API, e "Baixar" não liberava
+// a placa porque só troca `situacao`, nunca `ativo`.
+let eaVeiculoId = null;
+let eaDonoResolvidoId = null;
+
+function initGestaoAdmin() {
+    document.getElementById('btn-ficha-editar-admin').addEventListener('click', abrirEditarAdmin);
+    document.getElementById('fechar-editar-admin').addEventListener('click', fecharEditarAdminEVoltar);
+    document.getElementById('btn-cancelar-editar-admin').addEventListener('click', fecharEditarAdminEVoltar);
+    document.getElementById('ea-propriedade').addEventListener('change', atualizarCamposPropriedadeEa);
+    let handle = null;
+    document.getElementById('ea-re-dono').addEventListener('input', () => {
+        clearTimeout(handle);
+        handle = setTimeout(resolverDonoEa, 250);
+    });
+    document.getElementById('btn-salvar-editar-admin').addEventListener('click', salvarEditarAdmin);
+
+    document.getElementById('btn-ficha-reativar').addEventListener('click', reativarVeiculoAtual);
+
+    document.getElementById('btn-ficha-excluir').addEventListener('click', abrirExcluirAdmin);
+    document.getElementById('fechar-excluir-admin').addEventListener('click', () => fecharModal('modal-excluir-admin'));
+    document.getElementById('btn-cancelar-excluir-admin').addEventListener('click', () => fecharModal('modal-excluir-admin'));
+    document.getElementById('excluir-admin-ciente').addEventListener('change', (e) => {
+        document.getElementById('btn-confirmar-excluir-admin').disabled = !e.target.checked;
+    });
+    document.getElementById('btn-confirmar-excluir-admin').addEventListener('click', confirmarExcluirAdmin);
+}
+
+function abrirEditarAdmin() {
+    if (!fichaVeiculoAtual) return;
+    const v = fichaVeiculoAtual;
+    eaVeiculoId = v.id;
+    eaDonoResolvidoId = v.funcionario_id || null;
+    document.getElementById('ea-placa').value = v.placa;
+    document.getElementById('ea-propriedade').value = v.propriedade;
+    document.getElementById('ea-re-dono').value = v.funcionario_re || v.re_dono_texto || '';
+    document.getElementById('ea-dono-nome').textContent = v.funcionario_nome || '';
+    document.getElementById('ea-dono-nome').style.color = 'var(--muted)';
+    document.getElementById('ea-tipo').value = v.tipo;
+    document.getElementById('ea-cor').value = v.cor || '';
+    document.getElementById('ea-marca-modelo').value = v.marca_modelo || '';
+    document.getElementById('editar-admin-erro').style.display = 'none';
+    atualizarCamposPropriedadeEa();
+    if (v.propriedade === 'TERCEIRO' && v.empresa_terceira_id) {
+        preencherSelectEmpresas('ea-empresa').then(() => {
+            document.getElementById('ea-empresa').value = v.empresa_terceira_id;
+        });
+    }
+    fecharModal('modal-ficha');
+    abrirModal('modal-editar-admin');
+}
+
+function fecharEditarAdminEVoltar() {
+    fecharModal('modal-editar-admin');
+    if (eaVeiculoId) abrirFicha(eaVeiculoId);
+}
+
+function atualizarCamposPropriedadeEa() {
+    const prop = document.getElementById('ea-propriedade').value;
+    document.getElementById('ea-dono-wrap').style.display = prop === 'PARTICULAR' ? 'block' : 'none';
+    document.getElementById('ea-empresa-wrap').style.display = prop === 'TERCEIRO' ? 'block' : 'none';
+    if (prop === 'TERCEIRO') preencherSelectEmpresas('ea-empresa');
+}
+
+// Mesma lógica de resolverDonoPorRe (cadastro), duplicada de propósito: são
+// dois formulários/modais independentes (cadastrar × corrigir), e um RE
+// resolvido num nunca deveria vazar estado pro outro.
+async function resolverDonoEa() {
+    const re = document.getElementById('ea-re-dono').value.trim();
+    const nomeEl = document.getElementById('ea-dono-nome');
+    eaDonoResolvidoId = null;
+    nomeEl.textContent = '';
+    if (re.length < 2) return;
+    try {
+        const resultados = await apiGet(`/portaria/funcionarios/busca?q=${encodeURIComponent(re)}`);
+        const exato = resultados.find(f => f.re === re);
+        if (exato) {
+            eaDonoResolvidoId = exato.id;
+            nomeEl.textContent = exato.nome;
+            nomeEl.style.color = 'var(--accent3)';
+        } else if (resultados.length > 0) {
+            nomeEl.textContent = `${resultados.length} funcionário(s) encontrados — digite o RE completo`;
+            nomeEl.style.color = 'var(--muted)';
+        } else {
+            nomeEl.textContent = 'RE não encontrado no cadastro. Fica salvo como texto (re_dono_texto).';
+            nomeEl.style.color = 'var(--muted)';
+        }
+    } catch (err) {
+        if (err instanceof ApiError && err.status === 401) return;
+        console.error('[portaria-veiculos] erro ao resolver dono (admin):', err);
+    }
+}
+
+async function salvarEditarAdmin() {
+    const erro = document.getElementById('editar-admin-erro');
+    erro.style.display = 'none';
+    const placa = document.getElementById('ea-placa').value.trim();
+    const propriedade = document.getElementById('ea-propriedade').value;
+    if (!placa) { erro.textContent = 'Digite a placa.'; erro.style.display = 'block'; return; }
+
+    const payload = {
+        propriedade,
+        placa,
+        tipo: document.getElementById('ea-tipo').value,
+        marca_modelo: document.getElementById('ea-marca-modelo').value.trim() || null,
+        cor: document.getElementById('ea-cor').value.trim() || null,
+    };
+    if (propriedade === 'PARTICULAR') {
+        const reDono = document.getElementById('ea-re-dono').value.trim();
+        if (!eaDonoResolvidoId && !reDono) {
+            erro.textContent = 'Informe o RE do dono.';
+            erro.style.display = 'block';
+            return;
+        }
+        // Mesma regra número um do cadastro normal (C1, migration 039): RE
+        // que não resolveu não bloqueia a correção, vira re_dono_texto.
+        if (eaDonoResolvidoId) {
+            payload.funcionario_id = eaDonoResolvidoId;
+        } else {
+            payload.re_dono_texto = reDono;
+        }
+    } else if (propriedade === 'TERCEIRO') {
+        const empresaId = document.getElementById('ea-empresa').value;
+        if (!empresaId) { erro.textContent = 'Selecione a empresa terceira.'; erro.style.display = 'block'; return; }
+        payload.empresa_terceira_id = empresaId;
+    }
+    // EMPRESA: nem funcionario_id nem empresa_terceira_id vão no payload —
+    // ambos ficam ausentes (backend recebe None nos dois, exatamente o que
+    // ck_veiculo_dono exige pro guincho da frota).
+
+    const btn = document.getElementById('btn-salvar-editar-admin');
+    btn.disabled = true;
+    try {
+        await apiPatch(`/portaria/veiculos/${eaVeiculoId}/cadastro-admin`, payload);
+        fecharModal('modal-editar-admin');
+        await abrirFicha(eaVeiculoId);
+        atualizarAbaAtiva();
+    } catch (err) {
+        if (err instanceof ApiError && err.status === 401) return;
+        erro.textContent = err.message;
+        erro.style.display = 'block';
+    } finally {
+        btn.disabled = false;
+    }
+}
+
+async function reativarVeiculoAtual() {
+    if (!fichaVeiculoAtual) return;
+    if (!confirm(`Reativar o veículo placa ${fichaVeiculoAtual.placa}?`)) return;
+    const erro = document.getElementById('ficha-erro');
+    erro.style.display = 'none';
+    try {
+        const atualizado = await apiPost(`/portaria/veiculos/${fichaVeiculoAtual.id}/reativar`);
+        fichaVeiculoAtual = atualizado;
+        renderFicha(atualizado);
+        atualizarAbaAtiva();
+    } catch (err) {
+        if (err instanceof ApiError && err.status === 401) return;
+        // 409 (placa em uso por outro veículo ativo) chega com mensagem
+        // pronta pra mostrar — ver reativar_veiculo no backend.
+        erro.textContent = err.message;
+        erro.style.display = 'block';
+    }
+}
+
+async function abrirExcluirAdmin() {
+    if (!fichaVeiculoAtual) return;
+    document.getElementById('excluir-admin-ciente').checked = false;
+    document.getElementById('btn-confirmar-excluir-admin').disabled = true;
+    document.getElementById('excluir-admin-erro').style.display = 'none';
+    document.getElementById('excluir-admin-impacto').textContent = 'Calculando o que será apagado…';
+    abrirModal('modal-excluir-admin');
+    try {
+        // Trava obrigatória (decisão do Alisson, 17/09/2026): a tela NUNCA
+        // chama o DELETE sem mostrar antes quanto vai junto.
+        const impacto = await apiGet(`/portaria/veiculos/${fichaVeiculoAtual.id}/exclusao`);
+        document.getElementById('excluir-admin-impacto').textContent =
+            `Serão apagados junto: ${impacto.movimentos} movimento(s), ${impacto.credenciais} credencial(is), `
+            + `${impacto.historico_situacao} registro(s) de histórico de situação.`;
+    } catch (err) {
+        if (err instanceof ApiError && err.status === 401) return;
+        document.getElementById('excluir-admin-impacto').textContent = '';
+        document.getElementById('excluir-admin-erro').textContent = 'Erro ao calcular impacto: ' + err.message;
+        document.getElementById('excluir-admin-erro').style.display = 'block';
+    }
+}
+
+async function confirmarExcluirAdmin() {
+    if (!fichaVeiculoAtual) return;
+    const erro = document.getElementById('excluir-admin-erro');
+    erro.style.display = 'none';
+    const btn = document.getElementById('btn-confirmar-excluir-admin');
+    btn.disabled = true;
+    try {
+        await apiDelete(`/portaria/veiculos/${fichaVeiculoAtual.id}?confirmar=true`);
+        fecharModal('modal-excluir-admin');
+        fecharModal('modal-ficha');
+        atualizarAbaAtiva();
+    } catch (err) {
+        if (err instanceof ApiError && err.status === 401) return;
+        erro.textContent = err.message;
+        erro.style.display = 'block';
+        btn.disabled = false;
+    }
+}
+
 // ─── Bootstrap ───────────────────────────────────────────────────────────
 initHeader();
 aplicarPermissoes();
@@ -776,4 +1015,5 @@ initImprimirEtiquetas();
 initBloquearPorRe();
 initNovoVeiculo();
 initNovaEmpresa();
+initGestaoAdmin();
 carregarPendentes();

@@ -136,6 +136,9 @@ _PERMISSOES = {
         # `acesso_veicular`: quem confere a saída não é quem dá baixa.
         "escrita_manutencao": False,
         "leitura_acesso_ou_manutencao_avarias": True,
+        # 17/09 — Gestão de cadastro (editar propriedade/dono, excluir de
+        # verdade, reativar) é `usuarios` escrever — CONTROLADOR não tem.
+        "escrita_usuarios": False,
     },
     "ENCARREGADO": {
         "leitura_acesso": True, "escrita_acesso": False,
@@ -148,6 +151,9 @@ _PERMISSOES = {
         "leitura_acesso_avarias": True, "escrita_acesso_avarias": False,
         "escrita_manutencao": False,
         "leitura_acesso_ou_manutencao_avarias": True,
+        # ENCARREGADO autoriza/suspende/baixa, mas Gestão de cadastro
+        # (17/09) continua só ADMIN — mesma trava de "usuarios" escrever.
+        "escrita_usuarios": False,
     },
     "MECANICO": {
         "leitura_acesso": False, "escrita_acesso": False,
@@ -166,6 +172,7 @@ _PERMISSOES = {
         # exige_qualquer("acesso_veicular", "manutencao") passar pra ele,
         # sem lhe dar leitura_acesso_avarias de verdade.
         "leitura_acesso_ou_manutencao_avarias": True,
+        "escrita_usuarios": False,
     },
     "ADMIN": {chave: True for chave in (
         "leitura_acesso", "escrita_acesso", "leitura_cadastro",
@@ -173,7 +180,7 @@ _PERMISSOES = {
         "leitura_recolhida", "escrita_recolhida", "leitura_gerencial",
         "leitura_tratativa", "escrita_tratativa", "leitura_recolhida_ou_tratativa",
         "leitura_acesso_avarias", "escrita_acesso_avarias", "escrita_manutencao",
-        "leitura_acesso_ou_manutencao_avarias",
+        "leitura_acesso_ou_manutencao_avarias", "escrita_usuarios",
     )},
 }
 _USUARIOS = {
@@ -261,6 +268,9 @@ def ambiente():
         "leitura_acesso_ou_manutencao_avarias": _dependency_de(
             portaria_avarias_router_mod.LeituraAcessoOuManutencao
         ),
+        # 17/09 — Gestão de cadastro (ADMIN): editar propriedade/dono,
+        # excluir de verdade, reativar.
+        "escrita_usuarios": _dependency_de(portaria_veiculos_router_mod.GestaoAdmin),
     }
 
     app.dependency_overrides[get_db] = _get_db_teste
@@ -1743,6 +1753,209 @@ def test_filtro_placa_atipica_na_listagem(ambiente):
     corpo = resp.json()
     assert len(corpo) == 1
     assert corpo[0]["placa"] == "PROV1SORIA"
+
+
+# ============================================================================
+# GESTÃO DE CADASTRO — só ADMIN (17/09/2026)
+# ----------------------------------------------------------------------------
+# Caso real: guincho da frota cadastrado como PARTICULAR, sem jeito de
+# corrigir `propriedade` pela API, e "remover" pela tela deixava a placa
+# presa (BAIXADO sem ativo=false). As três rotas abaixo existem pra isso
+# nunca mais precisar de SQL direto no servidor.
+# ============================================================================
+
+# ─── Editar cadastro (cadastro-admin) ──────────────────────────────────────
+
+def test_encarregado_nao_acessa_cadastro_admin(ambiente):
+    """Nem quem já autoriza (ENCARREGADO) chega em Gestão de cadastro — só
+    `usuarios` escrever (ADMIN) abre esta porta."""
+    _como(ambiente, "ENCARREGADO")
+    veiculo_id = _criar_veiculo(ambiente, placa="ABC1D23", funcionario_id=_DONO_A.id)
+    resp = ambiente["http"].patch(
+        f"/portaria/veiculos/{veiculo_id}/cadastro-admin",
+        json={"propriedade": "EMPRESA", "placa": "ABC1D23"},
+    )
+    assert resp.status_code == 403, resp.text
+
+
+def test_admin_corrige_propriedade_de_particular_para_empresa(ambiente):
+    """O caso que originou o bloco: guincho cadastrado como PARTICULAR vira
+    EMPRESA (frota de apoio) — funcionario_id tem que sumir, senão
+    ck_veiculo_dono nunca aceitaria a troca no Postgres real."""
+    usuario = _como(ambiente, "ADMIN")
+    veiculo_id = _criar_veiculo(
+        ambiente, placa="GCH1234", tipo="GUINCHO", propriedade="PARTICULAR", funcionario_id=_DONO_A.id,
+    )
+    resp = ambiente["http"].patch(
+        f"/portaria/veiculos/{veiculo_id}/cadastro-admin",
+        json={"propriedade": "EMPRESA", "placa": "GCH1234", "tipo": "GUINCHO"},
+    )
+    assert resp.status_code == 200, resp.text
+    corpo = resp.json()
+    assert corpo["propriedade"] == "EMPRESA"
+    assert corpo["funcionario_id"] is None
+    assert corpo["atualizado_por"] == str(usuario.id)
+
+
+def test_admin_cadastro_admin_rejeita_dono_invalido(ambiente):
+    """Mesma trava de VeiculoCreate (_validar_dono compartilhado) — PARTICULAR
+    sem funcionario_id nem re_dono_texto é 422, nunca IntegrityError."""
+    _como(ambiente, "ADMIN")
+    veiculo_id = _criar_veiculo(ambiente, placa="ABC1D23", funcionario_id=_DONO_A.id)
+    resp = ambiente["http"].patch(
+        f"/portaria/veiculos/{veiculo_id}/cadastro-admin",
+        json={"propriedade": "PARTICULAR", "placa": "ABC1D23"},
+    )
+    assert resp.status_code == 422, resp.text
+
+
+def test_admin_cadastro_admin_rejeita_situacao(ambiente):
+    """extra='forbid' — mesma separação D6 de VeiculoUpdate: cadastro-admin
+    também nunca aceita `situacao`."""
+    _como(ambiente, "ADMIN")
+    veiculo_id = _criar_veiculo(ambiente, placa="ABC1D23", funcionario_id=_DONO_A.id)
+    resp = ambiente["http"].patch(
+        f"/portaria/veiculos/{veiculo_id}/cadastro-admin",
+        json={"propriedade": "PARTICULAR", "placa": "ABC1D23", "funcionario_id": str(_DONO_A.id), "situacao": "AUTORIZADO"},
+    )
+    assert resp.status_code == 422, resp.text
+
+
+def test_admin_cadastro_admin_recusa_placa_em_uso(ambiente):
+    """Sem este preview a troca de placa vira IntegrityError bruto (500) no
+    Postgres real — uq_portaria_veiculo_placa é parcial (WHERE ativo)."""
+    _como(ambiente, "ADMIN")
+    _criar_veiculo(ambiente, placa="ZZZ9999", funcionario_id=_DONO_B.id, situacao="AUTORIZADO")
+    veiculo_id = _criar_veiculo(ambiente, placa="ABC1D23", funcionario_id=_DONO_A.id)
+    resp = ambiente["http"].patch(
+        f"/portaria/veiculos/{veiculo_id}/cadastro-admin",
+        json={"propriedade": "PARTICULAR", "placa": "ZZZ9999", "funcionario_id": str(_DONO_A.id)},
+    )
+    assert resp.status_code == 409, resp.text
+
+
+# ─── Excluir de verdade ─────────────────────────────────────────────────────
+
+def test_controlador_nao_ve_nem_apaga_impacto_exclusao(ambiente):
+    _como(ambiente, "CONTROLADOR")
+    veiculo_id = _criar_veiculo(ambiente, placa="ABC1D23", funcionario_id=_DONO_A.id)
+    assert ambiente["http"].get(f"/portaria/veiculos/{veiculo_id}/exclusao").status_code == 403
+    assert ambiente["http"].delete(f"/portaria/veiculos/{veiculo_id}?confirmar=true").status_code == 403
+
+
+def test_admin_impacto_exclusao_conta_movimentos_credenciais_historico(ambiente):
+    _como(ambiente, "ADMIN")
+    veiculo_id = _criar_veiculo(ambiente, placa="ABC1D23", funcionario_id=_DONO_A.id, situacao="AUTORIZADO")
+    with Session(ambiente["engine"]) as db:
+        db.add(MovimentoPortaria(
+            id=uuid4(), local_codigo="LEVES", sentido="ENTRADA",
+            momento=datetime.now(timezone.utc), data_referencia=date.today(), veiculo_id=veiculo_id,
+            placa_registrada="ABC1D23", cadastrado=True, origem="MANUAL", registrado_por=_CONTROLADOR.id,
+        ))
+        db.add(Credencial(id=uuid4(), veiculo_id=veiculo_id, codigo="tok-teste-1"))
+        db.add(VeiculoSituacaoHist(
+            id=uuid4(), veiculo_id=veiculo_id, situacao_de="PENDENTE", situacao_para="AUTORIZADO",
+            decidido_por=_ENCARREGADO.id,
+        ))
+        db.commit()
+
+    resp = ambiente["http"].get(f"/portaria/veiculos/{veiculo_id}/exclusao")
+    assert resp.status_code == 200, resp.text
+    corpo = resp.json()
+    assert corpo == {"movimentos": 1, "credenciais": 1, "historico_situacao": 1}
+
+
+def test_admin_delete_sem_confirmar_e_422_e_nao_apaga(ambiente):
+    _como(ambiente, "ADMIN")
+    veiculo_id = _criar_veiculo(ambiente, placa="ABC1D23", funcionario_id=_DONO_A.id)
+    resp = ambiente["http"].delete(f"/portaria/veiculos/{veiculo_id}")
+    assert resp.status_code == 422, resp.text
+    with Session(ambiente["engine"]) as db:
+        assert db.get(VeiculoPortaria, veiculo_id) is not None
+
+
+def test_admin_delete_confirmado_apaga_veiculo_e_dependentes(ambiente):
+    _como(ambiente, "ADMIN")
+    veiculo_id = _criar_veiculo(ambiente, placa="ABC1D23", funcionario_id=_DONO_A.id, situacao="AUTORIZADO")
+    with Session(ambiente["engine"]) as db:
+        db.add(MovimentoPortaria(
+            id=uuid4(), local_codigo="LEVES", sentido="ENTRADA",
+            momento=datetime.now(timezone.utc), data_referencia=date.today(), veiculo_id=veiculo_id,
+            placa_registrada="ABC1D23", cadastrado=True, origem="MANUAL", registrado_por=_CONTROLADOR.id,
+        ))
+        db.add(Credencial(id=uuid4(), veiculo_id=veiculo_id, codigo="tok-teste-2"))
+        db.add(VeiculoSituacaoHist(
+            id=uuid4(), veiculo_id=veiculo_id, situacao_de="PENDENTE", situacao_para="AUTORIZADO",
+            decidido_por=_ENCARREGADO.id,
+        ))
+        db.commit()
+
+    resp = ambiente["http"].delete(f"/portaria/veiculos/{veiculo_id}?confirmar=true")
+    assert resp.status_code == 204, resp.text
+
+    with Session(ambiente["engine"]) as db:
+        assert db.get(VeiculoPortaria, veiculo_id) is None
+        assert db.execute(
+            select(MovimentoPortaria).where(MovimentoPortaria.veiculo_id == veiculo_id)
+        ).scalars().all() == []
+        assert db.execute(
+            select(Credencial).where(Credencial.veiculo_id == veiculo_id)
+        ).scalars().all() == []
+        assert db.execute(
+            select(VeiculoSituacaoHist).where(VeiculoSituacaoHist.veiculo_id == veiculo_id)
+        ).scalars().all() == []
+
+    # Regra número um do CASO que originou o bloco: apagado de verdade, a
+    # placa está livre — recadastrar não dá mais "Registro duplicado".
+    _como(ambiente, "CONTROLADOR")
+    resp2 = ambiente["http"].post("/portaria/veiculos", json={"propriedade": "EMPRESA", "placa": "ABC1D23"})
+    assert resp2.status_code == 201, resp2.text
+
+
+def test_admin_delete_veiculo_inexistente_e_404(ambiente):
+    _como(ambiente, "ADMIN")
+    resp = ambiente["http"].delete(f"/portaria/veiculos/{uuid4()}?confirmar=true")
+    assert resp.status_code == 404, resp.text
+
+
+# ─── Reativar ───────────────────────────────────────────────────────────────
+
+def test_controlador_nao_reativa_veiculo(ambiente):
+    _como(ambiente, "CONTROLADOR")
+    veiculo_id = _criar_veiculo(ambiente, placa="ABC1D23", funcionario_id=_DONO_A.id, ativo=False)
+    resp = ambiente["http"].post(f"/portaria/veiculos/{veiculo_id}/reativar")
+    assert resp.status_code == 403, resp.text
+
+
+def test_admin_reativa_veiculo_com_ativo_false(ambiente):
+    _como(ambiente, "ADMIN")
+    veiculo_id = _criar_veiculo(
+        ambiente, placa="ABC1D23", funcionario_id=_DONO_A.id, situacao="BAIXADO", ativo=False,
+    )
+    resp = ambiente["http"].post(f"/portaria/veiculos/{veiculo_id}/reativar")
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["ativo"] is True
+
+
+def test_admin_reativar_veiculo_ja_ativo_e_422(ambiente):
+    _como(ambiente, "ADMIN")
+    veiculo_id = _criar_veiculo(ambiente, placa="ABC1D23", funcionario_id=_DONO_A.id)
+    resp = ambiente["http"].post(f"/portaria/veiculos/{veiculo_id}/reativar")
+    assert resp.status_code == 422, resp.text
+
+
+def test_admin_reativar_recusa_com_placa_em_uso_e_diz_qual_veiculo(ambiente):
+    _como(ambiente, "ADMIN")
+    ativo_id = _criar_veiculo(ambiente, placa="ABC1D23", funcionario_id=_DONO_B.id, situacao="AUTORIZADO")
+    inativo_id = _criar_veiculo(
+        ambiente, placa="ABC1D23", funcionario_id=_DONO_A.id, situacao="BAIXADO", ativo=False,
+    )
+    resp = ambiente["http"].post(f"/portaria/veiculos/{inativo_id}/reativar")
+    assert resp.status_code == 409, resp.text
+    # Handler global (app/core/exception_handlers.py) reembala HTTPException
+    # em {"erro": ...}, não no "detail" padrão do FastAPI — mesmo formato
+    # que api.js (frontend) já espera.
+    assert str(ativo_id) in resp.json()["erro"]
 
 
 # ============================================================================

@@ -75,6 +75,13 @@
             <label class="portaria-ficha-linha" style="display:flex;align-items:center;gap:6px;white-space:nowrap">
                 <input type="checkbox" id="filtro-placa-atipica"> Só placa fora do padrão
             </label>
+            <!-- Gestão de cadastro (17/09/2026) — só ADMIN vê isto (aplicarPermissoes).
+                 Sem este filtro não existe caminho pela tela até um veículo
+                 ativo=false pra reativar: carregarTodos() sempre mandava
+                 apenas_ativos=true fixo. -->
+            <label class="portaria-ficha-linha" id="filtro-mostrar-inativos-wrap" style="display:none;align-items:center;gap:6px;white-space:nowrap">
+                <input type="checkbox" id="filtro-mostrar-inativos"> Mostrar inativos (ADMIN)
+            </label>
         </div>
         <!-- Seleção múltipla pra imprimir etiquetas de QR (Bloco E) — só na  -->
         <!-- aba Todos. Cada item da lista ganha uma caixa de marcação. -->
@@ -121,6 +128,20 @@
         </div>
 
         <div id="ficha-erro" style="display:none;color:var(--accent);font-size:0.85rem;margin-top:10px"></div>
+
+        <!-- Gestão de cadastro (17/09/2026) — só ADMIN (exige("usuarios",
+             escrever=True) no backend; aqui só decora, a trava real é lá).
+             Nasceu de um caso real: guincho cadastrado como PARTICULAR sem
+             jeito de corrigir propriedade/dono, e "Baixar" não liberava a
+             placa (BAIXADO não mexe em ativo). -->
+        <div id="ficha-gestao-admin" style="display:none;margin-top:18px;border-top:1px solid var(--border);padding-top:14px">
+            <div class="portaria-secao-titulo" style="margin-bottom:8px">Gestão de cadastro (ADMIN)</div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap">
+                <button type="button" class="btn btn-ghost" id="btn-ficha-editar-admin" style="flex:1">Editar cadastro completo</button>
+                <button type="button" class="btn btn-ghost" id="btn-ficha-reativar" style="display:none;flex:1">Reativar veículo</button>
+                <button type="button" class="btn btn-danger" id="btn-ficha-excluir" style="flex:1">Excluir de verdade</button>
+            </div>
+        </div>
 
         <!-- QR do veículo (Bloco E) — aceleração da busca por placa, nunca -->
         <!-- credencial de segurança. "Gerar QR"/"Reemitir" usam o mesmo    -->
@@ -265,6 +286,92 @@
 
         <button type="button" class="btn btn-primary btn-full" id="btn-salvar-nova-empresa">Cadastrar</button>
         <button type="button" class="btn btn-ghost btn-full btn-modal-stack" id="btn-cancelar-nova-empresa">Cancelar</button>
+    </div>
+</div>
+
+<!-- ========================================================= -->
+<!-- Gestão de cadastro (ADMIN, 17/09/2026) — editar cadastro    -->
+<!-- inteiro, inclusive propriedade e dono (VeiculoUpdate normal -->
+<!-- não aceita esses dois campos, ver PATCH /cadastro-admin).   -->
+<!-- ========================================================= -->
+<div class="modal-overlay" id="modal-editar-admin">
+    <div class="modal">
+        <button type="button" class="modal-close" id="fechar-editar-admin">✕</button>
+        <div class="modal-title">Editar cadastro completo (ADMIN)</div>
+
+        <div class="form-group">
+            <label class="form-label" for="ea-placa">Placa</label>
+            <input type="text" class="form-input" id="ea-placa" autocomplete="off">
+        </div>
+        <div class="form-group">
+            <label class="form-label" for="ea-propriedade">Propriedade</label>
+            <select class="form-select" id="ea-propriedade">
+                <option value="PARTICULAR">Particular</option>
+                <option value="EMPRESA">Empresa (frota)</option>
+                <option value="TERCEIRO">Terceiro (prestador)</option>
+            </select>
+        </div>
+        <div class="form-group" id="ea-dono-wrap">
+            <label class="form-label" for="ea-re-dono">RE do dono</label>
+            <input type="text" inputmode="numeric" class="form-input" id="ea-re-dono" autocomplete="off">
+            <div class="portaria-ficha-linha" id="ea-dono-nome"></div>
+        </div>
+        <div class="form-group" id="ea-empresa-wrap" style="display:none">
+            <label class="form-label" for="ea-empresa">Empresa terceira</label>
+            <select class="form-select" id="ea-empresa"></select>
+        </div>
+        <div class="portaria-form-grid">
+            <div class="form-group">
+                <label class="form-label" for="ea-tipo">Tipo</label>
+                <select class="form-select" id="ea-tipo">
+                    <option value="CARRO">Carro</option>
+                    <option value="MOTO">Moto</option>
+                    <option value="VAN">Van</option>
+                    <option value="GUINCHO">Guincho</option>
+                    <option value="CAMINHAO">Caminhão</option>
+                    <option value="UTILITARIO">Utilitário</option>
+                    <option value="OUTRO">Outro</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label class="form-label" for="ea-cor">Cor</label>
+                <input type="text" class="form-input" id="ea-cor" autocomplete="off">
+            </div>
+            <div class="form-group portaria-form-grid-full">
+                <label class="form-label" for="ea-marca-modelo">Marca/modelo</label>
+                <input type="text" class="form-input" id="ea-marca-modelo" autocomplete="off">
+            </div>
+        </div>
+
+        <div id="editar-admin-erro" style="display:none;color:var(--accent);font-size:0.85rem;margin-bottom:10px"></div>
+
+        <button type="button" class="btn btn-primary btn-full" id="btn-salvar-editar-admin">Salvar</button>
+        <button type="button" class="btn btn-ghost btn-full btn-modal-stack" id="btn-cancelar-editar-admin">Cancelar</button>
+    </div>
+</div>
+
+<!-- ========================================================= -->
+<!-- Excluir de verdade (ADMIN, 17/09/2026) — DELETE, não baixa. -->
+<!-- Conta e mostra o impacto ANTES de apagar (trava obrigatória -->
+<!-- — decisão do Alisson, não é opcional).                      -->
+<!-- ========================================================= -->
+<div class="modal-overlay" id="modal-excluir-admin">
+    <div class="modal">
+        <button type="button" class="modal-close" id="fechar-excluir-admin">✕</button>
+        <div class="modal-title">Excluir veículo de verdade</div>
+
+        <div class="portaria-ficha-linha" style="margin-bottom:10px;color:var(--accent)">
+            Isso apaga o cadastro do banco — diferente de Baixar. Não tem como desfazer.
+        </div>
+        <div id="excluir-admin-impacto" class="portaria-ficha-linha" style="margin-bottom:14px">Calculando o que será apagado…</div>
+        <label class="portaria-ficha-linha" style="display:flex;align-items:center;gap:6px;margin-bottom:14px">
+            <input type="checkbox" id="excluir-admin-ciente"> Entendi — apagar mesmo assim
+        </label>
+
+        <div id="excluir-admin-erro" style="display:none;color:var(--accent);font-size:0.85rem;margin-bottom:10px"></div>
+
+        <button type="button" class="btn btn-danger btn-full" id="btn-confirmar-excluir-admin" disabled>Excluir definitivamente</button>
+        <button type="button" class="btn btn-ghost btn-full btn-modal-stack" id="btn-cancelar-excluir-admin">Cancelar</button>
     </div>
 </div>
 

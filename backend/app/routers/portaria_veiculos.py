@@ -15,20 +15,22 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from fastapi.responses import HTMLResponse
-from sqlalchemy import select
+from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.core.deps import exige
 from app.core.placa import placa_valida
 from app.models.cadastro import Funcao, Funcionario, FuncionarioFuncao
-from app.models.portaria import Credencial, EmpresaTerceira, VeiculoPortaria, VeiculoSituacaoHist
+from app.models.portaria import (
+    Credencial, EmpresaTerceira, MovimentoPortaria, VeiculoPortaria, VeiculoSituacaoHist,
+)
 from app.schemas.portaria import (
     BloquearPorReRequest, BloquearPorReResponse, CredencialEmitirRequest,
     CredencialRead, CredencialRevogarRequest, EmpresaTerceiraCreate,
     EmpresaTerceiraRead, FuncionarioPortariaBusca, Propriedade, SituacaoVeiculo,
-    VeiculoCreate, VeiculoDivergenciaRead, VeiculoRead, VeiculoSituacaoHistRead,
-    VeiculoSituacaoUpdate, VeiculoUpdate,
+    VeiculoAdminUpdate, VeiculoCreate, VeiculoDivergenciaRead, VeiculoExclusaoImpacto,
+    VeiculoRead, VeiculoSituacaoHistRead, VeiculoSituacaoUpdate, VeiculoUpdate,
 )
 from app.services.portaria import veiculo_read
 from app.services.portaria_credencial import (
@@ -42,6 +44,14 @@ LeituraCadastro = Annotated[Funcionario, Depends(exige("veiculo_portaria"))]
 EscritaCadastro = Annotated[Funcionario, Depends(exige("veiculo_portaria", escrever=True))]
 LeituraAutorizacao = Annotated[Funcionario, Depends(exige("autorizacao_veicular"))]
 EscritaAutorizacao = Annotated[Funcionario, Depends(exige("autorizacao_veicular", escrever=True))]
+
+# Gestão de cadastro (17/09/2026) — editar propriedade/dono, excluir de
+# verdade e reativar são atos só de ADMIN. Reusa o mesmo gate que já
+# restringe administração de pessoas/permissões em vez de inventar recurso
+# novo: `usuarios` escrever hoje é, na prática, só o RE 5598/ADMIN (decisão
+# do Alisson, migration 020-permissoes-menor-privilegio.sql) — mesmo padrão
+# de GerenciaUsuarios em routers/funcionarios.py e routers/permissoes.py.
+GestaoAdmin = Annotated[Funcionario, Depends(exige("usuarios", escrever=True))]
 
 
 # Bloco D (migration 035): quem tem função com veiculo_auto_autorizado=TRUE
@@ -654,3 +664,186 @@ def bloquear_por_re(
         veiculos_suspensos=[veiculo_read(v, db) for v in a_suspender],
         ja_suspensos=[veiculo_read(v, db) for v in ja_suspensos],
     )
+
+
+# ============================================================================
+# GESTÃO DE CADASTRO — exige("usuarios", escrever=True) (só ADMIN)
+# ----------------------------------------------------------------------------
+# 17/09/2026 — caso real em produção: um guincho da frota foi cadastrado
+# como PARTICULAR; não havia como corrigir a `propriedade` pela API
+# (VeiculoUpdate não aceita esse campo), e tentar "remover" pela tela só
+# mudava `situacao` pra BAIXADO sem tocar `ativo` — a placa continuou presa
+# no índice uq_portaria_veiculo_placa (WHERE ativo) e o recadastro deu
+# "Registro duplicado", sem saída pela aplicação. Corrigido por SQL direto
+# no servidor; estas três rotas existem pra isso nunca mais precisar de SQL.
+# ============================================================================
+
+@router.patch(
+    "/veiculos/{veiculo_id}/cadastro-admin",
+    response_model=VeiculoRead,
+    summary="ADMIN corrige o cadastro inteiro, inclusive propriedade e dono — nunca a situação (D6 continua intacta)",
+)
+def corrigir_cadastro_veiculo(
+    veiculo_id: UUID,
+    payload: VeiculoAdminUpdate,
+    usuario: GestaoAdmin,
+    db: Annotated[Session, Depends(get_db)],
+):
+    # Sem checar `ativo` — mesma razão de mudar_situacao (§3.6-A.2): ADMIN
+    # precisa alcançar até um veículo desativado pra corrigir o cadastro
+    # antes de reativar (POST .../reativar), senão o registro fica
+    # inconsertável pela API pra sempre.
+    veiculo = db.get(VeiculoPortaria, veiculo_id)
+    if veiculo is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Veículo não encontrado")
+
+    if payload.funcionario_id and db.get(Funcionario, payload.funcionario_id) is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Funcionário (dono) não encontrado")
+    if payload.empresa_terceira_id and db.get(EmpresaTerceira, payload.empresa_terceira_id) is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Empresa terceira não encontrada")
+
+    # uq_portaria_veiculo_placa é parcial (WHERE ativo) — sem este preview a
+    # troca de placa vira IntegrityError bruto (500) em vez de um erro que a
+    # tela consegue mostrar. Mesma trava que reativar_veiculo faz abaixo.
+    if payload.placa != veiculo.placa:
+        conflito = db.execute(
+            select(VeiculoPortaria).where(
+                VeiculoPortaria.placa == payload.placa,
+                VeiculoPortaria.ativo.is_(True),
+                VeiculoPortaria.id != veiculo.id,
+            )
+        ).scalar_one_or_none()
+        if conflito is not None:
+            raise HTTPException(
+                status.HTTP_409_CONFLICT,
+                detail=f"Placa {payload.placa} já está em uso por outro veículo ativo (situação {conflito.situacao}).",
+            )
+
+    veiculo.propriedade = payload.propriedade
+    veiculo.funcionario_id = payload.funcionario_id
+    veiculo.empresa_terceira_id = payload.empresa_terceira_id
+    veiculo.re_dono_texto = payload.re_dono_texto
+    veiculo.placa = payload.placa
+    veiculo.tipo = payload.tipo
+    veiculo.marca_modelo = payload.marca_modelo
+    veiculo.cor = payload.cor
+    if payload.exige_hodometro is not None:
+        veiculo.exige_hodometro = payload.exige_hodometro
+    veiculo.observacao = payload.observacao
+    veiculo.placa_atipica = not placa_valida(veiculo.placa)
+    veiculo.atualizado_em = datetime.now(timezone.utc)
+    veiculo.atualizado_por = usuario.id
+
+    # C1/Bloco F (mesmo comportamento de cadastrar_veiculo): RE digitado que
+    # não resolveu vira pré-cadastro — de graça, nunca bloqueia a correção.
+    if payload.re_dono_texto:
+        registrar_pessoa_vista(
+            db, re=payload.re_dono_texto, papel="INDEFINIDO", origem="PORTARIA_VEICULO",
+        )
+
+    db.commit()
+    db.refresh(veiculo)
+    return veiculo_read(veiculo, db)
+
+
+@router.get(
+    "/veiculos/{veiculo_id}/exclusao",
+    response_model=VeiculoExclusaoImpacto,
+    summary="ADMIN — quanto o DELETE de verdade levaria junto (movimentos/credenciais/histórico), antes de confirmar",
+)
+def impacto_exclusao_veiculo(
+    veiculo_id: UUID, usuario: GestaoAdmin, db: Annotated[Session, Depends(get_db)],
+):
+    if db.get(VeiculoPortaria, veiculo_id) is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Veículo não encontrado")
+
+    def _contar(modelo) -> int:
+        return db.execute(
+            select(func.count()).select_from(modelo).where(modelo.veiculo_id == veiculo_id)
+        ).scalar_one()
+
+    return VeiculoExclusaoImpacto(
+        movimentos=_contar(MovimentoPortaria),
+        credenciais=_contar(Credencial),
+        historico_situacao=_contar(VeiculoSituacaoHist),
+    )
+
+
+@router.delete(
+    "/veiculos/{veiculo_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="ADMIN — apaga o veículo DE VERDADE (não desativação), junto com movimentos/credenciais/histórico. Exige confirmar=true",
+)
+def excluir_veiculo(
+    veiculo_id: UUID,
+    usuario: GestaoAdmin,
+    db: Annotated[Session, Depends(get_db)],
+    confirmar: bool = Query(
+        False,
+        description="Precisa ser true — força quem chama a já ter visto o impacto em GET .../exclusao",
+    ),
+):
+    veiculo = db.get(VeiculoPortaria, veiculo_id)
+    if veiculo is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Veículo não encontrado")
+    if not confirmar:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="Confirmação obrigatória — veja o impacto em GET .../exclusao e repita o DELETE com confirmar=true.",
+        )
+
+    # Ordem manual, dentro da mesma transação — não dá pra confiar só em ON
+    # DELETE CASCADE porque portaria.movimento.veiculo_id NÃO tem cascade no
+    # banco (só credencial e veiculo_situacao_hist têm). Fazer os três
+    # DELETEs aqui, explícitos, evita depender de uma migration nova só pra
+    # isto. Decisão do Alisson (17/09/2026): sistema em teste, dado real
+    # mora na planilha — perder este histórico é aceitável agora.
+    db.execute(delete(MovimentoPortaria).where(MovimentoPortaria.veiculo_id == veiculo_id))
+    db.execute(delete(Credencial).where(Credencial.veiculo_id == veiculo_id))
+    db.execute(delete(VeiculoSituacaoHist).where(VeiculoSituacaoHist.veiculo_id == veiculo_id))
+    db.delete(veiculo)
+    db.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.post(
+    "/veiculos/{veiculo_id}/reativar",
+    response_model=VeiculoRead,
+    summary="ADMIN — traz de volta veículo com ativo=false; recusa se a placa já estiver em uso por outro ativo",
+)
+def reativar_veiculo(
+    veiculo_id: UUID, usuario: GestaoAdmin, db: Annotated[Session, Depends(get_db)],
+):
+    veiculo = db.get(VeiculoPortaria, veiculo_id)
+    if veiculo is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Veículo não encontrado")
+    if veiculo.ativo:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Veículo já está ativo.")
+
+    conflito = db.execute(
+        select(VeiculoPortaria).where(
+            VeiculoPortaria.placa == veiculo.placa,
+            VeiculoPortaria.ativo.is_(True),
+            VeiculoPortaria.id != veiculo.id,
+        )
+    ).scalar_one_or_none()
+    if conflito is not None:
+        detalhe_dono = ""
+        if conflito.propriedade == "PARTICULAR" and conflito.funcionario_id:
+            dono = db.get(Funcionario, conflito.funcionario_id)
+            if dono is not None:
+                detalhe_dono = f", dono {dono.nome}"
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            detail=(
+                f"Placa {veiculo.placa} já está em uso pelo veículo ativo {conflito.id} "
+                f"(situação {conflito.situacao}{detalhe_dono}) — baixe ou apague aquele antes de reativar este."
+            ),
+        )
+
+    veiculo.ativo = True
+    veiculo.atualizado_em = datetime.now(timezone.utc)
+    veiculo.atualizado_por = usuario.id
+    db.commit()
+    db.refresh(veiculo)
+    return veiculo_read(veiculo, db)
