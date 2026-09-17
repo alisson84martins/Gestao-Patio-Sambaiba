@@ -3647,6 +3647,51 @@ body.modal-open {
     color: var(--text);
 }
 
+/* ============================================================
+   AVARIA — aviso "já marcada" (Bloco G, migration 042, Fase 1)
+   16/09/2026: o mapa clicável (grade de zonas em SVG) foi vetado em teste
+   de tela — voltou ao layout simples de chips (.recolhida-chip), igual
+   recolhida. Sobra só o que o aviso de "já marcada" (§3 do prompt de
+   correção) reaproveita: a caixa do aviso e a fileira de ações.
+   ============================================================ */
+/* Caixa do aviso "já marcada" — ⛔ nunca modal, o controlador precisa
+   continuar vendo os campos (RE, linha) junto do aviso. */
+.avaria-mapa-painel {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 14px;
+    margin: 4px 0 18px;
+}
+
+.avaria-mapa-painel-aviso {
+    background: rgba(245, 158, 11, 0.12);
+    border: 1px solid #f59e0b;
+    border-radius: 8px;
+    padding: 10px 12px;
+    font-size: 13px;
+    margin-bottom: 12px;
+}
+
+/* Ações do painel — mesmo padrão sticky de .fis-rodape-fixo /
+   .modal-acoes (armadilha_teclado_celular_viewport): o teclado do celular
+   não pode encobrir o botão principal. */
+.avaria-mapa-acoes {
+    position: sticky;
+    bottom: 0;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 10px 0 4px;
+    margin-top: 10px;
+    background: linear-gradient(to top, var(--bg) 65%, transparent);
+}
+
+.avaria-mapa-acoes .btn {
+    flex: 1 1 140px;
+    min-height: 48px;
+}
+
 /* Bloco F — recolhida anormal. Poucos campos, alvos grandes, botões em vez
    de menus suspensos (§2.6: "sem muita poluição visual"). */
 

@@ -673,19 +673,102 @@ class RecolhidaAnaliseResponse(BaseModel):
 
 
 # ============================================================================
-# AVARIA_SAIDA (Bloco G, migration 036) — dano visto na conferência de saída
+# AVARIA — mapa clicável, deduplicação e prova (Bloco G, migrations 036+042)
+#
+# 🔴 O enquadramento inteiro está no cabeçalho de app/models/portaria.py::
+# AvariaSaida e da migration 042: a marcação PROTEGE o motorista, a
+# ausência dela o RESPONSABILIZA. Documento de apuração, não log.
 # ============================================================================
 
+SeveridadeAvaria = Literal["LEVE", "MEDIA", "GRAVE"]
+StatusAvaria = Literal["ABERTA", "REPARADA", "INEXISTENTE"]
+EncerramentoAvaria = Literal["REPARADA", "NAO_EXISTIA", "DUPLICADA"]
+
+
+class AvariaZonaRead(ORMBase):
+    codigo: str
+    nome: str
+    vista: str
+    regiao_ocorrencia: str
+    requer_caracteristica: Optional[str] = None
+    ordem: int
+
+
+class AvariaTipoRead(ORMBase):
+    codigo: str
+    nome: str
+    exige_conferencia: bool
+    ordem: int
+
+
+class AvariaCatalogoResponse(BaseModel):
+    """GET /portaria/avarias/catalogo — só ativo=TRUE, na ordem. ⛔ Zonas
+    nunca são hardcodadas no frontend (P3)."""
+
+    zonas: list[AvariaZonaRead]
+    tipos: list[AvariaTipoRead]
+
+
 class AvariaSaidaCreate(BaseModel):
-    """POST /portaria/avarias. `motorista_re` é opcional (regra número um —
-    nunca bloqueia); `motorista_nome` só é usado quando o RE digitado não
-    resolve em public.funcionario/motorista (aí vira snapshot do que o
-    controlador informou, e alimenta o pré-cadastro do Bloco H)."""
+    """POST /portaria/avarias — upsert (P2): dano+prefixo+zona+tipo já
+    ABERTO acrescenta constatação em vez de criar avaria nova. `motorista_re`
+    é opcional (regra número um — nunca bloqueia); `motorista_nome` só é
+    usado quando o RE digitado não resolve em public.funcionario/motorista.
+
+    🔵 COMPATIBILIDADE COM A TELA ANTIGA (036): `zona_codigo`/`tipo_codigo`
+    são OPCIONAIS aqui de propósito — a tela antiga manda só `descricao`, e
+    o router preenche NAO_INFORMADA/NAO_INFORMADO nesse caso. Sem isso a
+    042 (zona_codigo/tipo_codigo NOT NULL no banco) derruba a tela em
+    produção no primeiro REGISTRAR depois do deploy da migration. Avaria
+    gravada assim não deduplica (o índice único exclui NAO_INFORMADA) —
+    transitório e aceito até o mapa (P3) subir.
+
+    `descricao` também é opcional aqui — a tela nova (P3, mapa) grava
+    zona+tipo e observação livre é opcional; o router sintetiza um texto a
+    partir do nome da zona+tipo quando `descricao` vem vazio, porque a
+    coluna é NOT NULL no banco (dado de produção da 036, ⛔ não dropar)."""
 
     prefixo: str = Field(..., min_length=1, max_length=10)
+    zona_codigo: Optional[str] = Field(None, max_length=30)
+    tipo_codigo: Optional[str] = Field(None, max_length=20)
     motorista_re: ReNormalizado = Field(None, max_length=20)
     motorista_nome: Optional[str] = Field(None, max_length=120)
-    descricao: str = Field(..., min_length=1)
+    descricao: Optional[str] = Field(None, min_length=1)
+    severidade: Optional[SeveridadeAvaria] = None
+    observacao: Optional[str] = None
+    piorou: bool = False
+    # Snapshot da linha do dia (P3/§16-09) — catálogo, nunca digitação
+    # livre na tela; aceito fora do catálogo aqui (teste 17 da Fase 1).
+    linha_codigo: Optional[str] = Field(None, max_length=20)
+    # Escape de "avaria REPARADA, mesmo dano voltou": em vez de nascer nova,
+    # reabre a encerrada (mantém a linha do tempo inteira — ver P2, item 5).
+    reabrir_id: Optional[UUID] = None
+
+    @model_validator(mode="after")
+    def _piorou_exige_observacao(self) -> "AvariaSaidaCreate":
+        if self.piorou and not (self.observacao or "").strip():
+            raise ValueError("piorou=true exige `observacao` — é ela que documenta o agravamento.")
+        return self
+
+
+class AvariaConstatacaoRead(ORMBase):
+    id: UUID
+    avaria_id: UUID
+    data_servico: date
+    ocorrido_em: datetime
+    motorista_re: Optional[str] = None
+    motorista_nome: Optional[str] = None
+    observacao: Optional[str] = None
+    piorou: bool
+    linha_codigo: Optional[str] = None
+    registrado_por: UUID
+    # Resolvidos pelo backend via join (⛔ nunca só o UUID pra tela — P2).
+    registrado_por_re: Optional[str] = None
+    registrado_por_nome: Optional[str] = None
+    criado_em: datetime
+    anulada_em: Optional[datetime] = None
+    anulada_por: Optional[UUID] = None
+    anulacao_nota: Optional[str] = None
 
 
 class AvariaSaidaRead(ORMBase):
@@ -696,7 +779,130 @@ class AvariaSaidaRead(ORMBase):
     motorista_re: Optional[str] = None
     motorista_nome: Optional[str] = None
     descricao: str
+    zona_codigo: str
+    tipo_codigo: str
+    severidade: SeveridadeAvaria
+    status: StatusAvaria
+    primeira_vez_em: Optional[datetime] = None
+    ultima_vez_em: Optional[datetime] = None
+    vezes_vista: int
+    encerrada_em: Optional[datetime] = None
+    encerrada_por: Optional[UUID] = None
+    encerramento: Optional[EncerramentoAvaria] = None
+    encerramento_nota: Optional[str] = None
     registrado_por: UUID
     criado_em: datetime
     expira_em: datetime
+
+
+class CicloAnteriorInfo(BaseModel):
+    """Preenchido quando existe uma avaria ENCERRADA com a mesma chave
+    (prefixo+zona+tipo) — a tela usa isso pra avisar "este carro já teve
+    isso, foi reparada em 20/08" (P2, item 2)."""
+
+    avaria_id: UUID
+    encerrada_em: Optional[datetime] = None
+    encerramento: Optional[EncerramentoAvaria] = None
+    vezes_vista: int
+
+
+class AvariaSaidaUpsertResponse(AvariaSaidaRead):
+    """Resposta de POST /portaria/avarias — 201 quando nasce avaria nova,
+    200 quando só acrescenta constatação numa já ABERTA (`ja_existia`)."""
+
+    ja_existia: bool = False
+    ciclo_anterior: Optional[CicloAnteriorInfo] = None
+
+
+class AvariaMapaItem(BaseModel):
+    """GET /portaria/avarias/mapa?prefixo= — uma linha por avaria ABERTA,
+    leve de propósito (P2). `id` entra além do que o prompt listou porque a
+    tela (P3) precisa dele pra contestar/registrar nessa mesma avaria."""
+
+    id: UUID
+    zona_codigo: str
+    tipo_codigo: str
+    severidade: SeveridadeAvaria
+    primeira_vez_em: Optional[datetime] = None
+    ultima_vez_em: Optional[datetime] = None
+    vezes_vista: int
+    contestacoes: int = 0
+
+
+class AvariaMapaResponse(BaseModel):
+    avarias: list[AvariaMapaItem]
+    # 🟢 Autopreenchimento da LINHA pela escala do dia (pedido do Alisson em
+    # 16/09) — computado no mesmo GET que já é chamado no blur do prefixo
+    # (P3), pra não custar uma segunda chamada. Editável, nunca sobrescreve
+    # o que o controlador já escolheu (a tela decide isso, não aqui).
+    linha_sugerida_codigo: Optional[str] = None
+    linha_sugerida_nome: Optional[str] = None
+
+
+class AvariaDetalheRead(AvariaSaidaRead):
+    """GET /portaria/avarias/{id} — a tela da janela de responsabilidade:
+    todas as constatações em ordem cronológica."""
+
+    constatacoes: list[AvariaConstatacaoRead] = Field(default_factory=list)
+
+
+class AvariaHistoricoItem(BaseModel):
+    """GET /portaria/avarias/historico — histórico COMPARTILHADO (pedido do
+    Alisson em 16/09): qualquer controlador vê, com o RE de quem anotou."""
+
+    id: UUID
+    prefixo: str
+    zona_codigo: str
+    tipo_codigo: str
+    severidade: SeveridadeAvaria
+    status: StatusAvaria
+    primeira_vez_em: Optional[datetime] = None
+    ultima_vez_em: Optional[datetime] = None
+    vezes_vista: int
+    encerrada_em: Optional[datetime] = None
+    encerramento: Optional[EncerramentoAvaria] = None
+    # Da PRIMEIRA constatação do ciclo — "quem marcou primeiro".
+    registrado_por_re: Optional[str] = None
+    registrado_por_nome: Optional[str] = None
+    linha_codigo: Optional[str] = None
+
+
+class AvariaContestarRequest(BaseModel):
+    nota: Optional[str] = None
+
+
+class AvariaContestacaoRead(ORMBase):
+    id: UUID
+    avaria_id: UUID
+    ocorrido_em: datetime
+    data_servico: date
+    nota: Optional[str] = None
+    registrado_por: UUID
+    registrado_por_re: Optional[str] = None
+    registrado_por_nome: Optional[str] = None
+
+
+class AvariaEncerrarRequest(BaseModel):
+    """POST /portaria/avarias/{id}/encerrar — recurso `manutencao` escrever
+    (Fase 2/P2): quem conserta não é quem confere a saída."""
+
+    encerramento: EncerramentoAvaria
+    nota: Optional[str] = None
+
+
+class AvariaConstatacaoAnularRequest(BaseModel):
+    """POST /portaria/constatacoes/{id}/anular — nota obrigatória (ck do
+    banco espelhada aqui pra dar 422 em vez de erro de integridade)."""
+
+    anulacao_nota: str = Field(..., min_length=1)
+
+
+class CatalogoLinhaPortariaItem(ORMBase):
+    """GET /portaria/catalogo/linhas — mesma tabela de
+    /fiscalizacao/catalogo/linhas, porta própria porque CONTROLADOR_ACESSO
+    não tem (e não deveria ganhar) o recurso `fiscalizacao` (P3, menor
+    privilégio, migration 020)."""
+
+    codigo: str
+    nome: str
 

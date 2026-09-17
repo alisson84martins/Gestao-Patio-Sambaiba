@@ -18,10 +18,12 @@ migration 024 criou.
 
 ⛔ Nenhum dado pessoal real — RE, nome e placa fictícios.
 """
+import re
 import sqlite3
 import typing
 import uuid as _uuid_mod
 from datetime import date, datetime, time, timedelta, timezone
+from pathlib import Path
 from uuid import UUID, uuid4
 
 import pytest
@@ -41,8 +43,8 @@ from app.models.enums import OrigemEscalaEnum, SetorEnum, StatusFichaEnum, TipoE
 from app.models.operacoes import Escala, FichaManutencao, ImportacaoEscala
 from app.models.pessoas import Motorista, Usuario
 from app.models.portaria import (
-    AvariaSaida, Credencial, EmpresaTerceira, MovimentoPortaria, PortariaLocal, PortariaSetor,
-    RecolhidaAnormal, VeiculoPortaria, VeiculoSituacaoHist,
+    AvariaConstatacao, AvariaContestacao, AvariaSaida, AvariaTipo, AvariaZona, Credencial, EmpresaTerceira,
+    MovimentoPortaria, PortariaLocal, PortariaSetor, RecolhidaAnormal, VeiculoPortaria, VeiculoSituacaoHist,
 )
 from app.models.pre_cadastro import PessoaPreCadastro
 from app.routers import portaria as portaria_router_mod
@@ -77,6 +79,8 @@ _TABELAS = [
     Funcionario.__table__, PortariaLocal.__table__, PortariaSetor.__table__, EmpresaTerceira.__table__,
     VeiculoPortaria.__table__, VeiculoSituacaoHist.__table__, MovimentoPortaria.__table__,
     Credencial.__table__, RecolhidaAnormal.__table__, AvariaSaida.__table__,
+    # Migration 042 (Fase 1) — catálogos e as duas tabelas de ciclo de vida.
+    AvariaZona.__table__, AvariaTipo.__table__, AvariaConstatacao.__table__, AvariaContestacao.__table__,
     Motorista.__table__, Linha.__table__, TipoDefeito.__table__,
     ImportacaoEscala.__table__, Escala.__table__, Usuario.__table__, FichaManutencao.__table__,
     # Bloco H — a recolhida alimenta o pré-cadastro (services/pre_cadastro.py).
@@ -128,6 +132,10 @@ _PERMISSOES = {
         # chama exige() de novo — cada chamada gera um callable novo, então
         # dependency_overrides precisa mirar os dois objetos).
         "leitura_acesso_avarias": True, "escrita_acesso_avarias": True,
+        # Migration 042/Fase 2 — /encerrar exige `manutencao` escrever, não
+        # `acesso_veicular`: quem confere a saída não é quem dá baixa.
+        "escrita_manutencao": False,
+        "leitura_acesso_ou_manutencao_avarias": True,
     },
     "ENCARREGADO": {
         "leitura_acesso": True, "escrita_acesso": False,
@@ -138,6 +146,8 @@ _PERMISSOES = {
         "leitura_tratativa": True, "escrita_tratativa": False,
         "leitura_recolhida_ou_tratativa": True,
         "leitura_acesso_avarias": True, "escrita_acesso_avarias": False,
+        "escrita_manutencao": False,
+        "leitura_acesso_ou_manutencao_avarias": True,
     },
     "MECANICO": {
         "leitura_acesso": False, "escrita_acesso": False,
@@ -148,13 +158,22 @@ _PERMISSOES = {
         "leitura_tratativa": True, "escrita_tratativa": True,
         "leitura_recolhida_ou_tratativa": True,
         "leitura_acesso_avarias": False, "escrita_acesso_avarias": False,
+        # MECANICO tem `manutencao` escrever na produção real (migrations
+        # 011/037/038) — é quem dá baixa na avaria (Fase 2).
+        "escrita_manutencao": True,
+        # 17/09, item [4] — MECANICO não tem acesso_veicular, mas tem
+        # `manutencao` (ler+escrever na produção real) — é o par que faz
+        # exige_qualquer("acesso_veicular", "manutencao") passar pra ele,
+        # sem lhe dar leitura_acesso_avarias de verdade.
+        "leitura_acesso_ou_manutencao_avarias": True,
     },
     "ADMIN": {chave: True for chave in (
         "leitura_acesso", "escrita_acesso", "leitura_cadastro",
         "escrita_cadastro", "leitura_autorizacao", "escrita_autorizacao",
         "leitura_recolhida", "escrita_recolhida", "leitura_gerencial",
         "leitura_tratativa", "escrita_tratativa", "leitura_recolhida_ou_tratativa",
-        "leitura_acesso_avarias", "escrita_acesso_avarias",
+        "leitura_acesso_avarias", "escrita_acesso_avarias", "escrita_manutencao",
+        "leitura_acesso_ou_manutencao_avarias",
     )},
 }
 _USUARIOS = {
@@ -189,6 +208,25 @@ def ambiente():
         setup.add(PortariaSetor(codigo="MANUTENCAO", nome="Manutenção", ordem=1, ativo=True))
         setup.add(PortariaSetor(codigo="OPERACAO", nome="Operação", ordem=2, ativo=True))
         setup.add(PortariaSetor(codigo="ADMINISTRACAO", nome="Administração", ordem=3, ativo=True))
+        # Migration 042 — catálogo mínimo pros testes: os dois de backfill
+        # (NAO_INFORMADA/NAO_INFORMADO, ativo=False) + duas zonas/tipos reais
+        # pra exercitar o mapa/dedup sem precisar do seed de 58 linhas.
+        setup.add(AvariaZona(
+            codigo="NAO_INFORMADA", nome="Não informada", vista="INTERNO",
+            regiao_ocorrencia="OUTRO", ordem=999, ativo=False,
+        ))
+        setup.add(AvariaZona(
+            codigo="PARACHOQUE_DIANT", nome="Para-choque dianteiro", vista="FRENTE",
+            regiao_ocorrencia="FRENTE", ordem=10, ativo=True,
+        ))
+        setup.add(AvariaZona(
+            codigo="RETROVISOR_ESQ", nome="Retrovisor esquerdo", vista="FRENTE",
+            regiao_ocorrencia="RETROVISOR", ordem=60, ativo=True,
+        ))
+        setup.add(AvariaTipo(codigo="NAO_INFORMADO", nome="Não informado", exige_conferencia=False, ordem=999, ativo=False))
+        setup.add(AvariaTipo(codigo="AMASSADO", nome="Amassado", exige_conferencia=True, ordem=20, ativo=True))
+        setup.add(AvariaTipo(codigo="TRINCADO", nome="Trincado", exige_conferencia=True, ordem=40, ativo=True))
+        setup.add(AvariaTipo(codigo="RALADO", nome="Ralado", exige_conferencia=False, ordem=10, ativo=True))
         setup.commit()
 
     def _get_db_teste():
@@ -215,6 +253,14 @@ def ambiente():
         ),
         "leitura_acesso_avarias": _dependency_de(portaria_avarias_router_mod.LeituraAcesso),
         "escrita_acesso_avarias": _dependency_de(portaria_avarias_router_mod.EscritaAcesso),
+        "escrita_manutencao": _dependency_de(portaria_avarias_router_mod.EscritaManutencao),
+        # 17/09, item [4] — fila de avarias abertas no módulo Manutenção:
+        # GET /avarias/catalogo e /avarias/historico passam a aceitar
+        # acesso_veicular OU manutencao (exige_qualquer), dependência
+        # SEPARADA de "leitura_acesso_avarias" acima.
+        "leitura_acesso_ou_manutencao_avarias": _dependency_de(
+            portaria_avarias_router_mod.LeituraAcessoOuManutencao
+        ),
     }
 
     app.dependency_overrides[get_db] = _get_db_teste
@@ -1788,12 +1834,14 @@ def test_avaria_get_esconde_registro_expirado(ambiente):
         db.add(AvariaSaida(
             id=vencida_id, prefixo="1234", data_servico=date(2026, 1, 1),
             descricao="Vencida — expira_em no passado.",
+            zona_codigo="NAO_INFORMADA", tipo_codigo="NAO_INFORMADO", status="ABERTA",
             registrado_por=_CONTROLADOR.id,
             expira_em=datetime.now(timezone.utc) - timedelta(days=1),
         ))
         db.add(AvariaSaida(
             id=valida_id, prefixo="1234", data_servico=date(2026, 1, 1),
             descricao="Válida — expira_em no futuro.",
+            zona_codigo="NAO_INFORMADA", tipo_codigo="NAO_INFORMADO", status="ABERTA",
             registrado_por=_CONTROLADOR.id,
             expira_em=datetime.now(timezone.utc) + timedelta(days=59),
         ))
@@ -1833,6 +1881,412 @@ def test_avaria_re_nao_resolvido_alimenta_pre_cadastro(ambiente):
         ).scalar_one_or_none()
     assert pre is not None
     assert pre.ultima_origem == "PORTARIA_AVARIA"
+
+
+# ============================================================================
+# MIGRATION 042 (Fase 1) — mapa clicável, deduplicação e prova.
+# Ver _handoff-claude/PROMPT-avaria-mapa-visual-2026-09-15.md, P4.
+# Catálogo de teste (seedado em `ambiente`): zonas PARACHOQUE_DIANT e
+# RETROVISOR_ESQ; tipos AMASSADO/TRINCADO (exige_conferencia) e RALADO.
+# ============================================================================
+
+def test_042_zona_tipo_inedito_cria_avaria_e_uma_constatacao(ambiente):
+    _como(ambiente, "CONTROLADOR")
+    resp = ambiente["http"].post("/portaria/avarias", json={
+        "prefixo": "1173", "zona_codigo": "PARACHOQUE_DIANT", "tipo_codigo": "AMASSADO",
+        "motorista_re": "14249",
+    })
+    assert resp.status_code == 201, resp.text
+    corpo = resp.json()
+    assert corpo["vezes_vista"] == 1
+    assert corpo["ja_existia"] is False
+    with Session(ambiente["engine"]) as db:
+        constatacoes = db.execute(
+            select(AvariaConstatacao).where(AvariaConstatacao.avaria_id == UUID(corpo["id"]))
+        ).scalars().all()
+    assert len(constatacoes) == 1
+
+
+def test_042_mesmo_post_outro_re_acrescenta_constatacao_nao_cria_avaria(ambiente):
+    """🔴 O teste que prova a frente inteira — o segundo motorista fica
+    protegido sem criar avaria nova (P2, item 3)."""
+    _como(ambiente, "CONTROLADOR")
+    payload = {"prefixo": "1173", "zona_codigo": "PARACHOQUE_DIANT", "tipo_codigo": "AMASSADO"}
+    primeiro = ambiente["http"].post("/portaria/avarias", json={**payload, "motorista_re": "14249"})
+    assert primeiro.status_code == 201, primeiro.text
+    avaria_id = primeiro.json()["id"]
+
+    segundo = ambiente["http"].post("/portaria/avarias", json={**payload, "motorista_re": "4338"})
+    assert segundo.status_code == 200, segundo.text
+    corpo = segundo.json()
+    assert corpo["id"] == avaria_id
+    assert corpo["ja_existia"] is True
+    assert corpo["vezes_vista"] == 2
+
+    with Session(ambiente["engine"]) as db:
+        assert len(db.execute(select(AvariaSaida)).scalars().all()) == 1
+        assert len(db.execute(select(AvariaConstatacao)).scalars().all()) == 2
+
+
+def test_042_piorou_sem_observacao_e_422_com_observacao_sobe_severidade(ambiente):
+    _como(ambiente, "CONTROLADOR")
+    payload = {"prefixo": "1173", "zona_codigo": "PARACHOQUE_DIANT", "tipo_codigo": "AMASSADO"}
+    base = ambiente["http"].post("/portaria/avarias", json=payload)
+    assert base.status_code == 201, base.text
+    assert base.json()["severidade"] == "LEVE"
+
+    sem_obs = ambiente["http"].post("/portaria/avarias", json={**payload, "piorou": True})
+    assert sem_obs.status_code == 422, sem_obs.text
+
+    com_obs = ambiente["http"].post(
+        "/portaria/avarias",
+        json={**payload, "piorou": True, "observacao": "Amassado ficou maior — outro motorista."},
+    )
+    assert com_obs.status_code == 200, com_obs.text
+    assert com_obs.json()["severidade"] == "MEDIA"
+
+
+def test_042_delete_avaria_com_constatacao_falha_por_integridade(ambiente):
+    """A prova não se destrói — RESTRICT, ⛔ nunca CASCADE."""
+    _como(ambiente, "CONTROLADOR")
+    resp = ambiente["http"].post("/portaria/avarias", json={
+        "prefixo": "1173", "zona_codigo": "PARACHOQUE_DIANT", "tipo_codigo": "AMASSADO",
+    })
+    avaria_id = UUID(resp.json()["id"])
+    with Session(ambiente["engine"]) as db:
+        avaria = db.get(AvariaSaida, avaria_id)
+        db.delete(avaria)
+        with pytest.raises(Exception):
+            db.commit()
+
+
+def test_042_rota_de_constatacao_nunca_tem_put_nem_delete(ambiente):
+    """⚠️ Lê pelo OpenAPI, não por app.routes (armadilha_contagem_rotas_fastapi)."""
+    caminhos = app.openapi()["paths"]
+    rotas_constatacao = [p for p in caminhos if p.startswith("/portaria/constatacoes")]
+    assert rotas_constatacao, "esperava pelo menos a rota de anular"
+    for caminho in rotas_constatacao:
+        metodos = set(caminhos[caminho].keys())
+        assert "put" not in metodos
+        assert "delete" not in metodos
+
+
+def test_042_anular_constatacao_sem_nota_e_422_com_nota_mantem_linha(ambiente):
+    _como(ambiente, "CONTROLADOR")
+    resp = ambiente["http"].post("/portaria/avarias", json={
+        "prefixo": "1173", "zona_codigo": "PARACHOQUE_DIANT", "tipo_codigo": "AMASSADO",
+    })
+    avaria_id = UUID(resp.json()["id"])
+    with Session(ambiente["engine"]) as db:
+        constatacao_id = db.execute(
+            select(AvariaConstatacao).where(AvariaConstatacao.avaria_id == avaria_id)
+        ).scalar_one().id
+
+    sem_nota = ambiente["http"].post(f"/portaria/constatacoes/{constatacao_id}/anular", json={})
+    assert sem_nota.status_code == 422, sem_nota.text
+
+    com_nota = ambiente["http"].post(
+        f"/portaria/constatacoes/{constatacao_id}/anular", json={"anulacao_nota": "Marcado por engano."}
+    )
+    assert com_nota.status_code == 200, com_nota.text
+    assert com_nota.json()["anulada_em"] is not None
+
+    with Session(ambiente["engine"]) as db:
+        ainda_existe = db.get(AvariaConstatacao, constatacao_id)
+    assert ainda_existe is not None
+    assert ainda_existe.anulacao_nota == "Marcado por engano."
+
+
+def test_042_avaria_reparada_e_mesmo_dano_visto_de_novo_cria_nova_com_ciclo_anterior(ambiente):
+    _como(ambiente, "CONTROLADOR")
+    primeira = ambiente["http"].post("/portaria/avarias", json={
+        "prefixo": "1173", "zona_codigo": "RETROVISOR_ESQ", "tipo_codigo": "TRINCADO",
+    })
+    avaria_id = primeira.json()["id"]
+
+    _como(ambiente, "MECANICO")
+    encerrar = ambiente["http"].post(f"/portaria/avarias/{avaria_id}/encerrar", json={"encerramento": "REPARADA"})
+    assert encerrar.status_code == 200, encerrar.text
+
+    _como(ambiente, "CONTROLADOR")
+    nova = ambiente["http"].post("/portaria/avarias", json={
+        "prefixo": "1173", "zona_codigo": "RETROVISOR_ESQ", "tipo_codigo": "TRINCADO",
+    })
+    assert nova.status_code == 201, nova.text
+    corpo = nova.json()
+    assert corpo["id"] != avaria_id
+    assert corpo["ciclo_anterior"]["avaria_id"] == avaria_id
+    assert corpo["ciclo_anterior"]["encerramento"] == "REPARADA"
+
+
+def test_042_reabrir_id_volta_avaria_encerrada_pra_aberta_sem_linha_nova(ambiente):
+    _como(ambiente, "CONTROLADOR")
+    primeira = ambiente["http"].post("/portaria/avarias", json={
+        "prefixo": "2344", "zona_codigo": "RETROVISOR_ESQ", "tipo_codigo": "TRINCADO",
+    })
+    avaria_id = primeira.json()["id"]
+    _como(ambiente, "MECANICO")
+    ambiente["http"].post(f"/portaria/avarias/{avaria_id}/encerrar", json={"encerramento": "NAO_EXISTIA"})
+
+    _como(ambiente, "CONTROLADOR")
+    reaberta = ambiente["http"].post("/portaria/avarias", json={"prefixo": "2344", "reabrir_id": avaria_id})
+    assert reaberta.status_code == 200, reaberta.text
+    assert reaberta.json()["status"] == "ABERTA"
+    assert reaberta.json()["id"] == avaria_id
+
+    with Session(ambiente["engine"]) as db:
+        total = len(db.execute(select(AvariaSaida).where(AvariaSaida.prefixo == "2344")).scalars().all())
+    assert total == 1
+
+
+def test_042_regra_das_duas_e_funcao_pura_de_pessoa_e_dia(ambiente):
+    """Unidade da regra das duas (independe de wall-clock/get_data_servico):
+    só fecha com um PAR pessoa-diferente + dia-diferente de verdade."""
+    from app.routers.portaria_avarias import _duas_contestacoes_fecham
+
+    class _C:
+        def __init__(self, quem, dia):
+            self.registrado_por = quem
+            self.data_servico = dia
+
+    d1, d2 = date(2026, 9, 1), date(2026, 9, 2)
+    p1, p2 = uuid4(), uuid4()
+
+    assert _duas_contestacoes_fecham([_C(p1, d1)]) is False
+    assert _duas_contestacoes_fecham([_C(p1, d1), _C(p1, d2)]) is False   # mesma pessoa
+    assert _duas_contestacoes_fecham([_C(p1, d1), _C(p2, d1)]) is False  # mesmo dia
+    assert _duas_contestacoes_fecham([_C(p1, d1), _C(p2, d2)]) is True
+
+
+def test_042_duas_contestacoes_pessoas_e_dias_diferentes_encerra_sozinha_via_api(ambiente):
+    _como(ambiente, "CONTROLADOR")
+    resp = ambiente["http"].post("/portaria/avarias", json={
+        "prefixo": "1206", "zona_codigo": "RETROVISOR_ESQ", "tipo_codigo": "TRINCADO",
+    })
+    avaria_id = UUID(resp.json()["id"])
+
+    # primeira contestação, semeada num dia de serviço anterior
+    with Session(ambiente["engine"]) as db:
+        db.add(AvariaContestacao(
+            id=uuid4(), avaria_id=avaria_id, data_servico=date(2026, 9, 1),
+            nota="não vi (turno 1)", registrado_por=_CONTROLADOR.id,
+        ))
+        db.commit()
+
+    # mesmo usuário de novo -> 409 (UNIQUE barra o autoencerramento sozinho)
+    _como(ambiente, "CONTROLADOR")
+    repetida = ambiente["http"].post(f"/portaria/avarias/{avaria_id}/contestar", json={"nota": "de novo"})
+    assert repetida.status_code == 409, repetida.text
+
+    # segunda pessoa, dia de serviço de hoje (diferente) -> fecha sozinha
+    _como(ambiente, "ADMIN")
+    segunda = ambiente["http"].post(f"/portaria/avarias/{avaria_id}/contestar", json={"nota": "também não vi (turno 2)"})
+    assert segunda.status_code == 201, segunda.text
+
+    with Session(ambiente["engine"]) as db:
+        avaria = db.get(AvariaSaida, avaria_id)
+    assert avaria.status == "INEXISTENTE"
+    assert avaria.encerramento == "NAO_EXISTIA"
+    assert avaria.encerrada_por is None  # 🔴 encerramento do SISTEMA, não de pessoa
+
+
+def test_042_expira_em_365_dias_avaria_antiga_ainda_vista_ontem_aparece(ambiente):
+    avaria_id = uuid4()
+    antiga = datetime.now(timezone.utc) - timedelta(days=200)
+    ontem = datetime.now(timezone.utc) - timedelta(days=1)
+    with Session(ambiente["engine"]) as db:
+        db.add(AvariaSaida(
+            id=avaria_id, prefixo="1500", data_servico=date(2026, 3, 1),
+            descricao="Retrovisor trincado.", zona_codigo="RETROVISOR_ESQ", tipo_codigo="TRINCADO",
+            status="ABERTA", primeira_vez_em=antiga, ultima_vez_em=ontem, vezes_vista=1,
+            registrado_por=_CONTROLADOR.id, expira_em=ontem + timedelta(days=365),
+        ))
+        db.commit()
+
+    _como(ambiente, "CONTROLADOR")
+    # com a regra velha (60 dias) esta avaria NÃO apareceria — é a prova de que a 042 pegou.
+    resp = ambiente["http"].get("/portaria/avarias", params={"prefixo": "1500"})
+    assert resp.status_code == 200, resp.text
+    assert any(item["id"] == str(avaria_id) for item in resp.json())
+
+    seguiu = ambiente["http"].post("/portaria/avarias", json={
+        "prefixo": "1500", "zona_codigo": "RETROVISOR_ESQ", "tipo_codigo": "TRINCADO",
+    })
+    assert seguiu.status_code == 200, seguiu.text
+    with Session(ambiente["engine"]) as db:
+        atualizado = db.get(AvariaSaida, avaria_id)
+    # SQLite devolve datetime naive depois do round-trip; normaliza pra UTC
+    # antes de comparar (Postgres/produção usa TIMESTAMPTZ de verdade).
+    expira_lida = atualizado.expira_em
+    if expira_lida.tzinfo is None:
+        expira_lida = expira_lida.replace(tzinfo=timezone.utc)
+    assert expira_lida > ontem + timedelta(days=365) - timedelta(seconds=5)
+
+
+def test_042_encerrar_exige_manutencao_contestar_so_acesso_veicular(ambiente):
+    _como(ambiente, "CONTROLADOR")
+    resp = ambiente["http"].post("/portaria/avarias", json={
+        "prefixo": "1600", "zona_codigo": "PARACHOQUE_DIANT", "tipo_codigo": "AMASSADO",
+    })
+    avaria_id = resp.json()["id"]
+
+    negar = ambiente["http"].post(f"/portaria/avarias/{avaria_id}/encerrar", json={"encerramento": "REPARADA"})
+    assert negar.status_code == 403, negar.text
+
+    contestar = ambiente["http"].post(f"/portaria/avarias/{avaria_id}/contestar", json={"nota": "não vi"})
+    assert contestar.status_code == 201, contestar.text
+
+    _como(ambiente, "MECANICO")
+    permitir = ambiente["http"].post(f"/portaria/avarias/{avaria_id}/encerrar", json={"encerramento": "REPARADA"})
+    assert permitir.status_code == 200, permitir.text
+
+
+def test_042_get_motorista_re_devolve_avarias_que_ele_constatou(ambiente):
+    """🟢 'Tudo que aquele RE já marcou' — via CONSTATAÇÃO, não só o RE de
+    quem abriu a avaria (P2)."""
+    _como(ambiente, "CONTROLADOR")
+    primeira = ambiente["http"].post("/portaria/avarias", json={
+        "prefixo": "1700", "zona_codigo": "PARACHOQUE_DIANT", "tipo_codigo": "AMASSADO",
+        "motorista_re": "14249",
+    })
+    avaria_id = primeira.json()["id"]
+    ambiente["http"].post("/portaria/avarias", json={
+        "prefixo": "1700", "zona_codigo": "PARACHOQUE_DIANT", "tipo_codigo": "AMASSADO",
+        "motorista_re": "4338",
+    })
+    outro = ambiente["http"].post("/portaria/avarias", json={
+        "prefixo": "9999", "zona_codigo": "PARACHOQUE_DIANT", "tipo_codigo": "AMASSADO",
+        "motorista_re": "1111",
+    })
+
+    resp = ambiente["http"].get("/portaria/avarias", params={"motorista_re": "4338"})
+    assert resp.status_code == 200, resp.text
+    ids = [item["id"] for item in resp.json()]
+    assert avaria_id in ids
+    assert outro.json()["id"] not in ids
+
+
+def test_042_seed_da_migration_toda_regiao_ocorrencia_dentro_do_vocabulario():
+    """Estático — parseia o seed da própria migration 042 (⛔ não depende de
+    banco) e prova, de novo, os 58 zonas + os 10 valores de
+    REGIOES_AVARIA (ocorrencia.vocabulario.js / migration 012)."""
+    caminho = Path(__file__).resolve().parents[2] / "database" / "migrations" / "042-avaria-mapa-e-deduplicacao.sql"
+    texto = caminho.read_text(encoding="utf-8")
+    permitidos = {
+        "FRENTE", "TRASEIRA", "LATERAL_ESQUERDA", "LATERAL_DIREITA", "TETO",
+        "INTERIOR", "RODADO", "RETROVISOR", "PARABRISA", "OUTRO",
+    }
+    inicio = texto.index("INSERT INTO portaria.avaria_zona (codigo")
+    fim = texto.index("ON CONFLICT (codigo) DO NOTHING;", inicio)
+    bloco = texto[inicio:fim]
+    linhas = re.findall(r"\('([A-Z0-9_]+)',\s*'([^']*)',\s*'([A-Z_]+)',\s*'([A-Z_]+)',", bloco)
+    assert len(linhas) == 59, f"esperava 59 zonas no seed, achei {len(linhas)}"
+    regioes = {regiao for (_codigo, _nome, _vista, regiao) in linhas}
+    assert regioes <= permitidos, regioes - permitidos
+
+
+def test_042_post_sem_linha_codigo_devolve_201(ambiente):
+    _como(ambiente, "CONTROLADOR")
+    resp = ambiente["http"].post("/portaria/avarias", json={
+        "prefixo": "1800", "zona_codigo": "PARACHOQUE_DIANT", "tipo_codigo": "AMASSADO",
+    })
+    assert resp.status_code == 201, resp.text
+
+
+def test_042_linha_codigo_fora_do_catalogo_aceito_como_snapshot(ambiente):
+    _como(ambiente, "CONTROLADOR")
+    resp = ambiente["http"].post("/portaria/avarias", json={
+        "prefixo": "1900", "zona_codigo": "PARACHOQUE_DIANT", "tipo_codigo": "AMASSADO",
+        "linha_codigo": "9999-INEXISTENTE",
+    })
+    assert resp.status_code == 201, resp.text
+    with Session(ambiente["engine"]) as db:
+        constatacao = db.execute(
+            select(AvariaConstatacao).where(AvariaConstatacao.avaria_id == UUID(resp.json()["id"]))
+        ).scalar_one()
+    assert constatacao.linha_codigo == "9999-INEXISTENTE"
+
+
+def test_042_duas_constatacoes_linhas_diferentes_convivem(ambiente):
+    _como(ambiente, "CONTROLADOR")
+    payload = {"prefixo": "2000", "zona_codigo": "PARACHOQUE_DIANT", "tipo_codigo": "AMASSADO"}
+    primeira = ambiente["http"].post("/portaria/avarias", json={**payload, "linha_codigo": "1726-10"})
+    avaria_id = primeira.json()["id"]
+    segunda = ambiente["http"].post("/portaria/avarias", json={**payload, "linha_codigo": "8022"})
+    assert segunda.status_code == 200, segunda.text
+
+    with Session(ambiente["engine"]) as db:
+        linhas = {
+            c.linha_codigo for c in db.execute(
+                select(AvariaConstatacao).where(AvariaConstatacao.avaria_id == UUID(avaria_id))
+            ).scalars().all()
+        }
+    assert linhas == {"1726-10", "8022"}
+
+
+def test_042_historico_devolve_re_e_nome_e_e_compartilhado(ambiente):
+    _como(ambiente, "CONTROLADOR")
+    resp = ambiente["http"].post("/portaria/avarias", json={
+        "prefixo": "2100", "zona_codigo": "PARACHOQUE_DIANT", "tipo_codigo": "AMASSADO",
+    })
+    assert resp.status_code == 201, resp.text
+
+    _como(ambiente, "ADMIN")  # outro controlador lendo o que o CONTROLADOR registrou
+    hist = ambiente["http"].get("/portaria/avarias/historico", params={"prefixo": "2100"})
+    assert hist.status_code == 200, hist.text
+    itens = hist.json()
+    assert len(itens) == 1
+    assert itens[0]["registrado_por_re"] == _CONTROLADOR.re
+    assert itens[0]["registrado_por_nome"] == _CONTROLADOR.nome
+
+
+def test_042_historico_e_catalogo_leitura_tambem_por_manutencao(ambiente):
+    """17/09, item [4] — a fila de avarias abertas do módulo Manutenção
+    (Fase 2) lista via este mesmo /historico. MECANICO não tem
+    acesso_veicular (migration 037 tirou até recolhida_anormal dele de
+    propósito), mas tem `manutencao` — LeituraAcessoOuManutencao
+    (exige_qualquer) deixa passar. Sem isso a fila não lista nada."""
+    _como(ambiente, "CONTROLADOR")
+    resp = ambiente["http"].post("/portaria/avarias", json={
+        "prefixo": "2200", "zona_codigo": "PARACHOQUE_DIANT", "tipo_codigo": "AMASSADO",
+    })
+    assert resp.status_code == 201, resp.text
+
+    _como(ambiente, "MECANICO")
+    cat = ambiente["http"].get("/portaria/avarias/catalogo")
+    assert cat.status_code == 200, cat.text
+
+    hist = ambiente["http"].get("/portaria/avarias/historico", params={"status": "ABERTA"})
+    assert hist.status_code == 200, hist.text
+    assert any(item["prefixo"] == "2200" for item in hist.json())
+
+
+def test_042_historico_sem_acesso_veicular_e_sem_manutencao_e_403(ambiente):
+    """A trava continua existindo — exige_qualquer só alargou pras duas
+    pontas certas (acesso_veicular OU manutencao), não virou leitura
+    livre. Nega a dependência combinada direto, porque nenhum papel do
+    fixture hoje fica sem as duas pontas ao mesmo tempo."""
+    _como(ambiente, "CONTROLADOR")
+    dep = ambiente["leitura_acesso_ou_manutencao_avarias"]
+    ambiente["http"].app.dependency_overrides[dep] = _negar()
+    resp = ambiente["http"].get("/portaria/avarias/historico")
+    assert resp.status_code == 403, resp.text
+
+
+def test_042_rotas_literais_de_avaria_antes_do_path_param_no_openapi(ambiente):
+    """⚠️ Lê pelo OpenAPI, não por app.routes (armadilha_contagem_rotas_fastapi)."""
+    caminhos = list(app.openapi()["paths"].keys())
+    for esperado in (
+        "/portaria/avarias/catalogo", "/portaria/avarias/mapa", "/portaria/avarias/historico",
+        "/portaria/avarias/{avaria_id}", "/portaria/avarias/{avaria_id}/contestar",
+        "/portaria/avarias/{avaria_id}/encerrar", "/portaria/constatacoes/{constatacao_id}/anular",
+        "/portaria/catalogo/linhas",
+    ):
+        assert esperado in caminhos, esperado
+
+    assert caminhos.index("/portaria/avarias/catalogo") < caminhos.index("/portaria/avarias/{avaria_id}")
+    assert caminhos.index("/portaria/avarias/mapa") < caminhos.index("/portaria/avarias/{avaria_id}")
+    assert caminhos.index("/portaria/avarias/historico") < caminhos.index("/portaria/avarias/{avaria_id}")
 
 
 # ============================================================================

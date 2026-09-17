@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!--
   Sistema de Gestão Operacional Sambaíba — V3
-  Suite Portaria — Avaria na saída da frota (Bloco G)
+  Suite Portaria — Avaria na saída da frota (Bloco G, migration 042)
   Desenvolvido por Alisson Martins
   © 2026 — Todos os direitos reservados
 -->
@@ -39,50 +39,104 @@
 <script type="module" src="./assets/js/nav.js"></script>
 
 <!-- ========================================================= -->
-<!-- Bloco G: dano visto na saída — não é recolhida (o carro    -->
-<!-- está saindo) e não é ocorrência (não houve sinistro).      -->
-<!-- Caso de uso número um: "esse risco já estava aí ontem?"    -->
+<!-- Bloco G, migration 042 (Fase 1): dano visto na saída — não é         -->
+<!-- recolhida (o carro está saindo) e não é ocorrência (não houve        -->
+<!-- sinistro). Caso de uso número um: "esse risco já estava aí ontem?"   -->
+<!--                                                                      -->
+<!-- 16/09/2026 — correção depois do teste em tela com o Alisson: o mapa  -->
+<!-- clicável (avaria.mapa.js) foi vetado. Layout simples, no padrão da   -->
+<!-- recolhida (chips em dois níveis), campo Linha novo, histórico como   -->
+<!-- aba desta mesma página. Ver _handoff-claude/PROMPT-CORRIGIR-tela-    -->
+<!-- avaria-2026-09-16.md.                                                -->
 <!-- ========================================================= -->
 <main class="patio-main">
 
     <!-- Bloco G — sem link próprio na barra (nav.js), a página fica só com ativo:'portaria.html'. -->
     <a href="portaria.html" class="btn btn-ghost" style="display:inline-block;margin-bottom:16px">&larr; Voltar</a>
 
-    <div class="recolhida-campo">
-        <label class="form-label" for="av-prefixo">Carro</label>
-        <input type="text" class="form-input recolhida-input-grande" id="av-prefixo"
-               inputmode="numeric" autocomplete="off" autofocus placeholder="Prefixo">
-        <div id="av-prefixo-status" class="portaria-ficha-linha"></div>
+    <div class="oc-tabs" id="av-tabs">
+        <button type="button" class="filtro-btn active" data-tab="marcar">Marcar</button>
+        <button type="button" class="filtro-btn" data-tab="historico">Histórico</button>
     </div>
 
-    <!-- Busca por carro — histórico de 60 dias do prefixo digitado acima. -->
-    <section class="portaria-secao" id="av-historico-wrap" style="display:none">
-        <div class="portaria-secao-titulo">Histórico deste carro (60 dias)</div>
-        <div id="av-historico-carro"></div>
+    <!-- ================================================================ -->
+    <!-- ABA MARCAR                                                        -->
+    <!-- ================================================================ -->
+    <section class="oc-tab-section active" id="tab-marcar">
+
+        <div class="recolhida-campo">
+            <label class="form-label" for="av-prefixo">Carro</label>
+            <input type="text" class="form-input recolhida-input-grande" id="av-prefixo"
+                   inputmode="numeric" autocomplete="off" autofocus placeholder="Prefixo">
+            <div id="av-prefixo-status" class="portaria-ficha-linha"></div>
+        </div>
+
+        <div class="recolhida-campo">
+            <label class="form-label" for="av-linha-busca">Linha</label>
+            <input type="text" class="form-input" id="av-linha-busca" autocomplete="off" placeholder="Toque numa linha (opcional)">
+            <div id="av-linha-sugestoes" class="recolhida-chips"></div>
+            <div id="av-linha-selecionada" class="portaria-ficha-linha"></div>
+        </div>
+
+        <div class="recolhida-campo">
+            <label class="form-label" for="av-motorista-re">RE</label>
+            <input type="text" class="form-input" id="av-motorista-re" inputmode="numeric" autocomplete="off">
+            <div id="av-motorista-status" class="portaria-ficha-linha"></div>
+        </div>
+
+        <div class="recolhida-campo">
+            <label class="form-label">Avaria</label>
+            <div id="av-locais" class="recolhida-chips"></div>
+            <div id="av-zonas" class="recolhida-chips"></div>
+            <div id="av-tipos" class="recolhida-chips"></div>
+            <div id="av-selecionado" class="portaria-ficha-linha"></div>
+        </div>
+
+        <div id="av-ja-marcada" class="avaria-mapa-painel" style="display:none"></div>
+
+        <div class="recolhida-campo">
+            <label class="form-label" for="av-observacao">Observação (opcional)</label>
+            <textarea class="form-input form-textarea" id="av-observacao" rows="1"></textarea>
+        </div>
+
+        <div id="av-erro" style="display:none;color:var(--accent);font-size:0.85rem;margin-bottom:10px"></div>
+
+        <button type="button" class="btn btn-primary btn-full" id="btn-registrar-avaria">REGISTRAR</button>
+
+        <section class="portaria-secao" style="margin-top:24px">
+            <div class="portaria-secao-titulo">Suas avarias do turno</div>
+            <div id="av-lista-turno"><div class="patio-loading">Carregando…</div></div>
+        </section>
     </section>
 
-    <div class="recolhida-campo">
-        <label class="form-label" for="av-motorista-re">RE</label>
-        <input type="text" class="form-input" id="av-motorista-re" inputmode="numeric" autocomplete="off">
-        <div id="av-motorista-status" class="portaria-ficha-linha"></div>
-        <input type="text" class="form-input" id="av-motorista-nome" placeholder="Nome (RE não encontrado)" style="display:none;margin-top:6px">
-    </div>
+    <!-- ================================================================ -->
+    <!-- ABA HISTÓRICO — compartilhado entre controladores (pedido do      -->
+    <!-- Alisson, 16/09): "quem marcou" tem que aparecer na lista.         -->
+    <!-- ================================================================ -->
+    <section class="oc-tab-section" id="tab-historico">
+        <div class="recolhida-campo">
+            <label class="form-label" for="av-hist-prefixo">Carro</label>
+            <input type="text" class="form-input" id="av-hist-prefixo" inputmode="numeric" autocomplete="off" placeholder="Prefixo (opcional)">
+        </div>
 
-    <div class="recolhida-campo">
-        <label class="form-label" for="av-descricao">Avaria</label>
-        <textarea class="form-input form-textarea" id="av-descricao" rows="3"></textarea>
-    </div>
+        <div class="oc-tabs" id="av-hist-periodo">
+            <button type="button" class="filtro-btn active" data-periodo="hoje">Hoje</button>
+            <button type="button" class="filtro-btn" data-periodo="7">7 dias</button>
+            <button type="button" class="filtro-btn" data-periodo="30">30 dias</button>
+        </div>
 
-    <div id="av-erro" style="display:none;color:var(--accent);font-size:0.85rem;margin-bottom:10px"></div>
-
-    <button type="button" class="btn btn-primary btn-full" id="btn-registrar-avaria">REGISTRAR</button>
-
-    <section class="portaria-secao" style="margin-top:24px">
-        <div class="portaria-secao-titulo">Suas avarias do turno</div>
-        <div id="av-lista-turno"><div class="patio-loading">Carregando…</div></div>
+        <div id="av-hist-lista" style="margin-top:16px"><div class="patio-loading">Carregando…</div></div>
     </section>
 
 </main>
+
+<div class="modal-overlay" id="av-modal-detalhe">
+    <div class="modal">
+        <button type="button" class="modal-close" id="av-modal-detalhe-fechar">✕</button>
+        <div class="modal-title" id="av-modal-detalhe-titulo">—</div>
+        <div id="av-modal-detalhe-corpo"></div>
+    </div>
+</div>
 
 <script type="module" src="./assets/js/portaria-avaria.page.js"></script>
 </body>

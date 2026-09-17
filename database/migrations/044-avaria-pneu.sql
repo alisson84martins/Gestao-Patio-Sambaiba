@@ -1,0 +1,149 @@
+-- ============================================================================
+-- MIGRATION 044 — Vocabulário do controlador: "roda" vira "pneu"
+-- ----------------------------------------------------------------------------
+-- BANCO:  gestao_frota_sambaiba (produção) / gestao_patio_sambaiba (dev)
+-- SCHEMA: portaria (existente — migration 024)
+-- DATA:   2026-09-17
+-- AUTOR:  Claude Code
+-- DEPENDE DE: 042-avaria-mapa-e-deduplicacao.sql (tabelas portaria.avaria_zona
+--             e portaria.avaria_tipo)
+-- ORIGEM: decisão do Alisson em 17/09 (tarde), testada em tela — item [B]
+--         do prompt da tarde.
+-- ----------------------------------------------------------------------------
+-- O QUE MUDA — só o RÓTULO, não o código:
+--   As 4 zonas de roda que a 042 já criou (RODA_ESQ_DIANT, RODA_ESQ_TRAS,
+--   RODA_DIR_DIANT, RODA_DIR_TRAS — nomes conferidos no seed real da 042
+--   antes de escrever esta migration, não presumidos) passam a exibir
+--   "Pneu esquerdo/direito dianteiro/traseiro" em vez de "Roda
+--   esquerda/direita dianteira/traseira". ⛔ O CÓDIGO (chave primária) NÃO
+--   muda — ver "POR QUÊ NÃO RENOMEIA O CÓDIGO" abaixo. Continuam dentro de
+--   Lateral esq/Lateral dir, mesma vista, mesmo lugar na tela — nenhum
+--   chip novo no 1º nível, nenhum nível novo.
+--
+--   RODA_3EIXO_ESQ/RODA_3EIXO_DIR (zonas do 3º eixo do articulado,
+--   requer_caracteristica='ARTICULADO', Fase 4 — ainda não aparecem em
+--   tela nenhuma) NÃO são tocadas: o prompt de hoje listou só as 4 zonas
+--   de roda comuns pelo nome exibido de cada uma; renomear as do 3º eixo
+--   também não foi pedido, e elas nem são selecionáveis ainda.
+--
+--   Tipo novo "Cortado" (pedido explícito do item B2). A restrição "zona
+--   de pneu só aceita Furado/Cortado/Roda amassada" (item B3) É FEITA NO
+--   CLIENTE (frontend-v3/assets/js/portaria-avaria.page.js), não no
+--   banco — ver "POR QUE NÃO HÁ CHECK/TABELA NOVA" abaixo.
+--
+-- ⚠️ GAP PREENCHIDO, REGISTRADO AQUI — o item B2 só mandou criar o tipo
+--   "Cortado". O item B3 lista TRÊS tipos como os únicos aceitos em zona
+--   de pneu: Furado (já existe, ativo desde a 042) · Cortado (B2) · "Roda
+--   amassada". "Roda amassada" NÃO é o mesmo catálogo que o tipo genérico
+--   "Amassado" (esse é usado por outras 8+ zonas — para-choque, porta,
+--   etc. — renomeá-lo globalmente pra "Roda amassada" quebraria o rótulo
+--   nelas). Pra B3 fazer sentido, "Roda amassada" tem que existir como
+--   linha própria em avaria_tipo — então esta migration cria os DOIS
+--   tipos novos (CORTADO e RODA_AMASSADA), não só o que o B2 nomeou.
+--   Não é regra de negócio nova: é o mesmo pedido (a lista de três nomes
+--   do B3), só que B2 esqueceu de listar o segundo tipo que faltava
+--   criar. Se a leitura certa era outra (ex.: reaproveitar AMASSADO sem
+--   rótulo próprio), é reverter este INSERT — nada foi rodado.
+--
+-- POR QUÊ NÃO RENOMEIA O CÓDIGO (zona) — decisão registrada, item B1
+--   pedia pra decidir e justificar:
+--   `avaria_saida.zona_codigo` é FK pra `avaria_zona.codigo`. Produção já
+--   tem avarias reais marcadas nessas 4 zonas (backfill da 042, mais o
+--   uso normal desde então) — trocar o código exigiria (a) UPDATE em
+--   avaria_saida.zona_codigo pra cada linha existente ANTES de poder
+--   trocar a PK (a FK, sem ON UPDATE CASCADE, bloqueia renomear uma PK
+--   referenciada), e (b) coordenar isso com o índice único parcial
+--   uq_avaria_aberta_por_zona_tipo. Tudo isso pra um ganho que é zero:
+--   ninguém vê o código, só o `nome`. Trocar só o rótulo é aditivo puro,
+--   sem risco pra dado de produção nem pra FK — por isso PNEU_* não
+--   nasce e RODA_*_DIANT/TRAS continua sendo a chave.
+--
+-- POR QUE NÃO HÁ CHECK/TABELA NOVA PRA "ZONA DE PNEU SÓ ACEITA 3 TIPOS":
+--   Conferido antes de escrever esta migration — avaria_zona e avaria_tipo
+--   são catálogos INDEPENDENTES hoje, sem tabela de compatibilidade
+--   zona×tipo nem coluna de restrição em nenhuma das duas (o prompt já
+--   prevIu essa possibilidade: "se não houver [mecanismo], filtre no
+--   cliente"). Criar essa tabela agora seria estrutura nova não pedida
+--   ("⛔ não invente regra de negócio nova") pra resolver um problema que
+--   o próprio prompt já mandou resolver do lado mais simples. A filtragem
+--   fica no mesmo lugar que já filtra `requer_caracteristica` hoje
+--   (`_zonasCatalogo()`/`renderTipos()` em portaria-avaria.page.js): uma
+--   zona conta como "de pneu" quando `regiao_ocorrencia = 'RODADO'`
+--   (coluna que já existe e já significa exatamente isso — reaproveitada
+--   em vez de uma lista solta de 4 códigos duplicada em dois lugares).
+--
+-- 🟢 QUASE ADITIVA — um INSERT novo (2 tipos) e dois UPDATE de `nome` em
+--   linhas que a 042 já insere. Nenhum DROP, nenhuma tabela nova, nenhuma
+--   coluna nova.
+--
+-- ARMADILHA DE DONO DE TABELA (ver 011, PARTE 0): se der
+-- "must be owner of table X", rode SET ROLE sambaiba; antes.
+-- COMO RODAR:
+--   sudo -u postgres psql -d gestao_frota_sambaiba -c "SET ROLE sambaiba;" \
+--        -f 044-avaria-pneu.sql
+-- ============================================================================
+
+SET search_path TO portaria, public;
+
+-- ----------------------------------------------------------------------------
+-- B1 · Renomeia o RÓTULO das 4 zonas de roda comuns — código intacto.
+-- UPDATE (não INSERT ... ON CONFLICT): idempotente por natureza — rodar
+-- de novo produz o mesmo nome, nunca erro.
+-- ----------------------------------------------------------------------------
+UPDATE portaria.avaria_zona SET nome = 'Pneu esquerdo dianteiro' WHERE codigo = 'RODA_ESQ_DIANT';
+UPDATE portaria.avaria_zona SET nome = 'Pneu esquerdo traseiro'  WHERE codigo = 'RODA_ESQ_TRAS';
+UPDATE portaria.avaria_zona SET nome = 'Pneu direito dianteiro'  WHERE codigo = 'RODA_DIR_DIANT';
+UPDATE portaria.avaria_zona SET nome = 'Pneu direito traseiro'   WHERE codigo = 'RODA_DIR_TRAS';
+
+-- ----------------------------------------------------------------------------
+-- B2 (+ gap preenchido, ver cabeçalho) · Tipos novos, só os que faltam —
+-- FURADO já existe e continua como está (ativo desde a 042, sem mudança).
+-- ----------------------------------------------------------------------------
+INSERT INTO portaria.avaria_tipo (codigo, nome, exige_conferencia, ordem, ativo) VALUES
+    -- Corte no pneu — dano grave (risco de estouro em rodagem), mesma
+    -- categoria de exige_conferencia=TRUE que AMASSADO/QUEBRADO/TRINCADO/
+    -- FALTANDO já usam pros danos que não podem confirmar num toque só
+    -- quando a avaria está aberta há mais de 30 dias (P3).
+    ('CORTADO',       'Cortado',        TRUE, 100, TRUE),
+    -- "Roda amassada" — pneu/roda com deformação (aro ou lateral do
+    -- pneu). Tipo PRÓPRIO, ⛔ não é o mesmo catálogo do "Amassado"
+    -- genérico (código AMASSADO) que outras zonas usam — ver cabeçalho.
+    ('RODA_AMASSADA', 'Roda amassada',  TRUE, 110, TRUE)
+ON CONFLICT (codigo) DO NOTHING;
+
+-- ============================================================================
+-- CONFERÊNCIA
+-- ============================================================================
+--   -- As 4 zonas de pneu com o rótulo novo, código intacto:
+--   SELECT codigo, nome FROM portaria.avaria_zona
+--    WHERE codigo IN ('RODA_ESQ_DIANT','RODA_ESQ_TRAS','RODA_DIR_DIANT','RODA_DIR_TRAS');
+--   -- esperado: "Pneu esquerdo dianteiro" / "Pneu esquerdo traseiro" /
+--   --           "Pneu direito dianteiro" / "Pneu direito traseiro"
+--
+--   -- As zonas do 3º eixo (Fase 4) NÃO foram tocadas:
+--   SELECT codigo, nome FROM portaria.avaria_zona WHERE codigo IN ('RODA_3EIXO_ESQ','RODA_3EIXO_DIR');
+--   -- esperado: nomes como a 042 os criou ("Roda 3º eixo — esquerda/direita")
+--
+--   -- Os 2 tipos novos existem, ativos:
+--   SELECT codigo, nome, exige_conferencia FROM portaria.avaria_tipo
+--    WHERE codigo IN ('CORTADO', 'RODA_AMASSADA');  -- esperado: 2 linhas
+--
+--   -- Nenhuma avaria de produção perdeu a zona (FK continua íntegra —
+--   -- não mudamos código nenhum):
+--   SELECT count(*) FROM portaria.avaria_saida a
+--    LEFT JOIN portaria.avaria_zona z ON z.codigo = a.zona_codigo
+--    WHERE z.codigo IS NULL;  -- esperado: 0
+-- ============================================================================
+
+-- ============================================================================
+-- ROLLBACK
+-- ============================================================================
+-- UPDATE portaria.avaria_zona SET nome = 'Roda esquerda dianteira' WHERE codigo = 'RODA_ESQ_DIANT';
+-- UPDATE portaria.avaria_zona SET nome = 'Roda esquerda traseira'  WHERE codigo = 'RODA_ESQ_TRAS';
+-- UPDATE portaria.avaria_zona SET nome = 'Roda direita dianteira'  WHERE codigo = 'RODA_DIR_DIANT';
+-- UPDATE portaria.avaria_zona SET nome = 'Roda direita traseira'   WHERE codigo = 'RODA_DIR_TRAS';
+-- ⚠️ Só apagar os tipos novos se nenhuma avaria real os usa ainda
+-- (avaria_saida.tipo_codigo é FK — o DELETE abaixo falha se houver uso,
+-- comportamento certo: não apaga tipo em uso):
+-- DELETE FROM portaria.avaria_tipo WHERE codigo IN ('CORTADO', 'RODA_AMASSADA');
+-- ============================================================================

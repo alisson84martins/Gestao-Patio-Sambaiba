@@ -38,3 +38,5 @@ logs/
 
 # Pasta de contexto privado entre sessoes do Claude (Cowork + Claude Code) - fora do versionamento
 _handoff-claude/
+
+Claude outputs/

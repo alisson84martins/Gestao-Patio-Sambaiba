@@ -15,7 +15,8 @@ from typing import Optional
 from uuid import UUID, uuid4
 
 from sqlalchemy import (
-    Boolean, Date, DateTime, ForeignKey, Integer, SmallInteger, String, Text,
+    Boolean, Date, DateTime, ForeignKey, Index, Integer, SmallInteger, String, Text, UniqueConstraint,
+    text,
 )
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column
@@ -360,24 +361,82 @@ class RecolhidaAnormal(Base):
     )
 
 
+class AvariaZona(Base):
+    """Catálogo de partes do ônibus onde uma avaria pode ser marcada.
+    Espelha database/migrations/042-avaria-mapa-e-deduplicacao.sql. Tabela,
+    não ENUM — cresce por INSERT, sem pegadinha de ALTER TYPE (mesmo motivo
+    de PortariaLocal/PortariaSetor)."""
+
+    __tablename__ = "avaria_zona"
+    __table_args__ = {"schema": SCHEMA}
+
+    codigo: Mapped[str] = mapped_column(String(30), primary_key=True)
+    nome: Mapped[str] = mapped_column(String(60), nullable=False)
+    # Onde desenhar no mapa (P3): FRENTE|TRASEIRA|LATERAL_ESQ|LATERAL_DIR|INTERNO|TETO
+    vista: Mapped[str] = mapped_column(String(20), nullable=False)
+    # Vocabulário da coordenadoria (REGIOES_AVARIA / migration 012) —
+    # coluna de PROPÓSITO diferente de `vista`, não fundir as duas.
+    regiao_ocorrencia: Mapped[str] = mapped_column(String(20), nullable=False)
+    # NULL = zona de qualquer carro. ARTICULADO/ELETRICO = só entra no
+    # catálogo de um carro com essa característica (Fase 4, migration 044).
+    requer_caracteristica: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
+    ordem: Mapped[int] = mapped_column(SmallInteger, nullable=False)
+    ativo: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+
+
+class AvariaTipo(Base):
+    """Catálogo de tipos de dano. Espelha a migration 042 — mesmo motivo de
+    tabela (não ENUM) de AvariaZona."""
+
+    __tablename__ = "avaria_tipo"
+    __table_args__ = {"schema": SCHEMA}
+
+    codigo: Mapped[str] = mapped_column(String(20), primary_key=True)
+    nome: Mapped[str] = mapped_column(String(40), nullable=False)
+    # TRUE para danos graves (amassado/quebrado/faltando/trincado) — decide,
+    # na tela (P3), se confirmar uma avaria aberta há mais de 30 dias pede
+    # um segundo toque.
+    exige_conferencia: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    ordem: Mapped[int] = mapped_column(SmallInteger, nullable=False)
+    ativo: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+
+
 class AvariaSaida(Base):
     """Avaria vista na conferência de saída da frota (Bloco G). Espelha
-    database/migrations/036-avaria-saida-frota.sql. Não é recolhida (o carro
-    está saindo, não voltando) e não é ocorrência (não houve sinistro) — é
-    a resposta a "esse risco já estava aí ontem?" quando o carro volta com
-    dano maior.
+    database/migrations/036-avaria-saida-frota.sql, evoluída pela 042
+    (mapa clicável, deduplicação, ciclo de vida — Fase 1 de
+    PROMPT-avaria-mapa-visual-2026-09-15.md). Não é recolhida (o carro está
+    saindo, não voltando) e não é ocorrência (não houve sinistro).
+
+    🔴 ENQUADRAMENTO PROBATÓRIO (042): a marcação PROTEGE o motorista que
+    pegou o carro já avariado; a ausência dela o RESPONSABILIZA. Por isso a
+    retenção é de 365 dias (era 60 na 036) e por isso avaria_constatacao
+    (abaixo) é imutável e nunca é apagada em cascata.
 
     SNAPSHOT de texto, não FK (mesma decisão de recolhida_anormal, migration
     026): prefixo e motorista_nome são o que o controlador VIU naquele
     momento; renumeração de frota não pode reescrever o passado.
 
-    Retenção curta (60 dias, `expira_em`) — o projeto não tem scheduler
-    (mesma decisão da migration 028), então o expurgo é por FILTRO
-    (`routers/portaria_avarias.py::listar_avarias` exige `expira_em > NOW()`),
-    nunca por job de background."""
+    Retenção (365 dias a partir da 042, `expira_em`) — o projeto não tem
+    scheduler (mesma decisão da migration 028), então o expurgo é por
+    FILTRO (`routers/portaria_avarias.py::listar_avarias` exige
+    `expira_em > NOW()`), nunca por job de background. Recalculada pelo
+    router a cada constatação e no encerramento — ver
+    services/avarias.py::calcular_expira_em."""
 
     __tablename__ = "avaria_saida"
-    __table_args__ = {"schema": SCHEMA}
+    __table_args__ = (
+        # Espelha uq_avaria_aberta_por_zona_tipo (migration 042, seção 5) —
+        # a trava contra duplicata. Parcial: só entre linhas ABERTA e fora
+        # de NAO_INFORMADA (compat com a tela antiga, que nunca dedup).
+        Index(
+            "uq_avaria_aberta_por_zona_tipo", "prefixo", "zona_codigo", "tipo_codigo",
+            unique=True,
+            postgresql_where=text("status = 'ABERTA' AND zona_codigo <> 'NAO_INFORMADA'"),
+            sqlite_where=text("status = 'ABERTA' AND zona_codigo <> 'NAO_INFORMADA'"),
+        ),
+        {"schema": SCHEMA},
+    )
 
     id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True, default=uuid4)
 
@@ -392,7 +451,28 @@ class AvariaSaida(Base):
 
     motorista_re: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
     motorista_nome: Mapped[Optional[str]] = mapped_column(String(120), nullable=True)
+    # NOT NULL desde a 036 — vira a observação livre da abertura a partir
+    # da 042 (⛔ nunca dropar, tem dado de produção).
     descricao: Mapped[str] = mapped_column(Text, nullable=False)
+
+    # ── 042: mapa clicável + deduplicação ───────────────────────────────
+    zona_codigo: Mapped[str] = mapped_column(
+        String(30), ForeignKey(f"{SCHEMA}.avaria_zona.codigo"), nullable=False
+    )
+    tipo_codigo: Mapped[str] = mapped_column(
+        String(20), ForeignKey(f"{SCHEMA}.avaria_tipo.codigo"), nullable=False
+    )
+    severidade: Mapped[str] = mapped_column(String(10), nullable=False, default="LEVE")
+    status: Mapped[str] = mapped_column(String(14), nullable=False, default="ABERTA")
+    primeira_vez_em: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    ultima_vez_em: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    vezes_vista: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    encerrada_em: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    encerrada_por: Mapped[Optional[UUID]] = mapped_column(
+        PG_UUID(as_uuid=True), ForeignKey("funcionario.id"), nullable=True
+    )
+    encerramento: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
+    encerramento_nota: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
     registrado_por: Mapped[UUID] = mapped_column(
         PG_UUID(as_uuid=True), ForeignKey("funcionario.id"), nullable=False
@@ -400,7 +480,81 @@ class AvariaSaida(Base):
     criado_em: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
+    # 365 dias a partir da 042 (era 60 na 036) — ver COMMENT da migration.
     expira_em: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False,
-        default=lambda: datetime.now(timezone.utc) + timedelta(days=60),
+        default=lambda: datetime.now(timezone.utc) + timedelta(days=365),
+    )
+
+
+class AvariaConstatacao(Base):
+    """A DECLARAÇÃO: fulano pegou este carro nesta data e o dano já estava
+    aqui. É a PROVA, e é IMUTÁVEL — este router (routers/portaria_avarias.py)
+    nunca expõe PUT nem DELETE nesta tabela; correção só por anulação
+    (anulada_em/anulada_por/anulacao_nota), que preserva a linha. Espelha
+    database/migrations/042-avaria-mapa-e-deduplicacao.sql.
+
+    ON DELETE RESTRICT em avaria_id (⛔ nunca CASCADE): apagar a avaria
+    levaria junto a defesa de todos os motoristas que passaram por ela."""
+
+    __tablename__ = "avaria_constatacao"
+    __table_args__ = {"schema": SCHEMA}
+
+    id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True, default=uuid4)
+    avaria_id: Mapped[UUID] = mapped_column(
+        PG_UUID(as_uuid=True), ForeignKey(f"{SCHEMA}.avaria_saida.id", ondelete="RESTRICT"), nullable=False
+    )
+    data_servico: Mapped[date] = mapped_column(Date, nullable=False)
+    ocorrido_em: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    motorista_re: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
+    motorista_nome: Mapped[Optional[str]] = mapped_column(String(120), nullable=True)
+    observacao: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    piorou: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    # SNAPSHOT da linha (fiscalizacao.linha) que o carro ia operar nesta
+    # saída — ⛔ SEM FK de propósito: aceito fora do catálogo, o dono da
+    # trava é o seletor na tela (P3), não o banco (teste 17 da Fase 1).
+    linha_codigo: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
+    registrado_por: Mapped[UUID] = mapped_column(
+        PG_UUID(as_uuid=True), ForeignKey("funcionario.id"), nullable=False
+    )
+    criado_em: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    anulada_em: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    anulada_por: Mapped[Optional[UUID]] = mapped_column(
+        PG_UUID(as_uuid=True), ForeignKey("funcionario.id"), nullable=True
+    )
+    anulacao_nota: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+
+
+class AvariaContestacao(Base):
+    """O controlador diz "não vi mais essa". A avaria continua ABERTA — não
+    apaga nem esconde o dano enquanto ele não encerrar. REGRA DAS DUAS
+    (routers/portaria_avarias.py): duas pessoas DIFERENTES, em dias de
+    serviço DIFERENTES, contestando a mesma avaria encerram ela sozinhas
+    (encerramento=NAO_EXISTIA, encerrada_por=NULL — encerramento do
+    SISTEMA). Espelha a migration 042."""
+
+    __tablename__ = "avaria_contestacao"
+    __table_args__ = (
+        # Espelha uq_contestacao_por_pessoa (migration 042) — é o que
+        # impede o mesmo controlador contestar duas vezes e acionar a
+        # regra das duas sozinho.
+        UniqueConstraint("avaria_id", "registrado_por", name="uq_contestacao_por_pessoa"),
+        {"schema": SCHEMA},
+    )
+
+    id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True, default=uuid4)
+    avaria_id: Mapped[UUID] = mapped_column(
+        PG_UUID(as_uuid=True), ForeignKey(f"{SCHEMA}.avaria_saida.id", ondelete="RESTRICT"), nullable=False
+    )
+    ocorrido_em: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    data_servico: Mapped[date] = mapped_column(Date, nullable=False)
+    nota: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    registrado_por: Mapped[UUID] = mapped_column(
+        PG_UUID(as_uuid=True), ForeignKey("funcionario.id"), nullable=False
     )

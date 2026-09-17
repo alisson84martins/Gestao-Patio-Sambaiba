@@ -49,6 +49,7 @@
     <div class="oc-tabs" id="manut-tabs">
         <button type="button" class="filtro-btn active" data-tab="fichas">Fichas</button>
         <button type="button" class="filtro-btn" id="tab-btn-ra" data-tab="ra" style="display:none">RA</button>
+        <button type="button" class="filtro-btn" id="tab-btn-avarias" data-tab="avarias">Avarias</button>
     </div>
 
     <!-- ================================================================ -->
@@ -116,6 +117,22 @@
             <div id="gerencial-agregados"></div>
         </section>
 
+    </section>
+
+    <!-- ================================================================ -->
+    <!-- ABA AVARIAS — Fase 2 (item [4], 17/09): fila de avarias ABERTAS   -->
+    <!-- pra funilaria dar baixa. Sem isso nenhuma avaria fecha — ver      -->
+    <!-- cabeçalho de assets/js/manutencao.avarias.js.                    -->
+    <!-- ================================================================ -->
+    <section class="oc-tab-section" id="tab-avarias">
+        <div class="portaria-contador">
+            <div class="portaria-contador-numero" id="manut-av-contador-numero">—</div>
+            <div class="portaria-contador-label">Avarias abertas</div>
+        </div>
+
+        <div id="manut-av-erro" style="display:none;color:var(--accent);font-size:0.85rem;margin-bottom:10px"></div>
+
+        <div id="manut-av-lista"><div class="patio-loading">Carregando…</div></div>
     </section>
 </main>
 
@@ -289,5 +306,6 @@
 
 <script type="module" src="./assets/js/manutencao.js"></script>
 <script type="module" src="./assets/js/manutencao.recolhidas.js"></script>
+<script type="module" src="./assets/js/manutencao.avarias.js"></script>
 </body>
 </html>

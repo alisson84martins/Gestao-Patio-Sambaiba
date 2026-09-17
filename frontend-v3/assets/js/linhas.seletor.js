@@ -23,10 +23,18 @@ import { escapeHtml } from './escape.js';
  * @param {HTMLInputElement} [args.campoBusca] — input de filtro (código ou nome)
  * @param {boolean} [args.multiplo=false] — true: toque alterna (várias linhas);
  *   false: toque escolhe uma só e desmarca as demais
+ * @param {string} [args.url='/fiscalizacao/catalogo/linhas'] — de onde ler o
+ *   catálogo. Migration 042/P3 (avaria da portaria): CONTROLADOR_ACESSO não
+ *   tem (e não deveria ganhar, menor privilégio) o recurso `fiscalizacao` —
+ *   por isso existe GET /portaria/catalogo/linhas, mesma tabela, porta
+ *   própria. Default mantém fiscal.html/fiscal-painel.html funcionando sem
+ *   mudar nada nelas.
  * @param {(selecao: Set<string>) => void} [args.onMudar]
  * @returns {{ carregar: (selecionadasIniciais?: Iterable<string>) => Promise<void>, getSelecao: () => Set<string> }}
  */
-export function criarSeletorLinhas({ containerLista, campoBusca, multiplo = false, onMudar }) {
+export function criarSeletorLinhas({
+    containerLista, campoBusca, multiplo = false, url = '/fiscalizacao/catalogo/linhas', onMudar,
+}) {
     let catalogo = [];
     let catalogoOk = true;
     let termoBusca = '';
@@ -86,7 +94,7 @@ export function criarSeletorLinhas({ containerLista, campoBusca, multiplo = fals
             if (campoBusca) campoBusca.value = '';
             containerLista.innerHTML = '<div class="patio-loading">Carregando…</div>';
             try {
-                catalogo = await apiGet('/fiscalizacao/catalogo/linhas');
+                catalogo = await apiGet(url);
                 catalogoOk = true;
             } catch {
                 catalogo = [];
