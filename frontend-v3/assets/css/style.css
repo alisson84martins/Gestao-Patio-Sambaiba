@@ -3317,14 +3317,20 @@ body.modal-open {
     flex: 1;
 }
 
+/* Medição 18/09/2026: com display:flex + .btn{flex:1} a fileira de botões
+   não encolhe abaixo do próprio conteúdo (item flex não encolhe abaixo do
+   conteúdo) e empurra a página inteira além da largura do celular — o
+   overflow-x:hidden do body não segura isso no Chrome do Android. Grid com
+   auto-fit deixa os botões quebrarem em linhas (3 + 2) em vez de estourar. */
 .portaria-acoes-rapidas {
-    display: flex;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(96px, 1fr));
     gap: 8px;
     margin-bottom: 18px;
 }
 
 .portaria-acoes-rapidas .btn {
-    flex: 1;
+    min-width: 0;
 }
 
 /* Lista de candidatos da busca (§3.6-C) — nunca escolhida em silêncio,
