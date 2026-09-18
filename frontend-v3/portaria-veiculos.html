@@ -224,7 +224,7 @@
             <label class="form-label" for="nv-re-dono">RE do dono</label>
             <!-- Item 4 (18/09/2026) — teclado numérico por padrão; "ABC"
                  alterna pro alfabético (alta gestão/administrativo PJ). -->
-            <div style="display:flex;gap:8px;align-items:center">
+            <div class="campo-com-botao" style="display:flex;gap:8px;align-items:center">
                 <input type="text" inputmode="numeric" class="form-input" id="nv-re-dono" autocomplete="off" style="flex:1">
                 <button type="button" class="btn btn-ghost" id="btn-nv-re-dono-abc" style="white-space:nowrap">ABC</button>
             </div>
@@ -324,7 +324,7 @@
             <label class="form-label" for="ea-re-dono">RE do dono</label>
             <!-- Item 4 (18/09/2026) — teclado numérico por padrão; "ABC"
                  alterna pro alfabético (alta gestão/administrativo PJ). -->
-            <div style="display:flex;gap:8px;align-items:center">
+            <div class="campo-com-botao" style="display:flex;gap:8px;align-items:center">
                 <input type="text" inputmode="numeric" class="form-input" id="ea-re-dono" autocomplete="off" style="flex:1">
                 <button type="button" class="btn btn-ghost" id="btn-ea-re-dono-abc" style="white-space:nowrap">ABC</button>
             </div>
@@ -420,8 +420,10 @@
 
         <div id="cd-erro" style="display:none;color:var(--accent);font-size:0.85rem;margin-bottom:10px"></div>
 
-        <button type="button" class="btn btn-primary btn-full" id="btn-salvar-completar-dono">Completar dono</button>
-        <button type="button" class="btn btn-ghost btn-full btn-modal-stack" id="btn-cancelar-completar-dono">Cancelar</button>
+        <div class="modal-acoes">
+            <button type="button" class="btn btn-primary btn-full" id="btn-salvar-completar-dono">Completar dono</button>
+            <button type="button" class="btn btn-ghost btn-full btn-modal-stack" id="btn-cancelar-completar-dono">Cancelar</button>
+        </div>
     </div>
 </div>
 

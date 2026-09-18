@@ -209,11 +209,14 @@ const TIPOS = {
 };
 
 function garantirAvisoAoLado(el) {
-    let aviso = el.nextElementSibling;
+    // Input dentro de uma linha flex campo+botão (.campo-com-botao): o aviso
+    // ancora depois da linha, senão viraria item flex e espremeria o input.
+    const ancora = el.parentElement?.classList.contains('campo-com-botao') ? el.parentElement : el;
+    let aviso = ancora.nextElementSibling;
     if (!aviso || !aviso.classList.contains('mascara-aviso')) {
         aviso = document.createElement('div');
         aviso.className = 'mascara-aviso';
-        el.insertAdjacentElement('afterend', aviso);
+        ancora.insertAdjacentElement('afterend', aviso);
     }
     return aviso;
 }

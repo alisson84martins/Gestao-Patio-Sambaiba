@@ -1066,7 +1066,8 @@ async function resolverReCompletarDono() {
     const statusEl = document.getElementById('cd-re-status');
     cdReResolvidoNome = null;
     statusEl.textContent = '';
-    if (re.length >= 2) {
+    // /portaria/funcionarios/busca exige min_length=3.
+    if (re.length >= 3) {
         try {
             const resultados = await apiGet(`/portaria/funcionarios/busca?q=${encodeURIComponent(re)}`);
             const exato = resultados.find(f => f.re === re);
