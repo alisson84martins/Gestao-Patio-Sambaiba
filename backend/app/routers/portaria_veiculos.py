@@ -16,6 +16,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from fastapi.responses import HTMLResponse
 from sqlalchemy import delete, func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
@@ -25,14 +26,16 @@ from app.models.cadastro import Funcao, Funcionario, FuncionarioFuncao
 from app.models.portaria import (
     Credencial, EmpresaTerceira, MovimentoPortaria, VeiculoPortaria, VeiculoSituacaoHist,
 )
+from app.models.pre_cadastro import PessoaPreCadastro
 from app.schemas.portaria import (
     BloquearPorReRequest, BloquearPorReResponse, CredencialEmitirRequest,
     CredencialRead, CredencialRevogarRequest, EmpresaTerceiraCreate,
     EmpresaTerceiraRead, FuncionarioPortariaBusca, Propriedade, SituacaoVeiculo,
-    VeiculoAdminUpdate, VeiculoCreate, VeiculoDivergenciaRead, VeiculoExclusaoImpacto,
-    VeiculoRead, VeiculoSituacaoHistRead, VeiculoSituacaoUpdate, VeiculoUpdate,
+    VeiculoAdminUpdate, VeiculoCompletarDonoRequest, VeiculoCreate, VeiculoDivergenciaRead,
+    VeiculoExclusaoImpacto, VeiculoRead, VeiculoSituacaoHistRead, VeiculoSituacaoUpdate,
+    VeiculoUpdate,
 )
-from app.services.portaria import veiculo_read
+from app.services.portaria import ligar_veiculo_a_funcionario, veiculo_read
 from app.services.portaria_credencial import (
     gerar_codigo, gerar_svg_documento, montar_html_etiquetas,
 )
@@ -856,6 +859,115 @@ def reativar_veiculo(
     veiculo.ativo = True
     veiculo.atualizado_em = datetime.now(timezone.utc)
     veiculo.atualizado_por = usuario.id
+    db.commit()
+    db.refresh(veiculo)
+    return veiculo_read(veiculo, db)
+
+
+# Item 3 (18/09/2026) — caso real: 15 veículos PARTICULAR PENDENTE com
+# re_dono_texto provisório (traço + número, ex. "-4001" — o dono é
+# administrativo PJ, RE com letra, e o teclado da portaria é numérico).
+# promover_pre_cadastro cria o Funcionario mas nunca tocava em
+# portaria.veiculo — o carro ficava "RE X (não cadastrado)" pra sempre. Este
+# endpoint fecha o ciclo, um carro por chamada (regra 9 do prompt: dois
+# carros com o mesmo re_dono_texto podem ser a mesma placa digitada errado —
+# o Alisson confere no carro físico antes de ligar o segundo).
+@router.post(
+    "/veiculos/{veiculo_id}/completar-dono",
+    response_model=VeiculoRead,
+    summary="ADMIN liga o carro PARTICULAR pendente a uma pessoa de verdade — fecha a lacuna que a promoção deixava aberta (Item 3)",
+)
+def completar_dono_veiculo(
+    veiculo_id: UUID,
+    payload: VeiculoCompletarDonoRequest,
+    usuario: GestaoAdmin,
+    db: Annotated[Session, Depends(get_db)],
+):
+    veiculo = db.get(VeiculoPortaria, veiculo_id)
+    if veiculo is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Veículo não encontrado")
+    if veiculo.propriedade != "PARTICULAR":
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            detail="Completar dono só se aplica a veículo PARTICULAR.",
+        )
+
+    # Esta tela é do ADMIN no escritório, não do portão (regra número um só
+    # protege o controlador) — RE tem que ser só letra/dígito depois da
+    # normalização, sem o traço que o teclado numérico deixou passar.
+    re = payload.re
+    if not re.isalnum():
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="RE inválido — só letra e dígito, sem traço nem espaço.",
+        )
+
+    re_antigo = veiculo.re_dono_texto
+
+    # 🔴 Procura DIRETO em Funcionario — nunca resolver_por_re (services/
+    # identidade.py): ele pode devolver o id de um Motorista, e
+    # veiculo.funcionario_id é FK só pra funcionario; gravaria o id errado.
+    funcionario = db.execute(
+        select(Funcionario).where(Funcionario.re == re)
+    ).scalar_one_or_none()
+
+    # Achou -> liga; nome do payload é ignorado, nunca sobrescreve quem já
+    # existe. Não achou -> nome vira obrigatório pra criar a pessoa.
+    if funcionario is None:
+        nome = (payload.nome or "").strip()
+        if not nome:
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail="Informe o nome para cadastrar a pessoa.",
+            )
+        funcionario = Funcionario(re=re, nome=nome, criado_por=usuario.id)
+        db.add(funcionario)
+        try:
+            db.flush()
+        except IntegrityError as exc:
+            db.rollback()
+            raise HTTPException(
+                status.HTTP_409_CONFLICT,
+                detail="Já existe funcionário com este RE — não é possível cadastrar.",
+            ) from exc
+
+    # ⛔ NÃO muda situacao — o carro continua PENDENTE, autorizar é outro
+    # botão (D6). ⛔ Um carro por chamada — nunca liga automaticamente
+    # outros veículos com o mesmo re_dono_texto antigo.
+    ligar_veiculo_a_funcionario(veiculo, funcionario_id=funcionario.id, usuario_id=usuario.id)
+
+    if re_antigo:
+        outros_com_re_antigo = db.execute(
+            select(func.count()).select_from(VeiculoPortaria).where(
+                VeiculoPortaria.re_dono_texto == re_antigo,
+                VeiculoPortaria.ativo.is_(True),
+                VeiculoPortaria.id != veiculo.id,
+            )
+        ).scalar_one()
+        if outros_com_re_antigo == 0:
+            pre_antigo = db.execute(
+                select(PessoaPreCadastro).where(
+                    PessoaPreCadastro.re == re_antigo,
+                    PessoaPreCadastro.status == "PENDENTE",
+                )
+            ).scalar_one_or_none()
+            if pre_antigo is not None:
+                pre_antigo.status = "DESCARTADO"
+                pre_antigo.descartado_por = usuario.id
+                pre_antigo.descartado_em = datetime.now(timezone.utc)
+                pre_antigo.descarte_motivo = f"RE provisório corrigido para {re} em Completar dono"
+
+    pre_novo = db.execute(
+        select(PessoaPreCadastro).where(
+            PessoaPreCadastro.re == re, PessoaPreCadastro.status == "PENDENTE",
+        )
+    ).scalar_one_or_none()
+    if pre_novo is not None:
+        pre_novo.status = "PROMOVIDO"
+        pre_novo.funcionario_id = funcionario.id
+        pre_novo.promovido_por = usuario.id
+        pre_novo.promovido_em = datetime.now(timezone.utc)
+
     db.commit()
     db.refresh(veiculo)
     return veiculo_read(veiculo, db)

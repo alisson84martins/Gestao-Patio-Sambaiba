@@ -14,7 +14,9 @@ GET /portaria/recolhidas/resolver-prefixo continua intacta; a nova
 GET /portaria/resolver-prefixo existe porque aquela exige
 `recolhida_anormal` e quem registra passagem é gated por `acesso_veicular`.
 """
+from datetime import datetime, timezone
 from typing import Optional
+from uuid import UUID
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -47,6 +49,43 @@ def veiculo_read(veiculo: VeiculoPortaria, db: Session) -> VeiculoRead:
         if decisor is not None:
             extras["situacao_por_nome"] = decisor.nome
     return VeiculoRead.model_validate(veiculo).model_copy(update=extras)
+
+
+def ligar_veiculo_a_funcionario(veiculo: VeiculoPortaria, *, funcionario_id: UUID, usuario_id: UUID) -> None:
+    """Item 3 (18/09/2026) — vincula UM veículo PARTICULAR já resolvido a um
+    funcionário e limpa `re_dono_texto` (o snapshot vira histórico,
+    migration 039/ck_veiculo_dono). Base compartilhada por "Completar dono"
+    (um carro por chamada, routers/portaria_veiculos.py) e pela promoção de
+    pré-cadastro em lote (`ligar_veiculos_por_re` abaixo). ⛔ Não muda
+    `situacao` — autorizar é outro ato (D6)."""
+    veiculo.funcionario_id = funcionario_id
+    veiculo.re_dono_texto = None
+    veiculo.atualizado_em = datetime.now(timezone.utc)
+    veiculo.atualizado_por = usuario_id
+
+
+def ligar_veiculos_por_re(
+    db: Session, *, re: str, funcionario_id: UUID, usuario_id: UUID
+) -> list[VeiculoPortaria]:
+    """Promoção de pré-cadastro (3b, routers/pre_cadastro.py) — ao contrário
+    de "Completar dono" (sempre um carro por chamada: o Alisson confere a
+    placa física antes de ligar mais de uma), a promoção parte da PESSOA e
+    por isso liga TODOS os veículos PARTICULAR/ativos que ainda estão sem
+    dono com esse `re_dono_texto`. Mora aqui (não em pre_cadastro.py) pela
+    fronteira de schema — routers/pre_cadastro.py nunca importa
+    VeiculoPortaria direto, só chama esta função."""
+    veiculos = db.execute(
+        select(VeiculoPortaria).where(
+            VeiculoPortaria.propriedade == "PARTICULAR",
+            VeiculoPortaria.ativo.is_(True),
+            VeiculoPortaria.funcionario_id.is_(None),
+            VeiculoPortaria.re_dono_texto == re,
+        )
+    ).scalars().all()
+    for veiculo in veiculos:
+        ligar_veiculo_a_funcionario(veiculo, funcionario_id=funcionario_id, usuario_id=usuario_id)
+    db.flush()
+    return veiculos
 
 
 def resolver_onibus_por_prefixo(db: Session, prefixo: str) -> Optional[Onibus]:

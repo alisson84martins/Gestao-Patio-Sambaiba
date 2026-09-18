@@ -36,6 +36,7 @@ from app.schemas.pre_cadastro import (
     PreCadastroDescartarRequest, PreCadastroPromoverResponse, PreCadastroRead,
     PreCadastroUpdate, StatusPreCadastro,
 )
+from app.services.portaria import ligar_veiculos_por_re
 
 router = APIRouter(prefix="/pre-cadastros", tags=["pré-cadastro"])
 
@@ -98,6 +99,15 @@ def promover_pre_cadastro(
             status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="Pré-cadastro sem nome — complete com PATCH antes de promover.",
         )
+    # Item 3b (18/09/2026): RE provisório (ex.: "-4001", traço digitado no
+    # teclado numérico da portaria no lugar da letra que não existia) nunca
+    # pode nascer funcionário — quem sabe o RE de verdade é "Completar dono",
+    # na ficha do veículo, não esta promoção às cegas.
+    if not registro.re.isalnum():
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="RE provisório — corrija pelo Completar dono, na ficha do veículo.",
+        )
 
     novo_funcionario = Funcionario(
         re=registro.re, nome=registro.nome, cpf=registro.cpf,
@@ -117,6 +127,14 @@ def promover_pre_cadastro(
     registro.funcionario_id = novo_funcionario.id
     registro.promovido_por = usuario.id
     registro.promovido_em = datetime.now(timezone.utc)
+
+    # Item 3b: a lacuna que este prompt fecha — promover não tocava em
+    # portaria.veiculo, e o carro ficava "RE X (não cadastrado)" pra sempre.
+    # A promoção parte da PESSOA, então liga TODOS os veículos dela (ao
+    # contrário de "Completar dono", que é sempre um carro por chamada).
+    ligar_veiculos_por_re(
+        db, re=registro.re, funcionario_id=novo_funcionario.id, usuario_id=usuario.id,
+    )
 
     db.commit()
     return PreCadastroPromoverResponse(funcionario_id=novo_funcionario.id)

@@ -12,7 +12,7 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.core.placa import PlacaNormalizada, PlacaNormalizadaOpcional
-from app.core.registro import ReNormalizado
+from app.core.registro import ReNormalizado, ReNormalizadoObrigatorio
 from app.schemas.base import AuditoriaSchema, ORMBase
 
 Propriedade = Literal["PARTICULAR", "EMPRESA", "TERCEIRO"]
@@ -191,6 +191,24 @@ class VeiculoExclusaoImpacto(BaseModel):
     movimentos: int
     credenciais: int
     historico_situacao: int
+
+
+class VeiculoCompletarDonoRequest(BaseModel):
+    """POST /portaria/veiculos/{id}/completar-dono — Item 3 (18/09/2026):
+    fecha o ciclo que ficava aberto quando o RE do dono era só texto
+    provisório (`re_dono_texto`, migration 039) e nunca virava
+    `funcionario_id` de verdade. Tela do ADMIN no escritório, não do
+    portão — recusar RE mal formatado aqui não fere a regra número um
+    (o controlador nunca chama este endpoint).
+
+    `nome` só é obrigatório quando o RE não existe em `funcionario` ainda
+    (o backend decide isso, não a tela) — por isso fica opcional aqui e a
+    recusa vem como 422 com mensagem própria, não como campo ausente."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    re: ReNormalizadoObrigatorio
+    nome: Optional[str] = Field(None, max_length=120)
 
 
 class VeiculoRead(ORMBase, AuditoriaSchema):

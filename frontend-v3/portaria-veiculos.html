@@ -137,6 +137,10 @@
         <div id="ficha-gestao-admin" style="display:none;margin-top:18px;border-top:1px solid var(--border);padding-top:14px">
             <div class="portaria-secao-titulo" style="margin-bottom:8px">Gestão de cadastro (ADMIN)</div>
             <div style="display:flex;gap:8px;flex-wrap:wrap">
+                <!-- Item 3 (18/09/2026) — só PARTICULAR ainda sem funcionario_id
+                     (dono só por re_dono_texto provisório). Fecha a lacuna que
+                     a promoção de pré-cadastro deixava aberta. -->
+                <button type="button" class="btn btn-primary" id="btn-ficha-completar-dono" style="display:none;flex:1">Completar dono</button>
                 <button type="button" class="btn btn-ghost" id="btn-ficha-editar-admin" style="flex:1">Editar cadastro completo</button>
                 <button type="button" class="btn btn-ghost" id="btn-ficha-reativar" style="display:none;flex:1">Reativar veículo</button>
                 <button type="button" class="btn btn-danger" id="btn-ficha-excluir" style="flex:1">Excluir de verdade</button>
@@ -372,6 +376,42 @@
 
         <button type="button" class="btn btn-danger btn-full" id="btn-confirmar-excluir-admin" disabled>Excluir definitivamente</button>
         <button type="button" class="btn btn-ghost btn-full btn-modal-stack" id="btn-cancelar-excluir-admin">Cancelar</button>
+    </div>
+</div>
+
+<!-- ========================================================= -->
+<!-- Completar dono (ADMIN, Item 3 — 18/09/2026) — liga o carro  -->
+<!-- PARTICULAR pendente a uma pessoa de verdade. RE provisório  -->
+<!-- (re_dono_texto, ex. "-4001") nunca vira dono sozinho; quem  -->
+<!-- promove pré-cadastro também não tocava no veículo — este    -->
+<!-- modal fecha a lacuna, sempre um carro por vez.               -->
+<!-- ========================================================= -->
+<div class="modal-overlay" id="modal-completar-dono">
+    <div class="modal">
+        <button type="button" class="modal-close" id="fechar-completar-dono">✕</button>
+        <div class="modal-title">Completar dono</div>
+
+        <div class="portaria-ficha-placa" id="cd-placa">—</div>
+        <div class="portaria-ficha-linha" id="cd-re-provisorio"></div>
+
+        <div class="form-group" style="margin-top:12px">
+            <label class="form-label" for="cd-nome">Nome</label>
+            <input type="text" class="form-input" id="cd-nome" autocomplete="off">
+            <!-- 🔴 Antes de criar pessoa nova, mostrar quem já existe — o sr.
+                 Reginaldo já está cadastrado como "994011"; digitar "A4011"
+                 sem ver isso nasceria a mesma pessoa duas vezes. -->
+            <div id="cd-candidatos" class="portaria-candidatos"></div>
+        </div>
+        <div class="form-group">
+            <label class="form-label" for="cd-re">RE</label>
+            <input type="text" inputmode="text" class="form-input" id="cd-re" autocomplete="off">
+            <div class="portaria-ficha-linha" id="cd-re-status"></div>
+        </div>
+
+        <div id="cd-erro" style="display:none;color:var(--accent);font-size:0.85rem;margin-bottom:10px"></div>
+
+        <button type="button" class="btn btn-primary btn-full" id="btn-salvar-completar-dono">Completar dono</button>
+        <button type="button" class="btn btn-ghost btn-full btn-modal-stack" id="btn-cancelar-completar-dono">Cancelar</button>
     </div>
 </div>
 

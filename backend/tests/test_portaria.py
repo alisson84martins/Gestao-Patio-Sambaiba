@@ -2027,6 +2027,180 @@ def test_admin_reativar_recusa_com_placa_em_uso_e_diz_qual_veiculo(ambiente):
 
 
 # ============================================================================
+# ITEM 3 (18/09/2026) — "Completar dono": liga o carro PARTICULAR pendente
+# a uma pessoa de verdade. Fecha a lacuna que promover_pre_cadastro deixava
+# aberta (o veículo com RE provisório nunca virava dono de verdade sozinho).
+# ============================================================================
+
+def test_completar_dono_liga_funcionario_existente_sem_mudar_situacao(ambiente):
+    """RE que já existe em funcionario -> liga, limpa re_dono_texto, NÃO
+    muda situação (autorizar é outro botão) e NUNCA sobrescreve o nome de
+    quem já existe (nome do payload é ignorado)."""
+    _como(ambiente, "ADMIN")
+    with Session(ambiente["engine"]) as db:
+        db.add(Funcionario(id=uuid4(), re="A4001", nome="Pessoa Real", status="ATIVO"))
+        db.commit()
+    veiculo_id = _criar_veiculo(ambiente, placa="ABC1D23", re_dono_texto="-4001", funcionario_id=None)
+
+    resp = ambiente["http"].post(
+        f"/portaria/veiculos/{veiculo_id}/completar-dono",
+        json={"re": "A4001", "nome": "Nome Que Deve Ser Ignorado"},
+    )
+    assert resp.status_code == 200, resp.text
+    corpo = resp.json()
+    assert corpo["funcionario_re"] == "A4001"
+    assert corpo["re_dono_texto"] is None
+    assert corpo["situacao"] == "PENDENTE"
+
+    with Session(ambiente["engine"]) as db:
+        funcionario = db.execute(select(Funcionario).where(Funcionario.re == "A4001")).scalar_one()
+    assert funcionario.nome == "Pessoa Real"
+
+
+def test_completar_dono_re_inexistente_exige_nome_depois_cria(ambiente):
+    _como(ambiente, "ADMIN")
+    veiculo_id = _criar_veiculo(ambiente, placa="ABC1D23", re_dono_texto="-5001", funcionario_id=None)
+
+    sem_nome = ambiente["http"].post(
+        f"/portaria/veiculos/{veiculo_id}/completar-dono", json={"re": "B5001"},
+    )
+    assert sem_nome.status_code == 422, sem_nome.text
+
+    com_nome = ambiente["http"].post(
+        f"/portaria/veiculos/{veiculo_id}/completar-dono",
+        json={"re": "B5001", "nome": "Pessoa Nova"},
+    )
+    assert com_nome.status_code == 200, com_nome.text
+    assert com_nome.json()["funcionario_re"] == "B5001"
+
+    with Session(ambiente["engine"]) as db:
+        criado = db.execute(select(Funcionario).where(Funcionario.re == "B5001")).scalar_one()
+    assert criado.nome == "Pessoa Nova"
+
+
+def test_completar_dono_nao_usa_resolver_por_re_para_motorista(ambiente):
+    """RE que existe SÓ em motorista (outra tabela) -> não pode gravar o id
+    do motorista em funcionario_id (FK só aceita funcionario). Prova que o
+    endpoint procura direto em Funcionario, nunca resolver_por_re."""
+    _como(ambiente, "ADMIN")
+    with Session(ambiente["engine"]) as db:
+        motorista = _criar_motorista(db, re="M9001", nome="Motorista Legado")
+        db.commit()
+        motorista_id = motorista.id
+    veiculo_id = _criar_veiculo(ambiente, placa="ABC1D23", re_dono_texto="-9001", funcionario_id=None)
+
+    sem_nome = ambiente["http"].post(
+        f"/portaria/veiculos/{veiculo_id}/completar-dono", json={"re": "M9001"},
+    )
+    assert sem_nome.status_code == 422, sem_nome.text
+
+    com_nome = ambiente["http"].post(
+        f"/portaria/veiculos/{veiculo_id}/completar-dono",
+        json={"re": "M9001", "nome": "Homônimo Funcionário"},
+    )
+    assert com_nome.status_code == 200, com_nome.text
+    assert com_nome.json()["funcionario_id"] != str(motorista_id)
+
+
+def test_completar_dono_re_com_traco_ou_espaco_e_422(ambiente):
+    _como(ambiente, "ADMIN")
+    veiculo_id = _criar_veiculo(ambiente, placa="ABC1D23", re_dono_texto="-4001", funcionario_id=None)
+
+    com_traco = ambiente["http"].post(
+        f"/portaria/veiculos/{veiculo_id}/completar-dono", json={"re": "-4001", "nome": "X"},
+    )
+    assert com_traco.status_code == 422, com_traco.text
+
+    com_espaco = ambiente["http"].post(
+        f"/portaria/veiculos/{veiculo_id}/completar-dono", json={"re": "A 4001", "nome": "X"},
+    )
+    assert com_espaco.status_code == 422, com_espaco.text
+
+
+def test_completar_dono_dois_veiculos_mesmo_re_antigo_descarta_so_no_segundo(ambiente):
+    """GIP5C71/OZP5C71 (produção, 18/09): dois carros com o mesmo
+    re_dono_texto podem ser a mesma placa digitada errado — descartar o
+    pré-cadastro ao completar o primeiro esconderia o segundo."""
+    _como(ambiente, "ADMIN")
+    with Session(ambiente["engine"]) as db:
+        db.add(Funcionario(id=uuid4(), re="A4004", nome="Dono Duplicado", status="ATIVO"))
+        db.add(PessoaPreCadastro(
+            id=uuid4(), re="-4004", nome=None, status="PENDENTE", papel_sugerido="INDEFINIDO",
+        ))
+        db.commit()
+    veiculo_1 = _criar_veiculo(ambiente, placa="GIP5C71", re_dono_texto="-4004", funcionario_id=None)
+    veiculo_2 = _criar_veiculo(ambiente, placa="OZP5C71", re_dono_texto="-4004", funcionario_id=None)
+
+    resp1 = ambiente["http"].post(
+        f"/portaria/veiculos/{veiculo_1}/completar-dono", json={"re": "A4004"},
+    )
+    assert resp1.status_code == 200, resp1.text
+    with Session(ambiente["engine"]) as db:
+        pre = db.execute(select(PessoaPreCadastro).where(PessoaPreCadastro.re == "-4004")).scalar_one()
+    assert pre.status == "PENDENTE"
+
+    resp2 = ambiente["http"].post(
+        f"/portaria/veiculos/{veiculo_2}/completar-dono", json={"re": "A4004"},
+    )
+    assert resp2.status_code == 200, resp2.text
+    with Session(ambiente["engine"]) as db:
+        pre = db.execute(select(PessoaPreCadastro).where(PessoaPreCadastro.re == "-4004")).scalar_one()
+    assert pre.status == "DESCARTADO"
+    assert "A4004" in pre.descarte_motivo
+
+
+def test_completar_dono_promove_pre_cadastro_pendente_com_re_novo(ambiente):
+    _como(ambiente, "ADMIN")
+    with Session(ambiente["engine"]) as db:
+        db.add(PessoaPreCadastro(
+            id=uuid4(), re="B6001", nome=None, status="PENDENTE", papel_sugerido="INDEFINIDO",
+        ))
+        db.commit()
+    veiculo_id = _criar_veiculo(ambiente, placa="ABC1D23", re_dono_texto="-6001", funcionario_id=None)
+
+    resp = ambiente["http"].post(
+        f"/portaria/veiculos/{veiculo_id}/completar-dono",
+        json={"re": "B6001", "nome": "Nova Pessoa"},
+    )
+    assert resp.status_code == 200, resp.text
+    funcionario_id = resp.json()["funcionario_id"]
+
+    with Session(ambiente["engine"]) as db:
+        pre = db.execute(select(PessoaPreCadastro).where(PessoaPreCadastro.re == "B6001")).scalar_one()
+    assert pre.status == "PROMOVIDO"
+    assert str(pre.funcionario_id) == funcionario_id
+    assert pre.promovido_em is not None
+
+
+def test_encarregado_nao_acessa_completar_dono(ambiente):
+    """Mesma trava de test_encarregado_nao_acessa_cadastro_admin — nem quem
+    já autoriza chega em Gestão de cadastro, só `usuarios` escrever (ADMIN)."""
+    _como(ambiente, "ENCARREGADO")
+    veiculo_id = _criar_veiculo(ambiente, placa="ABC1D23", re_dono_texto="-4001", funcionario_id=None)
+    resp = ambiente["http"].post(
+        f"/portaria/veiculos/{veiculo_id}/completar-dono", json={"re": "A4001", "nome": "X"},
+    )
+    assert resp.status_code == 403, resp.text
+
+
+def test_completar_dono_recusa_veiculo_nao_particular(ambiente):
+    _como(ambiente, "ADMIN")
+    veiculo_id = _criar_veiculo(ambiente, placa="ABC1D23", propriedade="EMPRESA")
+    resp = ambiente["http"].post(
+        f"/portaria/veiculos/{veiculo_id}/completar-dono", json={"re": "A4001", "nome": "X"},
+    )
+    assert resp.status_code == 409, resp.text
+
+
+def test_completar_dono_veiculo_inexistente_e_404(ambiente):
+    _como(ambiente, "ADMIN")
+    resp = ambiente["http"].post(
+        f"/portaria/veiculos/{uuid4()}/completar-dono", json={"re": "A4001", "nome": "X"},
+    )
+    assert resp.status_code == 404, resp.text
+
+
+# ============================================================================
 # BLOCO A2 (prompt de ajustes 23/08) — GET /identidade/re/{re}
 # ============================================================================
 

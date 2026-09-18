@@ -1,9 +1,10 @@
 """Pré-cadastro de pessoas (Bloco H). Testes 21-28 de
 _handoff-claude/PROMPT-portaria-blocos-E-F.md §5.2.
 
-SQLite em memória, sem ATTACH (pessoa_pre_cadastro é `public`, sem schema
-próprio) — mesmo padrão simplificado de test_portaria.py, mas sem a parte
-de ATTACH DATABASE `portaria` (não se aplica aqui).
+SQLite em memória — Item 3b (18/09/2026) passou a exigir ATTACH DATABASE
+pro schema `portaria`, porque promover_pre_cadastro agora chama
+ligar_veiculos_por_re (app/services/portaria.py), que lê/escreve
+portaria.veiculo. Mesmo padrão de test_portaria.py.
 
 ⛔ Nenhum dado pessoal real — RE, nome, CPF e CNH fictícios.
 """
@@ -23,6 +24,7 @@ from app.core.database import Base, get_db
 from app.main import app
 from app.models.cadastro import Funcionario
 from app.models.pessoas import Motorista
+from app.models.portaria import EmpresaTerceira, VeiculoPortaria
 from app.models.pre_cadastro import PessoaPreCadastro
 from app.routers import pre_cadastro as pre_cadastro_router_mod
 from app.services import pre_cadastro as pre_cadastro_service_mod
@@ -34,7 +36,12 @@ _ADMIN = Funcionario(id=uuid4(), re="70001", nome="Admin Teste")
 _GERENTE_OP = Funcionario(id=uuid4(), re="70002", nome="Gerente Operacional Teste")
 _CONTROLADOR = Funcionario(id=uuid4(), re="70003", nome="Controlador Teste")
 
-_TABELAS = [Funcionario.__table__, Motorista.__table__, PessoaPreCadastro.__table__]
+_TABELAS = [
+    Funcionario.__table__, Motorista.__table__, PessoaPreCadastro.__table__,
+    # FK de VeiculoPortaria.empresa_terceira_id — precisa existir no SQLite
+    # com PRAGMA foreign_keys=ON, mesmo sem nenhuma linha nela.
+    EmpresaTerceira.__table__, VeiculoPortaria.__table__,
+]
 
 
 def _dependency_de(annotated_type):
@@ -55,6 +62,7 @@ def ambiente():
 
     @event.listens_for(engine, "connect")
     def _pragma(dbapi_conn, _):
+        dbapi_conn.execute("ATTACH DATABASE ':memory:' AS portaria")
         dbapi_conn.execute("PRAGMA foreign_keys=ON")
 
     Base.metadata.create_all(engine, tables=_TABELAS)
@@ -117,6 +125,19 @@ def _buscar_por_re(engine, re: str) -> PessoaPreCadastro | None:
         return db.execute(
             select(PessoaPreCadastro).where(PessoaPreCadastro.re == re)
         ).scalar_one_or_none()
+
+
+def _criar_veiculo(engine, *, placa: str, re_dono_texto: str) -> UUID:
+    """Veículo PARTICULAR/PENDENTE com dono só por re_dono_texto — o mesmo
+    estado que motiva o Item 3 (RE provisório aguardando promoção)."""
+    veiculo_id = uuid4()
+    with Session(engine) as db:
+        db.add(VeiculoPortaria(
+            id=veiculo_id, propriedade="PARTICULAR", re_dono_texto=re_dono_texto,
+            placa=placa, tipo="CARRO", situacao="PENDENTE", exige_hodometro=False, ativo=True,
+        ))
+        db.commit()
+    return veiculo_id
 
 
 # ─── 21 — RE já existente em funcionario -> nenhum pré-cadastro criado ──
@@ -268,6 +289,53 @@ def test_promocao_cria_funcionario_sem_criar_login(ambiente):
     # ⚠️ usuario_login nem existe no schema deste teste (não está em
     # _TABELAS) — se o router alguma vez tentasse criar um login aqui, a
     # chamada acima teria explodido com "no such table", não passado 200.
+
+
+# ─── Item 3b (18/09/2026) — promoção liga TODOS os veículos do RE ──────
+
+def test_promocao_liga_todos_os_veiculos_do_re(ambiente):
+    """A lacuna que o prompt fecha: promover_pre_cadastro criava o
+    Funcionario mas nunca tocava em portaria.veiculo — o carro ficava
+    "RE X (não cadastrado)" pra sempre. A promoção parte da PESSOA, então
+    liga TODOS os veículos dela de uma vez (ao contrário de "Completar
+    dono", que é sempre um carro por chamada)."""
+    with Session(ambiente["engine"]) as db:
+        registrar_pessoa_vista(
+            db, re="80011", papel="INDEFINIDO", origem="PORTARIA_VEICULO", nome="Dono de Dois Carros",
+        )
+        db.commit()
+        pre_id = _buscar_por_re(ambiente["engine"], "80011").id
+    veiculo_1 = _criar_veiculo(ambiente["engine"], placa="AAA1111", re_dono_texto="80011")
+    veiculo_2 = _criar_veiculo(ambiente["engine"], placa="BBB2222", re_dono_texto="80011")
+
+    _como(ambiente, "ADMIN")
+    resp = ambiente["http"].post(f"/pre-cadastros/{pre_id}/promover")
+    assert resp.status_code == 200, resp.text
+    funcionario_id = UUID(resp.json()["funcionario_id"])
+
+    with Session(ambiente["engine"]) as db:
+        v1 = db.get(VeiculoPortaria, veiculo_1)
+        v2 = db.get(VeiculoPortaria, veiculo_2)
+    assert v1.funcionario_id == funcionario_id
+    assert v1.re_dono_texto is None
+    assert v2.funcionario_id == funcionario_id
+    assert v2.re_dono_texto is None
+
+
+def test_promocao_de_re_provisorio_e_rejeitada(ambiente):
+    """RE provisório (traço do teclado numérico da portaria, ex. "-4001")
+    nunca pode nascer funcionário por aqui — quem sabe o RE de verdade é
+    "Completar dono", na ficha do veículo (Item 3a)."""
+    with Session(ambiente["engine"]) as db:
+        registrar_pessoa_vista(
+            db, re="-4001", papel="INDEFINIDO", origem="PORTARIA_VEICULO", nome="RE Provisório",
+        )
+        db.commit()
+        pre_id = _buscar_por_re(ambiente["engine"], "-4001").id
+
+    _como(ambiente, "ADMIN")
+    resp = ambiente["http"].post(f"/pre-cadastros/{pre_id}/promover")
+    assert resp.status_code == 422, resp.text
 
 
 def test_promover_sem_nome_e_rejeitado(ambiente):

@@ -333,6 +333,10 @@ function renderFicha(v) {
     const souAdmin = podeEscrever('usuarios');
     document.getElementById('ficha-gestao-admin').style.display = souAdmin ? 'block' : 'none';
     document.getElementById('btn-ficha-reativar').style.display = (souAdmin && !v.ativo) ? 'block' : 'none';
+    // Item 3 (18/09/2026) — só faz sentido pra PARTICULAR ainda sem
+    // funcionario_id (dono só por re_dono_texto provisório).
+    document.getElementById('btn-ficha-completar-dono').style.display =
+        (souAdmin && v.propriedade === 'PARTICULAR' && !v.funcionario_id) ? 'block' : 'none';
 }
 
 function renderHistorico(historico) {
@@ -1004,6 +1008,157 @@ async function confirmarExcluirAdmin() {
     }
 }
 
+// ─── Completar dono (ADMIN, Item 3 — 18/09/2026) ────────────────────────
+// Fecha a lacuna que promover_pre_cadastro deixava aberta: o veículo com
+// RE provisório (re_dono_texto) nunca virava dono de verdade sozinho.
+// Sempre UM carro por chamada — o Alisson confere a placa física antes de
+// ligar mais de um veículo com o mesmo RE provisório.
+let cdVeiculoId = null;
+let cdReResolvidoNome = null; // nome do funcionário já cadastrado com o RE digitado, ou null
+let cdReHandle = null;
+let cdNomeHandle = null;
+
+function abrirCompletarDono() {
+    if (!fichaVeiculoAtual) return;
+    const v = fichaVeiculoAtual;
+    cdVeiculoId = v.id;
+    cdReResolvidoNome = null;
+    document.getElementById('cd-placa').textContent = v.placa;
+    document.getElementById('cd-re-provisorio').textContent = v.re_dono_texto
+        ? `RE provisório atual: ${v.re_dono_texto}`
+        : 'Sem RE provisório registrado.';
+    document.getElementById('cd-re').value = '';
+    document.getElementById('cd-nome').value = '';
+    document.getElementById('cd-re-status').textContent = '';
+    document.getElementById('cd-candidatos').innerHTML = '';
+    document.getElementById('cd-erro').style.display = 'none';
+    atualizarBotaoCompletarDono();
+    fecharModal('modal-ficha');
+    abrirModal('modal-completar-dono');
+}
+
+function fecharCompletarDonoEVoltar() {
+    fecharModal('modal-completar-dono');
+    if (cdVeiculoId) abrirFicha(cdVeiculoId);
+}
+
+function atualizarBotaoCompletarDono() {
+    document.getElementById('btn-salvar-completar-dono').textContent =
+        cdReResolvidoNome ? 'Completar dono' : 'Cadastrar pessoa e ligar';
+}
+
+async function resolverReCompletarDono() {
+    const re = document.getElementById('cd-re').value.trim();
+    const statusEl = document.getElementById('cd-re-status');
+    cdReResolvidoNome = null;
+    statusEl.textContent = '';
+    if (re.length >= 2) {
+        try {
+            const resultados = await apiGet(`/portaria/funcionarios/busca?q=${encodeURIComponent(re)}`);
+            const exato = resultados.find(f => f.re === re);
+            if (exato) {
+                cdReResolvidoNome = exato.nome;
+                statusEl.textContent = `Encontrado: ${exato.nome}`;
+                statusEl.style.color = 'var(--accent3)';
+            } else {
+                statusEl.textContent = 'RE não encontrado — informe o nome para cadastrar.';
+                statusEl.style.color = 'var(--muted)';
+            }
+        } catch (err) {
+            if (err instanceof ApiError && err.status === 401) return;
+            console.error('[portaria-veiculos] erro ao resolver RE (completar dono):', err);
+        }
+    }
+    atualizarBotaoCompletarDono();
+}
+
+// 🔴 Antes de criar pessoa nova, mostrar quem já existe — o sr. Reginaldo
+// está cadastrado como "994011"; digitar "A4011" sem ver isso nasceria a
+// mesma pessoa duas vezes.
+async function buscarCandidatosCompletarDono() {
+    const nome = document.getElementById('cd-nome').value.trim();
+    const el = document.getElementById('cd-candidatos');
+    if (nome.length < 3) { el.innerHTML = ''; return; }
+    try {
+        const resultados = await apiGet(`/portaria/funcionarios/busca?q=${encodeURIComponent(nome)}`);
+        renderCandidatosCompletarDono(resultados);
+    } catch (err) {
+        if (err instanceof ApiError && err.status === 401) return;
+        console.error('[portaria-veiculos] erro ao buscar candidatos (completar dono):', err);
+    }
+}
+
+function renderCandidatosCompletarDono(candidatos) {
+    const el = document.getElementById('cd-candidatos');
+    el.innerHTML = '';
+    for (const c of candidatos) {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'portaria-item';
+        btn.innerHTML = `
+            <div>
+                <div class="portaria-item-placa">${escapeHtml(c.nome)}</div>
+                <div class="portaria-item-sub">RE ${escapeHtml(c.re)}</div>
+            </div>
+        `;
+        // Tocar num candidato preenche o RE dele — nunca escolhido em silêncio.
+        btn.addEventListener('click', () => {
+            document.getElementById('cd-re').value = c.re;
+            el.innerHTML = '';
+            resolverReCompletarDono();
+        });
+        el.appendChild(btn);
+    }
+}
+
+async function salvarCompletarDono() {
+    if (!cdVeiculoId) return;
+    const erro = document.getElementById('cd-erro');
+    erro.style.display = 'none';
+    const re = document.getElementById('cd-re').value.trim();
+    const nome = document.getElementById('cd-nome').value.trim();
+    if (!re) { erro.textContent = 'Digite o RE.'; erro.style.display = 'block'; return; }
+    if (!cdReResolvidoNome) {
+        if (!nome) {
+            erro.textContent = 'Informe o nome para cadastrar a pessoa.';
+            erro.style.display = 'block';
+            return;
+        }
+        if (!confirm(`Vai criar: ${re} — ${nome}`)) return;
+    }
+
+    const btn = document.getElementById('btn-salvar-completar-dono');
+    btn.disabled = true;
+    try {
+        await apiPost(`/portaria/veiculos/${cdVeiculoId}/completar-dono`, { re, nome: nome || null });
+        fecharModal('modal-completar-dono');
+        await abrirFicha(cdVeiculoId);
+        atualizarAbaAtiva();
+    } catch (err) {
+        if (err instanceof ApiError && err.status === 401) return;
+        erro.textContent = err.message;
+        erro.style.display = 'block';
+    } finally {
+        btn.disabled = false;
+    }
+}
+
+function initCompletarDono() {
+    aplicarMascara(document.getElementById('cd-re'), 're');
+    document.getElementById('btn-ficha-completar-dono').addEventListener('click', abrirCompletarDono);
+    document.getElementById('fechar-completar-dono').addEventListener('click', fecharCompletarDonoEVoltar);
+    document.getElementById('btn-cancelar-completar-dono').addEventListener('click', fecharCompletarDonoEVoltar);
+    document.getElementById('cd-re').addEventListener('input', () => {
+        clearTimeout(cdReHandle);
+        cdReHandle = setTimeout(resolverReCompletarDono, 250);
+    });
+    document.getElementById('cd-nome').addEventListener('input', () => {
+        clearTimeout(cdNomeHandle);
+        cdNomeHandle = setTimeout(buscarCandidatosCompletarDono, 250);
+    });
+    document.getElementById('btn-salvar-completar-dono').addEventListener('click', salvarCompletarDono);
+}
+
 // ─── Bootstrap ───────────────────────────────────────────────────────────
 initHeader();
 aplicarPermissoes();
@@ -1016,4 +1171,5 @@ initBloquearPorRe();
 initNovoVeiculo();
 initNovaEmpresa();
 initGestaoAdmin();
+initCompletarDono();
 carregarPendentes();
