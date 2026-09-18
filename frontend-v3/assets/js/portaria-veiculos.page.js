@@ -16,7 +16,7 @@ import { apiGet, apiPatch, apiPost, apiDelete, ApiError } from './api.js';
 import { podeEscrever } from './sessao.js';
 import { escapeHtml } from './escape.js';
 import { API_BASE_URL, TOKEN_KEY } from './config.js';
-import { aplicarMascara } from './mascaras.js';
+import { aplicarMascara, initToggleTecladoRE } from './mascaras.js';
 import { preencherSelectEmpresas, cadastrarEmpresa } from './portaria-empresas.js';
 
 if (!requireAuth()) {
@@ -615,10 +615,18 @@ function initNovoVeiculo() {
     // padrão ainda cadastra, só nasce com placa_atipica=true (ver
     // renderLista/badgeAtipica e o filtro da aba Todos).
     aplicarMascara(document.getElementById('nv-placa'), 'placa');
+    // Item 4 (18/09/2026) — RE com letra do administrativo PJ: máscara 're'
+    // (o traço some sozinho) + botão ABC/123 que só troca o teclado do
+    // celular, nunca a máscara (ver initToggleTecladoRE).
+    aplicarMascara(document.getElementById('nv-re-dono'), 're');
+    initToggleTecladoRE(document.getElementById('nv-re-dono'), document.getElementById('btn-nv-re-dono-abc'));
     document.getElementById('btn-novo-veiculo').addEventListener('click', () => {
         document.getElementById('nv-placa').value = '';
         document.getElementById('nv-propriedade').value = 'PARTICULAR';
         document.getElementById('nv-re-dono').value = '';
+        // Teclado numérico é sempre o padrão ao abrir o modal.
+        document.getElementById('nv-re-dono').inputMode = 'numeric';
+        document.getElementById('btn-nv-re-dono-abc').textContent = 'ABC';
         document.getElementById('nv-dono-nome').textContent = '';
         document.getElementById('nv-dono-auto-aviso').style.display = 'none';
         document.getElementById('nv-tipo').value = 'CARRO';
@@ -812,6 +820,9 @@ function initGestaoAdmin() {
     document.getElementById('fechar-editar-admin').addEventListener('click', fecharEditarAdminEVoltar);
     document.getElementById('btn-cancelar-editar-admin').addEventListener('click', fecharEditarAdminEVoltar);
     document.getElementById('ea-propriedade').addEventListener('change', atualizarCamposPropriedadeEa);
+    // Item 4 (18/09/2026) — mesma máscara/toggle de nv-re-dono.
+    aplicarMascara(document.getElementById('ea-re-dono'), 're');
+    initToggleTecladoRE(document.getElementById('ea-re-dono'), document.getElementById('btn-ea-re-dono-abc'));
     let handle = null;
     document.getElementById('ea-re-dono').addEventListener('input', () => {
         clearTimeout(handle);
@@ -838,6 +849,9 @@ function abrirEditarAdmin() {
     document.getElementById('ea-placa').value = v.placa;
     document.getElementById('ea-propriedade').value = v.propriedade;
     document.getElementById('ea-re-dono').value = v.funcionario_re || v.re_dono_texto || '';
+    // Teclado numérico é sempre o padrão ao abrir o modal.
+    document.getElementById('ea-re-dono').inputMode = 'numeric';
+    document.getElementById('btn-ea-re-dono-abc').textContent = 'ABC';
     document.getElementById('ea-dono-nome').textContent = v.funcionario_nome || '';
     document.getElementById('ea-dono-nome').style.color = 'var(--muted)';
     document.getElementById('ea-tipo').value = v.tipo;

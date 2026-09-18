@@ -22,7 +22,7 @@ import { requireAuth, getCurrentUser, logout } from './auth.js';
 import { apiGet, apiPost, apiUpload, ApiError } from './api.js';
 import { escapeHtml } from './escape.js';
 import { POLLING_INTERVAL_MS } from './config.js';
-import { aplicarMascara } from './mascaras.js';
+import { aplicarMascara, initToggleTecladoRE } from './mascaras.js';
 import { podeEscrever } from './sessao.js';
 import { buscarPorRe } from './identidade.js';
 import {
@@ -743,6 +743,10 @@ async function abrirCadastroRapido(placaSugestao, sentidoDepois) {
     document.getElementById('cad-placa').value = placaSugestao || '';
     document.getElementById('cad-propriedade').value = 'PARTICULAR';
     document.getElementById('cad-re-dono').value = '';
+    // Item 4 — teclado numérico é sempre o padrão ao abrir o modal, mesmo
+    // que a última visita tenha ficado no alfabético (ABC).
+    document.getElementById('cad-re-dono').inputMode = 'numeric';
+    document.getElementById('btn-cad-re-dono-abc').textContent = 'ABC';
     document.getElementById('cad-dono-nome').textContent = '';
     document.getElementById('cad-tipo').value = 'CARRO';
     document.getElementById('cad-cor').value = '';
@@ -795,6 +799,11 @@ function initCadastroRapido() {
     document.getElementById('btn-cancelar-cadastro-rapido').addEventListener('click', () => fecharModal('modal-cadastro-rapido'));
     // A1: máscara + aviso visual, nunca bloqueia (D10).
     aplicarMascara(document.getElementById('cad-placa'), 'placa');
+    // Item 4 (18/09/2026) — RE com letra do administrativo PJ: máscara 're'
+    // (o traço some sozinho) + botão ABC/123 que só troca o teclado do
+    // celular, nunca a máscara (ver initToggleTecladoRE).
+    aplicarMascara(document.getElementById('cad-re-dono'), 're');
+    initToggleTecladoRE(document.getElementById('cad-re-dono'), document.getElementById('btn-cad-re-dono-abc'));
     document.getElementById('cad-propriedade').addEventListener('change', atualizarCamposPropriedade);
 
     let handleRe = null;

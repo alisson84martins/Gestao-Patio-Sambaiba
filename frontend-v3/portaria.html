@@ -199,7 +199,14 @@
 
         <div class="form-group" id="cad-dono-wrap">
             <label class="form-label" for="cad-re-dono">RE do dono</label>
-            <input type="text" inputmode="numeric" class="form-input" id="cad-re-dono" autocomplete="off">
+            <!-- Item 4 (18/09/2026) — teclado numérico por padrão (o dono
+                 quase sempre tem RE só de dígito); "ABC" alterna pro
+                 alfabético quando o dono é alta gestão/administrativo PJ
+                 (RE com letra). Máscara 're' formata os dois casos. -->
+            <div style="display:flex;gap:8px;align-items:center">
+                <input type="text" inputmode="numeric" class="form-input" id="cad-re-dono" autocomplete="off" style="flex:1">
+                <button type="button" class="btn btn-ghost" id="btn-cad-re-dono-abc" style="white-space:nowrap">ABC</button>
+            </div>
             <div class="portaria-ficha-linha" id="cad-dono-nome"></div>
         </div>
 

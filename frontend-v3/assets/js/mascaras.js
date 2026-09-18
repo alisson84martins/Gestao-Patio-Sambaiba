@@ -152,16 +152,19 @@ export function cnhValida(valor) {
     return somenteDigitos(valor).length === 11;
 }
 
-// ─── RE — alfanumérico só na alta gestão ────────────────────────────────────
+// ─── RE — alfanumérico na alta gestão e no administrativo PJ ───────────────
 // RE pode ter zero à esquerda ("01904") — por isso nunca vira type="number"
 // em lugar nenhum do HTML, só inputmode="numeric"/"text" pra abrir o teclado
 // certo no celular sem mudar o tipo do campo.
 //
-// Letra em RE existe SÓ de gerente geral pra cima (diretoria e secretaria da
-// presidência) — tipo 're' aceita e avisa quando não bate (nunca bloqueia,
-// mesmo espírito do placa_atipica). Motorista, cobrador e as demais funções
-// nunca têm letra — tipo 're-numerico' continua só dígito, é a única coisa
-// que pega "S598" digitado no lugar de "5598".
+// Letra em RE existe na alta gestão (diretoria e secretaria da presidência)
+// E no administrativo PJ (Item 4, 18/09/2026 — regra estava estreita demais:
+// 15 carros com traço digitado no lugar da letra em poucas semanas, porque o
+// administrativo PJ inteiro tem RE com letra) — tipo 're' aceita e avisa
+// quando não bate (nunca bloqueia, mesmo espírito do placa_atipica).
+// Motorista, cobrador e as demais funções operacionais nunca têm letra —
+// tipo 're-numerico' continua só dígito, é a única coisa que pega "S598"
+// digitado no lugar de "5598".
 
 export function formatarRE(valor) {
     return (valor || '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 20);
@@ -201,7 +204,7 @@ const TIPOS = {
     ano: { formatar: formatarAno, validar: anoValido, mensagem: 'Ano inválido' },
     cnh: { formatar: formatarCNH, validar: cnhValida, mensagem: 'CNH incompleta' },
     rg: { formatar: formatarRG, validar: null, mensagem: '' },
-    re: { formatar: formatarRE, validar: reSoNumero, mensagem: 'RE com letra — confira. Letra só existe em RE de alta gestão (gerente geral pra cima).' },
+    re: { formatar: formatarRE, validar: reSoNumero, mensagem: 'RE com letra — confira. Letra só existe em RE da alta gestão e do administrativo PJ.' },
     're-numerico': { formatar: formatarRENumerico, validar: null, mensagem: '' },
 };
 
@@ -265,4 +268,20 @@ export function aplicarMascara(el, tipo) {
         el.value = config.formatar(el.value);
         atualizarAviso(el, tipo);
     }
+}
+
+// ─── Botão ABC/123 — troca só o teclado do celular, nunca a máscara ───────
+// Item 4 (18/09/2026): aplicarMascara registra listeners e não tem como
+// desfazer — "trocar de máscara" chamando aplicarMascara de novo empilharia
+// 're-numerico' em cima de 're' e apagaria a letra que ela já aceitou. O
+// botão só alterna `inputmode` (o teclado só troca com o campo focado, por
+// isso o focus() no fim) — a máscara 're' já aceita letra e dígito sempre.
+export function initToggleTecladoRE(inputEl, buttonEl) {
+    if (!inputEl || !buttonEl) return;
+    buttonEl.addEventListener('click', () => {
+        const eraNumerico = inputEl.inputMode !== 'text';
+        inputEl.inputMode = eraNumerico ? 'text' : 'numeric';
+        buttonEl.textContent = eraNumerico ? '123' : 'ABC';
+        inputEl.focus();
+    });
 }

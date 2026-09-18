@@ -1,8 +1,9 @@
 """Testes do RE alfanumérico da alta gestão
 (_handoff-claude/PROMPT-RE-ALFANUMERICO-2026-09-05.md).
 
-RE com letra existe SÓ de gerente geral pra cima (diretoria e secretaria da
-presidência) — todas as demais funções têm RE só numérico. Dois defeitos
+RE com letra existe na alta gestão (diretoria e secretaria da presidência)
+e no administrativo PJ (Item 4, 18/09/2026 — a regra estava estreita
+demais) — as demais funções operacionais têm RE só numérico. Dois defeitos
 cobertos aqui: (1) normalizar_re não valia na GRAVAÇÃO, só na busca —
 gravar "a4011" e procurar "A4011" não casava; (2) RE não era corrigível
 pela tela, e a correção precisa manter em sincronia o espelho `usuario`

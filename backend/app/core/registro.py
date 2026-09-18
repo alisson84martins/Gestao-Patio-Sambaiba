@@ -4,13 +4,16 @@ número (RE pode ter zero à esquerda: "01904").
 Espelha o mesmo arranjo de app/core/placa.py — ⛔ não duplicar em nenhum
 outro lugar do backend; todo schema que recebe RE importa daqui.
 
-RE não é só numérico: existe RE alfanumérico (letra), mas SÓ de gerente
-geral pra cima — diretoria e secretaria da presidência, pouquíssimas
-pessoas (ex.: "A4011"). Motorista, cobrador, encarregado, coordenador de
-tráfego, fiscal, mecânico, apontador, operador de pátio e plantonista têm
-RE só numérico, sempre. A distinção de quem pode digitar letra é feita na
-UI (frontend-v3/assets/js/mascaras.js — tipos 're' × 're-numerico'); aqui
-só normaliza o que chegou, não valida quem pode ter letra.
+RE não é só numérico: existe RE alfanumérico (letra), na alta gestão
+(diretoria e secretaria da presidência, ex.: "A4011") E no administrativo
+PJ (Item 4, 18/09/2026 — a regra estava estreita demais: 15 carros com
+traço digitado no lugar da letra em poucas semanas, porque o
+administrativo PJ inteiro tem RE com letra). Motorista, cobrador,
+encarregado, coordenador de tráfego, fiscal, mecânico, apontador, operador
+de pátio e plantonista têm RE só numérico, sempre. A distinção de quem
+pode digitar letra é feita na UI (frontend-v3/assets/js/mascaras.js —
+tipos 're' × 're-numerico'); aqui só normaliza o que chegou, não valida
+quem pode ter letra.
 """
 from typing import Annotated, Optional
 
