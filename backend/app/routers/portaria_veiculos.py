@@ -719,6 +719,16 @@ def corrigir_cadastro_veiculo(
                 detail=f"Placa {payload.placa} já está em uso por outro veículo ativo (situação {conflito.situacao}).",
             )
 
+    # Item 1 (18/09/2026, caso real GIG3A16): trocar PARTICULAR -> EMPRESA
+    # por esta tela deixava o veículo sem hodômetro, porque só
+    # cadastrar_veiculo aplicava o default D7. Comparar ANTES de sobrescrever
+    # `veiculo.propriedade` — depois da linha abaixo, velho e novo já são
+    # iguais e a regra nunca dispara. Só entra quando o payload não manda
+    # exige_hodometro explícito (esse sempre vence) e quando a propriedade
+    # realmente mudou — editar outro campo de um EMPRESA sem KM (D7) não pode
+    # religar o hodômetro.
+    propriedade_mudou = payload.propriedade != veiculo.propriedade
+
     veiculo.propriedade = payload.propriedade
     veiculo.funcionario_id = payload.funcionario_id
     veiculo.empresa_terceira_id = payload.empresa_terceira_id
@@ -729,6 +739,8 @@ def corrigir_cadastro_veiculo(
     veiculo.cor = payload.cor
     if payload.exige_hodometro is not None:
         veiculo.exige_hodometro = payload.exige_hodometro
+    elif propriedade_mudou:
+        veiculo.exige_hodometro = payload.propriedade == "EMPRESA"
     veiculo.observacao = payload.observacao
     veiculo.placa_atipica = not placa_valida(veiculo.placa)
     veiculo.atualizado_em = datetime.now(timezone.utc)

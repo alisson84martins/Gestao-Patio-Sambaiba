@@ -1797,6 +1797,74 @@ def test_admin_corrige_propriedade_de_particular_para_empresa(ambiente):
     assert corpo["atualizado_por"] == str(usuario.id)
 
 
+# ─── Item 1 (18/09/2026, caso real GIG3A16): exige_hodometro segue a troca
+#     de propriedade em cadastro-admin, igual ao default D7 do cadastro ──────
+
+def test_particular_para_empresa_sem_campo_liga_hodometro(ambiente):
+    """Hoje falha: PARTICULAR sem hodômetro controlado, corrigido pra EMPRESA
+    sem mandar exige_hodometro no payload — tinha que ligar (D7) e não ligava,
+    porque só cadastrar_veiculo aplicava o default."""
+    _como(ambiente, "ADMIN")
+    veiculo_id = _criar_veiculo(
+        ambiente, placa="GIG3A16", tipo="GUINCHO", propriedade="PARTICULAR",
+        funcionario_id=_DONO_A.id, exige_hodometro=False,
+    )
+    resp = ambiente["http"].patch(
+        f"/portaria/veiculos/{veiculo_id}/cadastro-admin",
+        json={"propriedade": "EMPRESA", "placa": "GIG3A16", "tipo": "GUINCHO"},
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["exige_hodometro"] is True
+
+
+def test_empresa_para_particular_sem_campo_desliga_hodometro(ambiente):
+    """Sentido inverso: EMPRESA com hodômetro controlado, corrigida pra
+    PARTICULAR sem mandar exige_hodometro — segue o mesmo default D7
+    (FALSE fora de EMPRESA)."""
+    _como(ambiente, "ADMIN")
+    veiculo_id = _criar_veiculo(
+        ambiente, placa="ABC1D23", propriedade="EMPRESA", exige_hodometro=True,
+    )
+    resp = ambiente["http"].patch(
+        f"/portaria/veiculos/{veiculo_id}/cadastro-admin",
+        json={"propriedade": "PARTICULAR", "placa": "ABC1D23", "funcionario_id": str(_DONO_A.id)},
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["exige_hodometro"] is False
+
+
+def test_editar_sem_trocar_propriedade_nao_religa_hodometro(ambiente):
+    """D7 (migration 024) permite de propósito carro da EMPRESA sem KM
+    controlado — editar só a cor desse carro não pode religar o hodômetro."""
+    _como(ambiente, "ADMIN")
+    veiculo_id = _criar_veiculo(
+        ambiente, placa="ABC1D23", propriedade="EMPRESA", exige_hodometro=False,
+    )
+    resp = ambiente["http"].patch(
+        f"/portaria/veiculos/{veiculo_id}/cadastro-admin",
+        json={"propriedade": "EMPRESA", "placa": "ABC1D23", "cor": "Azul"},
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["exige_hodometro"] is False
+
+
+def test_valor_explicito_de_hodometro_vence_mesmo_com_troca_de_propriedade(ambiente):
+    _como(ambiente, "ADMIN")
+    veiculo_id = _criar_veiculo(
+        ambiente, placa="GIG3A16", tipo="GUINCHO", propriedade="PARTICULAR",
+        funcionario_id=_DONO_A.id, exige_hodometro=False,
+    )
+    resp = ambiente["http"].patch(
+        f"/portaria/veiculos/{veiculo_id}/cadastro-admin",
+        json={
+            "propriedade": "EMPRESA", "placa": "GIG3A16", "tipo": "GUINCHO",
+            "exige_hodometro": False,
+        },
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["exige_hodometro"] is False
+
+
 def test_admin_cadastro_admin_rejeita_dono_invalido(ambiente):
     """Mesma trava de VeiculoCreate (_validar_dono compartilhado) — PARTICULAR
     sem funcionario_id nem re_dono_texto é 422, nunca IntegrityError."""
