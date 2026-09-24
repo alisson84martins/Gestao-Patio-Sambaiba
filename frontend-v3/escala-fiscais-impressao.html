@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<!--
+  Sistema de Gestão Operacional Sambaíba — V3
+  Escala de Fiscais — impressão igual à planilha (Fase 5)
+  Página PRÓPRIA: o @page daqui (A4 retrato) não interfere em nenhuma outra
+  página. Não usa style.css (tema escuro da tela) — tudo o que a folha
+  precisa está no <style> abaixo.
+  Desenvolvido por Alisson Martins
+  © 2026 — Todos os direitos reservados
+-->
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Escala de Fiscais — impressão</title>
+    <style>
+        /* A4 retrato, margens próximas das da planilha. A folha inteira cabe
+           numa página: o JS reduz (zoom) o conteúdo até caber, como o "ajustar
+           a 70%" da planilha. */
+        @page { size: A4 portrait; margin: 8mm 6mm 8mm 6mm; }
+
+        :root { --fonte: Calibri, Carlito, "Segoe UI", Arial, sans-serif; }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        html, body { background: #fff; color: #000; }
+        body { font-family: var(--fonte); font-size: 8pt; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+
+        .efi-barra { padding: 8px 12px; background: #eee; border-bottom: 1px solid #ccc; display: flex; gap: 10px; align-items: center; font-size: 11pt; flex-wrap: wrap; }
+        .efi-barra button { font: inherit; padding: 8px 16px; min-height: 40px; cursor: pointer; }
+        .efi-aviso { color: #a00; font-weight: 700; }
+
+        /* 198mm x 281mm = área útil da A4 com as margens acima. */
+        .efi-folha { width: 198mm; margin: 0 auto; }
+        .efi-conteudo { transform-origin: top left; width: max-content; }
+
+        .efi-blocos { display: flex; gap: 2mm; align-items: flex-start; }
+        table.efi { border-collapse: collapse; font-size: 8pt; }
+        table.efi th, table.efi td { border: 0.6pt solid #000; padding: 0 2pt; text-align: center; vertical-align: middle; line-height: 1.15; white-space: nowrap; }
+        table.efi .efi-titulo { font-size: 12pt; font-weight: 700; border: 0; padding: 1pt 0 3pt; text-align: center; }
+        table.efi thead th { font-weight: 700; background: #d9d9d9; }
+        table.efi td.efi-linhas { white-space: normal; max-width: 17mm; font-size: 7.5pt; }
+        table.efi td.efi-re { font-weight: 700; min-width: 11mm; }
+        table.efi td.efi-dobra { background: #FFFF00; }
+        table.efi td.efi-rot { font-size: 7pt; }
+        table.efi tr.efi-fim td { border-bottom-width: 1.2pt; }
+
+        /* width 0 + min-width 100%: o rodapé acompanha a largura dos blocos e não alarga a folha. */
+        .efi-rodape { width: 0; min-width: 100%; margin-top: 3mm; display: grid; grid-template-columns: 1fr 1fr; gap: 1.5mm 4mm; font-size: 8pt; }
+        .efi-rodape h3 { font-size: 8pt; font-weight: 700; border-bottom: 0.6pt solid #000; margin-bottom: 0.5mm; }
+        .efi-rodape .efi-res { display: flex; flex-wrap: wrap; gap: 0 3mm; }
+        .efi-rodape .efi-res span { min-width: 9mm; }
+        .efi-rodape .efi-per { font-weight: 700; margin-right: 1.5mm; }
+        .efi-rodape .efi-inteiro { grid-column: 1 / -1; }
+        .efi-plantao { display: flex; gap: 6mm; flex-wrap: wrap; }
+        .efi-plantao b { margin-right: 2mm; }
+        .efi-plantao span { margin-right: 4mm; }
+        .efi-trocas div { font-weight: 700; }
+
+        @media print {
+            .efi-barra { display: none; }
+            .efi-folha { width: auto; margin: 0; }
+        }
+    </style>
+</head>
+<body>
+    <div class="efi-barra">
+        <button type="button" id="efi-imprimir">Imprimir</button>
+        <span id="efi-estado">Carregando…</span>
+    </div>
+    <main class="efi-folha">
+        <div class="efi-conteudo" id="efi-conteudo"></div>
+    </main>
+    <script type="module" src="./assets/js/escala-fiscais-impressao.page.js"></script>
+</body>
+</html>
