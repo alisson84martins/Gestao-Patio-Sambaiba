@@ -52,7 +52,8 @@
 -- 🟢 PURAMENTE ADITIVA — 14 tabelas novas, todas com prefixo escala_fiscal_
 --   e CREATE TABLE IF NOT EXISTS; 2 linhas novas em public.recurso e 3 em
 --   public.funcao_permissao, todas com ON CONFLICT DO NOTHING. Nenhum
---   ALTER, nenhum DROP, nenhum UPDATE em tabela existente.
+--   DROP, nenhum UPDATE em tabela existente. Os únicos ALTER (Fase 3, 24/09)
+--   são ADD COLUMN IF NOT EXISTS na própria escala_fiscal_alocacao.
 --
 -- RBAC — dois recursos novos no módulo COORDENADORIA (menor privilégio,
 --   padrão da migration 020):
@@ -231,6 +232,26 @@ COMMENT ON TABLE coordenadoria.escala_fiscal_alocacao IS 'Cobertura de um posto 
 CREATE INDEX IF NOT EXISTS ix_escala_fiscal_alocacao_re
     ON coordenadoria.escala_fiscal_alocacao (re) WHERE re IS NOT NULL;
 
+-- FASE 3 (24/09) — colunas acrescentadas com ADD COLUMN IF NOT EXISTS para
+-- rodar por cima do banco local que já tem a 045 (sem apagar nada). Em banco
+-- novo o CREATE acima cria a tabela e estas linhas só acrescentam as colunas.
+--   · RN04: fiscal que dobrou no fim de semana anterior e é escalado de novo
+--     numa dobra. Não bloqueia: a tela pergunta e, se o coordenador confirma,
+--     grava QUEM confirmou e QUANDO. Mudou o RE da linha, a confirmação some.
+--   · RN03: a dobra é CALCULADA na leitura (folga base + paridade do mês +
+--     trocas) e NUNCA gravada no rascunho. Ao publicar, o valor do momento é
+--     congelado em dobra_publicada — ausência ou troca lançada depois não muda
+--     o amarelo de uma escala já publicada. NULL = rascunho (não congelada).
+ALTER TABLE coordenadoria.escala_fiscal_alocacao
+    ADD COLUMN IF NOT EXISTS dobra_seguida_confirmada_por UUID REFERENCES public.funcionario(id);
+ALTER TABLE coordenadoria.escala_fiscal_alocacao
+    ADD COLUMN IF NOT EXISTS dobra_seguida_confirmada_em TIMESTAMPTZ;
+ALTER TABLE coordenadoria.escala_fiscal_alocacao
+    ADD COLUMN IF NOT EXISTS dobra_publicada BOOLEAN;
+COMMENT ON COLUMN coordenadoria.escala_fiscal_alocacao.dobra_seguida_confirmada_por IS 'RN04: quem confirmou escalar numa dobra o fiscal que já dobrou no fim de semana anterior.';
+COMMENT ON COLUMN coordenadoria.escala_fiscal_alocacao.dobra_seguida_confirmada_em IS 'RN04: quando confirmou.';
+COMMENT ON COLUMN coordenadoria.escala_fiscal_alocacao.dobra_publicada IS 'RN03: dobra congelada no momento de publicar (NULL = rascunho; no rascunho a dobra é só calculada).';
+
 -- Férias, atestado, afastamento. data_fim é INCLUSIVA; NULL = sem previsão.
 CREATE TABLE IF NOT EXISTS coordenadoria.escala_fiscal_ausencia (
     id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -362,6 +383,11 @@ GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA coordenadoria TO sambaiba;
 --
 --   -- 4) 'escalado' sem RE tem que FALHAR (CHECK) — teste dentro de
 --   --    BEGIN ... ROLLBACK, nunca em produção com dado real.
+--
+--   -- 5) Colunas da Fase 3 em escala_fiscal_alocacao (esperado: 3 linhas):
+--   SELECT column_name FROM information_schema.columns
+--    WHERE table_schema = 'coordenadoria' AND table_name = 'escala_fiscal_alocacao'
+--      AND column_name IN ('dobra_seguida_confirmada_por', 'dobra_seguida_confirmada_em', 'dobra_publicada');
 --
 --   -- Rodar o arquivo inteiro DUAS VEZES não erra nem duplica nada.
 -- ============================================================================

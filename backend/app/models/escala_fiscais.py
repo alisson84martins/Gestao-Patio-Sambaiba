@@ -151,8 +151,7 @@ class EscalaFiscalModeloPosto(Base):
 
 
 # ─── 3 · ESCALA DO DIA ────────────────────────────────────────────────────────
-# Fase 3 (montagem) — os models existem agora só para o mapeamento ficar
-# completo; nenhuma rota desta fase escreve nelas.
+# Escritas pela montagem do dia (rotas /dias — Fases 3 e 4).
 
 class EscalaFiscalDia(Base):
     """data = data de CALENDÁRIO (vira à meia-noite, ⚠️ não às 20h como o Pátio)."""
@@ -202,6 +201,16 @@ class EscalaFiscalAlocacao(Base):
     alterado_em: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
+    # RN04: quem confirmou escalar de novo numa dobra quem já dobrou no fim
+    # de semana anterior, e quando. Some quando o RE da linha muda.
+    dobra_seguida_confirmada_por: Mapped[Optional[UUID]] = mapped_column(
+        PG_UUID(as_uuid=True), ForeignKey("funcionario.id"), nullable=True
+    )
+    dobra_seguida_confirmada_em: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    # RN03: NULL no rascunho (a dobra é só calculada); congelada ao publicar.
+    dobra_publicada: Mapped[Optional[bool]] = mapped_column(Boolean, nullable=True)
 
 
 class EscalaFiscalAusencia(Base):
