@@ -1,9 +1,16 @@
-"""Aba Escala de Fiscais (módulo COORDENADORIA) — Fase 2: cadastros e
-importação dos modelos.
+"""Aba Escala de Fiscais (módulo COORDENADORIA).
 
-⛔ Só cadastros. Montar a escala do dia, publicar, a tela do fiscal e a
-impressão são da próxima fase — nenhuma rota aqui escreve em
-escala_fiscal_dia, alocacao, plantao ou alteracao.
+Fase 2: cadastros e importação dos modelos. Fases 3–5: montagem do dia
+(/dias), regras (app/services/escala_fiscais_regras.py — o backend é a fonte
+da verdade), publicação e os dados da impressão. ⛔ A tela do fiscal
+("Minha escala", recurso escala_fiscal_propria) NÃO está aqui: nada deste
+arquivo é lido pelo fiscal, então ele nunca vê rascunho.
+
+Montagem (RN10): coordenador edita só o período dele
+(escala_fiscal_coordenador_periodo); ADMIN edita tudo; os dois veem tudo.
+Bloqueia (422): RN05, pontos finais diferentes no mesmo horário, G3, RE vazio
+em "escalado", término antes do início. Pergunta (409, a tela reenvia com as
+confirmações): RN04, acúmulo com posto sem ponto final, RN11. O resto é aviso.
 
 Regras que atravessam o arquivo:
   · Leitura com exige("escala_fiscal"); escrita com exige("escala_fiscal",
@@ -40,9 +47,11 @@ from app.core.registro import normalizar_re
 from app.core.uploads import ler_upload_limitado
 from app.models.cadastro import Funcionario
 from app.models.escala_fiscais import (
+    EscalaFiscalAlteracao,
     EscalaFiscalAusencia,
     EscalaFiscalCoordenadorHorario,
     EscalaFiscalCoordenadorPeriodo,
+    EscalaFiscalDia,
     EscalaFiscalModelo,
     EscalaFiscalModeloPosto,
     EscalaFiscalPontoFinal,
@@ -51,7 +60,9 @@ from app.models.escala_fiscais import (
     EscalaFiscalQuadro,
     EscalaFiscalTroca,
 )
+from app.routers.ocorrencias import _eh_admin
 from app.schemas.escala_fiscais import (
+    AlocacaoIn,
     AusenciaCreate,
     AusenciaRead,
     AusenciaUpdate,
@@ -60,6 +71,8 @@ from app.schemas.escala_fiscais import (
     CoordenadorHorarioUpdate,
     CoordenadorPeriodoCreate,
     CoordenadorPeriodoRead,
+    DiaPublicar,
+    DiaSalvar,
     FiscalResumo,
     ModeloCreate,
     ModeloDetalhe,
@@ -81,6 +94,9 @@ from app.schemas.escala_fiscais import (
     TrocaRead,
 )
 from app.services import escala_fiscais_importacao as importacao
+from app.services import escala_fiscais_montagem as montagem
+from app.services import escala_fiscais_regras as regras
+from app.services.escala_fiscais_montagem import nomes_por_re
 
 router = APIRouter(prefix="/escala-fiscais", tags=["escala de fiscais"])
 
@@ -118,14 +134,6 @@ def _coordenador_por_re(db: Session, re_txt: str) -> Funcionario:
             detail=f"RE {re_limpo} não está cadastrado. Cadastre em Pessoas antes",
         )
     return func_
-
-
-def nomes_por_re(db: Session, res) -> dict[str, str]:
-    """D-A: RE → nome, só dos REs que têm cadastro. Junção pelo RE na leitura."""
-    res = {r for r in res if r}
-    if not res:
-        return {}
-    return {f.re: f.nome for f in db.execute(select(Funcionario).where(Funcionario.re.in_(res))).scalars()}
 
 
 def _fiscal(re_txt: str, nomes: dict[str, str]) -> dict:
@@ -533,6 +541,160 @@ def criar_troca(payload: TrocaCreate, usuario: EscritaEscala, db: DbSession):
     return _troca_read(t, nomes_por_re(db, [t.re_a, t.re_b]))
 
 
+# ─── MONTAGEM DO DIA (Fases 3 e 4) ───────────────────────────────────────────
+
+def eh_admin(db: Session, funcionario_id: UUID) -> bool:
+    return _eh_admin(db, funcionario_id)
+
+
+def periodos_editaveis(db: Session, usuario: Funcionario) -> set[int]:
+    """RN10: ADMIN edita os dois períodos; coordenador, só o(s) dele."""
+    if eh_admin(db, usuario.id):
+        return {1, 2}
+    return {
+        c.periodo for c in db.execute(
+            select(EscalaFiscalCoordenadorPeriodo).where(EscalaFiscalCoordenadorPeriodo.funcionario_id == usuario.id)
+        ).scalars()
+    }
+
+
+def _contexto(db: Session, d: date) -> regras.Contexto:
+    return montagem.carregar_contexto(db, d, padroes_periodo())
+
+
+def _com_nomes(db: Session, ctx: regras.Contexto, alocs: list[regras.Aloc]) -> None:
+    ctx.nomes = nomes_por_re(db, montagem.todos_os_res(alocs, ctx))
+
+
+def _resposta_do_dia(db: Session, d: date, usuario: Funcionario, modelo_id: Optional[UUID] = None) -> dict:
+    dia = montagem.buscar_dia(db, d)
+    ctx = _contexto(db, d)
+    notas: dict = {}
+    if dia is None:
+        # Dia novo: PRÉVIA (nada gravado). RN01 sugere o modelo pelo mês do
+        # próprio dia; o coordenador pode trocar antes de salvar.
+        modelo = db.get(EscalaFiscalModelo, modelo_id) if modelo_id else montagem.modelo_sugerido(db, d)
+        if modelo_id and modelo is None:
+            raise _nao_encontrado("Modelo")
+        alocs: list[regras.Aloc] = []
+        if modelo is not None:
+            prev = montagem.previa(db, d, modelo, ctx)
+            alocs, notas = prev.alocs, prev.notas
+        plantao = montagem.plantao_do_cadastro(db)
+        base: list[regras.Aloc] = []
+    else:
+        modelo = db.get(EscalaFiscalModelo, dia.modelo_id)
+        alocs = [montagem.aloc_de(a) for a in montagem.alocacoes_do_dia(db, dia.id)]
+        base = alocs
+        plantao = montagem.plantao_do_dia(db, dia.id)
+    _com_nomes(db, ctx, alocs)
+    resp = montagem.montar_resposta(db, d, dia=dia, modelo=modelo, alocs=alocs, plantao=plantao,
+                                    ctx=ctx, base=base, notas=notas)
+    resp["periodos_editaveis"] = sorted(periodos_editaveis(db, usuario))
+    resp["hoje"] = hoje_operacao()
+    return resp
+
+
+def _aloc_de_payload(item: AlocacaoIn, postos: dict) -> regras.Aloc:
+    if item.posto_id not in postos:
+        raise _nao_encontrado("Posto")
+    base = {"posto_id": item.posto_id, "periodo": item.periodo,
+            "hora_inicio": item.hora_inicio, "hora_termino": item.hora_termino}
+    if item.re:
+        return regras.Aloc(situacao="escalado", re=item.re, **base)
+    texto = (item.marcador or "").strip()
+    situacao, re_txt, garagem, marcador, erro = importacao.classificar_celula(texto or None)
+    if erro == "g3":
+        # Vira bloqueio legível na avaliação (G3 é a própria garagem).
+        return regras.Aloc(situacao="outra_garagem", outra_garagem=importacao.GARAGEM_PROPRIA, marcador=texto, **base)
+    if erro:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=f"\"{texto}\" não é RE, garagem (G1, G2, G4...), ****, xxx, - nem DIRETO",
+        )
+    if situacao == "escalado":
+        return regras.Aloc(situacao="escalado", re=re_txt, **base)
+    return regras.Aloc(situacao=situacao, outra_garagem=garagem, marcador=marcador, **base)
+
+
+def _checar_rn10(novas: list[regras.Aloc], referencia: list[regras.Aloc], editaveis: set[int], ctx: regras.Contexto) -> None:
+    """RN10: mudança (em relação ao gravado, ou à prévia do modelo num dia
+    novo) em período que o usuário não edita → 403."""
+    if editaveis >= {1, 2}:
+        return
+    ref = {a.chave: a for a in referencia}
+    nov = {a.chave: a for a in novas}
+    for chave in ref.keys() | nov.keys():
+        a, b = ref.get(chave), nov.get(chave)
+        if a is not None and b is not None and not montagem.mudou(a, b):
+            continue
+        if chave[1] in editaveis:
+            continue
+        posto = ctx.postos.get(chave[0])
+        quem = (f"Você edita só o {' e o '.join(f'{p}º' for p in sorted(editaveis))} período"
+                if editaveis else "Você não está ligado a nenhum período na aba Coordenadores")
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN,
+            detail=f"{quem}. Mudança no {chave[1]}º período: {posto.rotulo if posto else chave[0]}",
+        )
+
+
+def _plantao_do_payload(db: Session, itens) -> list[dict]:
+    saida, ordem = [], {"manha": 0, "tarde": 0}
+    for p in itens:
+        f = _coordenador_por_re(db, p.re)
+        _validar_horario_coordenador(p.hora_inicio, p.hora_fim)
+        ordem[p.turno] += 1
+        saida.append({"turno": p.turno, "ordem": ordem[p.turno], "funcionario_id": f.id,
+                      "hora_inicio": p.hora_inicio, "hora_fim": p.hora_fim})
+    return saida
+
+
+def _json(itens: list[dict]) -> list[dict]:
+    """UUID/data/hora → texto (o handler de erro devolve o detail direto)."""
+    return json.loads(json.dumps(itens, default=str))
+
+
+def _recusar_bloqueios(av: regras.Avaliacao) -> None:
+    if av.bloqueios:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, detail={
+            "mensagem": "Nada foi salvo: " + "; ".join(b["mensagem"] for b in av.bloqueios),
+            "bloqueios": _json(av.bloqueios),
+        })
+
+
+def _recusar_pendentes(av: regras.Avaliacao, confirmadas: set[str]) -> None:
+    pendentes = av.pendentes(confirmadas)
+    if pendentes:
+        raise HTTPException(status.HTTP_409_CONFLICT, detail={
+            "mensagem": "Confirme antes de continuar: " + "; ".join(p["mensagem"] for p in pendentes),
+            "perguntas": _json(pendentes),
+        })
+
+
+@router.get("/dias", summary="Dias com escala gravada num intervalo, e a data de hoje (calendário, São Paulo)")
+def listar_dias(
+    _: LeituraEscala,
+    db: DbSession,
+    de: Optional[date] = Query(None),
+    ate: Optional[date] = Query(None),
+):
+    hoje = hoje_operacao()
+    de = de or hoje - timedelta(days=14)
+    ate = ate or hoje + timedelta(days=31)
+    dias = db.execute(
+        select(EscalaFiscalDia).where(EscalaFiscalDia.data.between(de, ate)).order_by(EscalaFiscalDia.data)
+    ).scalars().all()
+    nomes_modelo = {m.id: m.nome for m in db.execute(select(EscalaFiscalModelo)).scalars()}
+    return {
+        "hoje": hoje,
+        "dias": [
+            {"data": d.data, "status": d.status, "versao": d.versao, "modelo": nomes_modelo.get(d.modelo_id)}
+            for d in dias
+        ],
+    }
+
+
 # ═════════════════════════════════════════════════════════════════════════════
 # Rotas COM parâmetro — daqui para baixo
 # ═════════════════════════════════════════════════════════════════════════════
@@ -777,3 +939,158 @@ def remover_troca(troca_id: UUID, _: EscritaEscala, db: DbSession) -> None:
         raise _nao_encontrado("Troca")
     db.delete(t)
     db.commit()
+
+
+# ─── Dia (montagem, publicação, histórico) ──────────────────────────────────
+
+@router.get("/dias/{data}", summary="Escala do dia: a gravada, ou a PRÉVIA de um dia novo copiada do modelo (nada é gravado)")
+def ver_dia(data: date, usuario: LeituraEscala, db: DbSession, modelo_id: Optional[UUID] = None):
+    return _resposta_do_dia(db, data, usuario, modelo_id)
+
+
+@router.put("/dias/{data}", summary="Salva o rascunho; em escala publicada, gera nova versão com registro da alteração")
+def salvar_dia(data: date, payload: DiaSalvar, usuario: EscritaEscala, db: DbSession):
+    modelo = db.get(EscalaFiscalModelo, payload.modelo_id)
+    if modelo is None:
+        raise _nao_encontrado("Modelo")
+    dia = montagem.buscar_dia(db, data)
+    ctx = _contexto(db, data)
+    novas = [_aloc_de_payload(i, ctx.postos) for i in payload.alocacoes]
+    chaves = [a.chave for a in novas]
+    if len(chaves) != len(set(chaves)):
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, detail="O mesmo posto aparece duas vezes no mesmo período")
+
+    if dia is None:
+        referencia, base = montagem.previa(db, data, modelo, ctx).alocs, []
+    else:
+        if dia.status == "publicada" and dia.modelo_id != modelo.id:
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, detail="O modelo não muda depois de publicada")
+        base = [montagem.aloc_de(a) for a in montagem.alocacoes_do_dia(db, dia.id)]
+        referencia = base
+
+    editaveis = periodos_editaveis(db, usuario)
+    _checar_rn10(novas, referencia, editaveis, ctx)
+    if payload.plantao is not None and not editaveis:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, detail="Você não está ligado a nenhum período na aba Coordenadores")
+
+    # RN04: a confirmação gravada vale enquanto o RE da linha for o mesmo.
+    confirmadas = set(payload.confirmacoes)
+    agora = datetime.now(FUSO_OPERACAO)
+    confirmadas_agora: set = set()
+    por_chave = {b.chave: b for b in base}
+    for n in novas:
+        b = por_chave.get(n.chave)
+        if b is not None and b.re == n.re:
+            n.dobra_seguida_confirmada_por = b.dobra_seguida_confirmada_por
+            n.dobra_seguida_confirmada_em = b.dobra_seguida_confirmada_em
+            n.dobra_publicada = b.dobra_publicada
+        if n.re and n.dobra_seguida_confirmada_por is None and f"RN04|{n.posto_id}|{n.periodo}|{n.re}" in confirmadas:
+            n.dobra_seguida_confirmada_por, n.dobra_seguida_confirmada_em = usuario.id, agora
+            confirmadas_agora.add(n.chave)
+
+    _com_nomes(db, ctx, novas)
+    av = regras.avaliar(novas, ctx, base=base)
+    _recusar_bloqueios(av)
+    _recusar_pendentes(av, confirmadas)
+
+    if payload.plantao is not None:
+        plantao = _plantao_do_payload(db, payload.plantao)
+    else:
+        plantao = montagem.plantao_do_cadastro(db) if dia is None else None
+    try:
+        if dia is None:
+            dia = EscalaFiscalDia(data=data, modelo_id=modelo.id, status="rascunho", versao=1)
+            db.add(dia)
+            db.flush()
+        elif dia.status == "rascunho":
+            dia.modelo_id = modelo.id
+        publicada = dia.status == "publicada"
+        # RN03: no rascunho a dobra NUNCA é gravada; na publicada, a linha
+        # que mudou é congelada de novo com o valor de agora.
+        congelar = {chave: marca["dobra"] for chave, marca in av.linhas.items()} if publicada else None
+        antes, depois = montagem.gravar_alocacoes(
+            db, dia, novas, usuario_id=usuario.id, confirmadas_rn04=confirmadas_agora,
+            congelar=congelar, postos=ctx.postos,
+        )
+        p_antes, p_depois = montagem.gravar_plantao(db, dia, plantao) if plantao is not None else ([], [])
+        if publicada and (antes or depois or p_antes or p_depois):
+            # RN14: alterar escala publicada = nova versão + registro.
+            dia.versao += 1
+            montagem.registrar_alteracao(db, dia, usuario.id,
+                                         {"alocacoes": antes, "plantao": p_antes},
+                                         {"alocacoes": depois, "plantao": p_depois})
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+    return _resposta_do_dia(db, data, usuario)
+
+
+@router.post("/dias/{data}/publicar", summary="Publica o rascunho: congela a dobra (RN03); só a publicada será vista pelo fiscal (RN14)")
+def publicar_dia(data: date, payload: DiaPublicar, usuario: EscritaEscala, db: DbSession):
+    dia = montagem.buscar_dia(db, data)
+    if dia is None:
+        raise _nao_encontrado("Escala do dia")
+    if dia.status == "publicada":
+        raise HTTPException(status.HTTP_409_CONFLICT, detail="Esta escala já está publicada. Altere e salve: vira nova versão")
+    if not periodos_editaveis(db, usuario):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, detail="Você não está ligado a nenhum período na aba Coordenadores")
+    linhas = montagem.alocacoes_do_dia(db, dia.id)
+    alocs = [montagem.aloc_de(a) for a in linhas]
+    confirmadas = set(payload.confirmacoes)
+    agora = datetime.now(FUSO_OPERACAO)
+    for a in alocs:
+        if a.re and a.dobra_seguida_confirmada_por is None and f"RN04|{a.posto_id}|{a.periodo}|{a.re}" in confirmadas:
+            a.dobra_seguida_confirmada_por, a.dobra_seguida_confirmada_em = usuario.id, agora
+    ctx = _contexto(db, data)
+    _com_nomes(db, ctx, alocs)
+    av = regras.avaliar(alocs, ctx, base=alocs)
+    _recusar_bloqueios(av)
+    _recusar_pendentes(av, confirmadas)
+    por_chave = {a.chave: a for a in alocs}
+    for linha in linhas:
+        a = por_chave[(linha.posto_id, linha.periodo)]
+        linha.dobra_publicada = av.linhas[a.chave]["dobra"]  # RN03: congelada agora
+        linha.dobra_seguida_confirmada_por = a.dobra_seguida_confirmada_por
+        linha.dobra_seguida_confirmada_em = a.dobra_seguida_confirmada_em
+    dia.status, dia.publicada_em, dia.publicada_por = "publicada", agora, usuario.id
+    db.commit()
+    return _resposta_do_dia(db, data, usuario)
+
+
+@router.delete("/dias/{data}", status_code=status.HTTP_204_NO_CONTENT, summary="Descarta o RASCUNHO do dia (publicada não se apaga)")
+def descartar_rascunho(data: date, usuario: EscritaEscala, db: DbSession) -> None:
+    dia = montagem.buscar_dia(db, data)
+    if dia is None:
+        raise _nao_encontrado("Escala do dia")
+    if dia.status != "rascunho":
+        raise HTTPException(status.HTTP_409_CONFLICT, detail="Escala publicada não se apaga: altere e salve (nova versão)")
+    if periodos_editaveis(db, usuario) != {1, 2}:
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN,
+            detail="Descartar o rascunho mexe nos dois períodos: só ADMIN ou quem responde pelos dois",
+        )
+    for a in montagem.alocacoes_do_dia(db, dia.id):
+        db.delete(a)
+    montagem.gravar_plantao(db, dia, [])
+    db.flush()
+    db.delete(dia)
+    db.commit()
+
+
+@router.get("/dias/{data}/alteracoes", summary="Histórico depois de publicada: quem, quando, antes e depois")
+def listar_alteracoes(data: date, _: LeituraEscala, db: DbSession):
+    dia = montagem.buscar_dia(db, data)
+    if dia is None:
+        return []
+    linhas = db.execute(
+        select(EscalaFiscalAlteracao).where(EscalaFiscalAlteracao.escala_dia_id == dia.id)
+        .order_by(EscalaFiscalAlteracao.versao)
+    ).scalars().all()
+    pessoas = _pessoas(db, (a.alterado_por for a in linhas))
+    return [
+        {"versao": a.versao, "alterado_em": a.alterado_em,
+         "alterado_por": pessoas[a.alterado_por].nome if a.alterado_por in pessoas else None,
+         "antes": a.antes, "depois": a.depois}
+        for a in linhas
+    ]

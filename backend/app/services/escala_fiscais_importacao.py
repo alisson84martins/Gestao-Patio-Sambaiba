@@ -473,6 +473,11 @@ def _classificar_re(valor: Any) -> tuple[str, Optional[str], Optional[str], Opti
     return "", None, None, None, "desconhecido"
 
 
+# Montagem (Fase 4): a célula digitada na tela passa pela MESMA classificação
+# da importação — marcador fiel ao que foi escrito (D-B).
+classificar_celula = _classificar_re
+
+
 def _linha_parece_rodape(linha: dict) -> Optional[str]:
     cod_jb = _texto(linha.get("cod_jb"))
     if cod_jb and not _RE_COD_JB.match(cod_jb):

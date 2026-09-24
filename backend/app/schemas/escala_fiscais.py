@@ -13,9 +13,9 @@ from datetime import date, time
 from typing import Annotated, Literal, Optional
 from uuid import UUID
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, BeforeValidator, Field, field_validator
 
-from app.core.registro import ReNormalizado, ReNormalizadoObrigatorio
+from app.core.registro import ReNormalizado, ReNormalizadoObrigatorio, normalizar_re
 
 Periodo = Literal[1, 2]
 FolgaBase = Literal["sabado", "domingo"]
@@ -30,6 +30,9 @@ TipoTroca = Literal["2x2", "1x1"]
 # RE pela função oficial (app/core/registro.py) — ⛔ não duplicar aqui.
 ReTexto = Annotated[ReNormalizadoObrigatorio, Field(min_length=1, max_length=20)]
 ReOpcional = Annotated[ReNormalizado, Field(max_length=20)]
+# Aceita null explícito (a célula da montagem sem RE manda "re": null): o
+# limite de tamanho vale só para o texto, não para o None.
+ReOuNulo = Annotated[Optional[Annotated[str, Field(max_length=20)]], BeforeValidator(normalizar_re)]
 
 
 class FiscalResumo(BaseModel):
@@ -286,3 +289,41 @@ class TrocaRead(BaseModel):
 class PessoaBusca(BaseModel):
     re: str
     nome: str
+
+
+# ─── Montagem do dia (Fase 3/4) ──────────────────────────────────────────────
+
+class AlocacaoIn(BaseModel):
+    """Uma linha da escala do dia. Com `re` = escalado (RE sem cadastro é
+    aceito). Sem `re`, `marcador` é o texto da célula, fiel à planilha:
+    '' (em branco), '****', 'xxx', '-', 'G1'/'G2'/'G4' (outra garagem) ou
+    'DIRETO'. G3 é bloqueado."""
+    posto_id: UUID
+    periodo: Periodo
+    re: ReOuNulo = None
+    marcador: Optional[str] = Field(None, max_length=10)
+    hora_inicio: Optional[time] = None
+    hora_termino: Optional[time] = None
+
+
+class PlantaoIn(BaseModel):
+    """Coordenador de plantão NAQUELE dia (copiado do cadastro e ajustável
+    só no dia). Pode passar da meia-noite."""
+    turno: Turno
+    re: ReTexto
+    hora_inicio: time
+    hora_fim: time
+
+
+class DiaSalvar(BaseModel):
+    modelo_id: UUID
+    alocacoes: list[AlocacaoIn] = Field(..., max_length=600)
+    # None = mantém o plantão gravado (dia novo: copia do cadastro).
+    plantao: Optional[list[PlantaoIn]] = Field(None, max_length=20)
+    # Chaves das perguntas (RN04, RN08 sem ponto final, RN11) que o
+    # coordenador respondeu "sim".
+    confirmacoes: list[str] = Field(default_factory=list, max_length=600)
+
+
+class DiaPublicar(BaseModel):
+    confirmacoes: list[str] = Field(default_factory=list, max_length=600)
