@@ -372,6 +372,9 @@ def montar_resposta(
             for p in plantao
         ],
         "validacao": {"bloqueios": av.bloqueios, "perguntas": av.perguntas, "avisos": av.avisos},
+        # RN04 na tela: quem dobrou no fim de semana anterior (RE → dia), para
+        # perguntar assim que o RE é digitado. O backend pergunta de novo ao salvar.
+        "dobras_fim_de_semana_anterior": ctx.dobras_anteriores,
         "resumo": {
             **resumo,
             "folgas": {str(k): [{"re": r, "nome": ctx.nomes.get(r)} for r in v] for k, v in resumo["folgas"].items()},
