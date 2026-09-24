@@ -40,6 +40,10 @@ const PAGINAS = {
     'ocorrencia-form.html':        { modulo: 'COORDENADORIA', ativo: 'ocorrencias.html' },
     'pre-ocorrencias.html':        { modulo: 'COORDENADORIA' },
     'escala-fiscais.html':         { modulo: 'COORDENADORIA' },
+    // Fase 5 — folha de impressão da escala. Página própria (o @page dela
+    // não pode vazar para as outras) e sem <nav>; mapeada aqui só para, se
+    // um dia ganhar barra, ficar no módulo certo e acender "Escala de Fiscais".
+    'escala-fiscais-impressao.html': { modulo: 'COORDENADORIA', ativo: 'escala-fiscais.html' },
     'fiscal-painel.html':          { modulo: 'FISCALIZACAO' },
     'fiscal.html':                 { modulo: 'FISCALIZACAO' },
     'portaria.html':               { modulo: 'PORTARIA' },
