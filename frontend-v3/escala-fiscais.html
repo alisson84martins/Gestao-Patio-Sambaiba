@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!--
   Sistema de Gestão Operacional Sambaíba — V3
-  Escala de Fiscais — cadastros e importação dos modelos (Fase 2)
+  Escala de Fiscais — montagem do dia (Fases 3 e 4), cadastros e importação (Fase 2)
   Desenvolvido por Alisson Martins
   © 2026 — Todos os direitos reservados
 -->
@@ -41,12 +41,13 @@
 <main class="patio-main">
 
     <div class="remanejo-filtros">
-        <h1 style="font-size:1.1rem;margin-right:auto">Escala de Fiscais — cadastros</h1>
+        <h1 style="font-size:1.1rem;margin-right:auto">Escala de Fiscais</h1>
     </div>
 
     <!-- Sub-abas: uma aba só no módulo, cadastros separados aqui dentro -->
     <div class="ef-abas" role="tablist">
-        <button type="button" class="filtro-btn active" data-aba="quadro" role="tab">Fiscais do quadro</button>
+        <button type="button" class="filtro-btn active" data-aba="montar" role="tab">Montar escala</button>
+        <button type="button" class="filtro-btn" data-aba="quadro" role="tab">Fiscais do quadro</button>
         <button type="button" class="filtro-btn" data-aba="coordenadores" role="tab">Coordenadores</button>
         <button type="button" class="filtro-btn" data-aba="pontos" role="tab">Pontos finais</button>
         <button type="button" class="filtro-btn" data-aba="postos" role="tab">Postos</button>
@@ -58,8 +59,45 @@
 
     <div id="ef-mensagem" class="ef-mensagem" role="status" hidden></div>
 
+    <!-- ── Montar escala (Fase 4) ────────────────────────────────────── -->
+    <section class="ef-painel" data-painel="montar">
+        <div class="ef-mt-barra">
+            <div class="ef-mt-fds" role="group" aria-label="Fim de semana">
+                <button type="button" class="filtro-btn" id="ef-mt-ant" title="Fim de semana anterior" aria-label="Fim de semana anterior">◀</button>
+                <button type="button" class="filtro-btn" id="ef-mt-sab">Sábado</button>
+                <button type="button" class="filtro-btn" id="ef-mt-dom">Domingo</button>
+                <button type="button" class="filtro-btn" id="ef-mt-prox" title="Próximo fim de semana" aria-label="Próximo fim de semana">▶</button>
+            </div>
+            <div class="form-group ef-mt-campo">
+                <label class="form-label" for="ef-mt-data">Dia (útil ou outro)</label>
+                <input type="date" class="form-input" id="ef-mt-data">
+            </div>
+            <div class="form-group ef-mt-campo">
+                <label class="form-label" for="ef-mt-modelo">Modelo</label>
+                <select class="form-select" id="ef-mt-modelo"></select>
+            </div>
+            <div class="ef-mt-estado" id="ef-mt-estado" aria-live="polite"></div>
+        </div>
+
+        <div id="ef-mt-avisos"></div>
+        <div id="ef-mt-resumo" class="ef-mt-resumo"></div>
+        <div id="ef-mt-detalhe" class="ef-mt-detalhe" hidden></div>
+        <div id="ef-mt-grade"><div class="patio-loading">Carregando…</div></div>
+
+        <details class="ef-detalhes ef-mt-plantao-box">
+            <summary>Coordenadores de plantão (ajuste vale só para este dia)</summary>
+            <div id="ef-mt-plantao"></div>
+        </details>
+
+        <div class="ef-rodape ef-mt-rodape">
+            <button type="button" class="btn btn-ghost btn-full" id="ef-mt-salvar">Salvar rascunho</button>
+            <button type="button" class="btn btn-primary btn-full" id="ef-mt-publicar">Publicar</button>
+            <button type="button" class="btn btn-ghost btn-full" id="ef-mt-imprimir">Imprimir</button>
+        </div>
+    </section>
+
     <!-- ── Fiscais do quadro ─────────────────────────────────────────── -->
-    <section class="ef-painel" data-painel="quadro">
+    <section class="ef-painel" data-painel="quadro" hidden>
         <form class="ef-form" id="form-quadro" autocomplete="off">
             <div class="ef-grade">
                 <div class="form-group ef-re-campo">
@@ -329,6 +367,18 @@
     </section>
 
 </main>
+
+<!-- Pergunta / aviso da montagem (RN04, RN05, RN08, RN11, publicar) -->
+<div class="modal-overlay" id="ef-mt-modal" role="dialog" aria-modal="true" aria-labelledby="ef-mt-modal-titulo">
+    <div class="modal">
+        <div class="modal-title" id="ef-mt-modal-titulo"></div>
+        <div class="ef-mt-modal-corpo" id="ef-mt-modal-corpo"></div>
+        <div class="modal-acoes ef-mt-modal-acoes">
+            <button type="button" class="btn btn-ghost btn-full" id="ef-mt-modal-nao">Cancelar</button>
+            <button type="button" class="btn btn-primary btn-full" id="ef-mt-modal-sim">Sim</button>
+        </div>
+    </div>
+</div>
 
 <script type="module" src="./assets/js/escala-fiscais.page.js"></script>
 </body>

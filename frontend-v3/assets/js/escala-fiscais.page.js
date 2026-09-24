@@ -1,9 +1,10 @@
 /*
- * Escala de Fiscais — cadastros e importação dos modelos (Fase 2)
+ * Escala de Fiscais — montagem do dia, cadastros e importação dos modelos
  * ------------------------------------------------------------------
- * UMA aba do módulo COORDENADORIA, com sub-abas de cadastro. Montar a
- * escala do dia, a tela do fiscal e a impressão são da Fase 3 — nada
- * disso mora aqui.
+ * UMA aba do módulo COORDENADORIA, com sub-abas. A primeira, "Montar
+ * escala", mora em escala-fiscais.montagem.js (Fase 4); a impressão é a
+ * página própria escala-fiscais-impressao.html (Fase 5). A tela do fiscal
+ * ("Minha escala") NÃO mora aqui.
  *
  * Regras que atravessam o arquivo:
  *   - RE é sempre TEXTO (tem RE com zero à esquerda e com letra).
@@ -25,6 +26,7 @@ import { podeEscrever } from './sessao.js';
 import { escapeHtml } from './escape.js';
 import { aplicarMascara } from './mascaras.js';
 import { dataLocalISO } from './data.util.js';
+import { iniciarMontagem, carregarMontagem } from './escala-fiscais.montagem.js';
 
 if (!requireAuth()) {
     throw new Error('Sessao nao autenticada');
@@ -55,7 +57,8 @@ document.addEventListener('DOMContentLoaded', () => {
     setupAusencias();
     setupTrocas();
     setupImportacao();
-    abrirAba('quadro');
+    iniciarMontagem({ escreve, mostrarMensagem, erro });
+    abrirAba('montar');
 });
 
 function setupHeader() {
@@ -71,6 +74,7 @@ function setupHeader() {
 // ─── Sub-abas ────────────────────────────────────────────────────────────
 
 const CARREGAR_ABA = {
+    montar: () => carregarMontagem(),
     quadro: () => carregarQuadro(),
     coordenadores: () => { carregarCoordPeriodo(); carregarCoordHorario(); },
     pontos: () => carregarPontos(),

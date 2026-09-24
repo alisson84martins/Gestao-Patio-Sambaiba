@@ -4416,3 +4416,175 @@ body.modal-open {
     .ef-grade-compacta { grid-template-columns: repeat(2, 1fr); }
     .ef-card-linha { flex-direction: column; }
 }
+
+/* ---------------------------------------------------------------------
+   Escala de Fiscais — sub-aba "Montar escala" (Fase 4) — prefixo ef-mt-
+   Espelho da planilha: bloco TP e bloco TS, cada posto em duas linhas
+   (Início / Término). A tabela rola na horizontal DENTRO da caixa
+   (.ef-mt-rolagem) — a página nunca rola de lado no celular. Dobra =
+   fundo amarelo #FFFF00, igual à planilha.
+   --------------------------------------------------------------------- */
+.ef-mt-barra {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    gap: 8px 12px;
+    margin-bottom: 10px;
+}
+
+.ef-mt-fds { display: flex; gap: 6px; flex-wrap: wrap; }
+.ef-mt-fds .filtro-btn { min-height: 44px; }
+.ef-mt-campo { margin-bottom: 0; min-width: 160px; flex: 1 1 160px; }
+.ef-mt-estado { flex: 1 1 220px; display: flex; flex-wrap: wrap; gap: 4px 6px; align-items: center; }
+.ef-mt-estado .ef-meta { width: 100%; }
+
+.ef-mt-tag-novo { background: rgba(59, 130, 246, 0.15); color: #93c5fd; }
+.ef-mt-tag-rascunho { background: rgba(245, 158, 11, 0.15); color: #fcd34d; }
+.ef-mt-tag-publicada { background: rgba(16, 185, 129, 0.15); color: #6ee7b7; }
+.ef-mt-tag-dobra { background: #ffff00; color: #111; }
+
+.ef-mt-virada { font-weight: 700; }
+
+.ef-mt-resumo {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin: 8px 0;
+}
+
+.ef-mt-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    min-height: 40px;
+    padding: 6px 10px;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    color: var(--text);
+    font-family: var(--display);
+    font-size: 0.85rem;
+    cursor: pointer;
+}
+
+.ef-mt-chip-n { font-family: var(--mono); font-weight: 800; }
+.ef-mt-chip-dobra .ef-mt-chip-n { background: #ffff00; color: #111; border-radius: 4px; padding: 0 4px; }
+.ef-mt-chip-alerta { border-color: #f59e0b; }
+
+.ef-mt-detalhe {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 10px 14px;
+    margin-bottom: 10px;
+    font-size: 0.85rem;
+    line-height: 1.5;
+}
+
+.ef-mt-detalhe ul { padding-left: 18px; }
+
+.ef-mt-bloco { margin-bottom: 16px; }
+
+.ef-mt-titulo {
+    font-weight: 800;
+    font-size: 0.95rem;
+    letter-spacing: 0.3px;
+    margin: 6px 0;
+}
+
+.ef-mt-rolagem {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    max-width: 100%;
+}
+
+.ef-mt-tabela {
+    border-collapse: collapse;
+    width: 100%;
+    min-width: 860px;
+    font-size: 0.85rem;
+}
+
+.ef-mt-tabela th,
+.ef-mt-tabela td {
+    border: 1px solid var(--border);
+    padding: 3px 5px;
+    vertical-align: middle;
+    text-align: center;
+}
+
+.ef-mt-tabela th {
+    position: sticky;
+    top: 0;
+    background: var(--surface2);
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    color: var(--muted);
+    z-index: 1;
+}
+
+.ef-mt-tabela tr.ef-mt-fim td { border-bottom-width: 2px; }
+.ef-mt-l { font-weight: 800; }
+.ef-mt-linhas { font-family: var(--mono); font-size: 0.78rem; white-space: nowrap; }
+.ef-mt-rot { font-size: 0.72rem; color: var(--muted); white-space: nowrap; }
+.ef-mt-vazio { background: var(--bg); }
+
+.ef-mt-re { position: relative; min-width: 120px; }
+.ef-mt-re.ef-mt-dobra { background: #ffff00; }
+.ef-mt-re.ef-mt-dobra .ef-mt-cel { color: #111; background: rgba(255, 255, 255, 0.6); border-color: #b5b500; }
+.ef-mt-re.ef-mt-dobra .ef-mt-nome,
+.ef-mt-re.ef-mt-dobra .ef-mt-nota { color: #333; }
+.ef-mt-re.ef-mt-ausente { outline: 2px solid var(--accent2); outline-offset: -2px; }
+
+.ef-mt-cel,
+.ef-mt-hora {
+    width: 100%;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--text);
+    /* 16px: menos que isso o iOS dá zoom ao focar. */
+    font-size: 16px;
+    padding: 4px 6px;
+    min-height: 36px;
+}
+
+.ef-mt-cel { font-family: var(--mono); font-weight: 700; text-align: center; min-width: 90px; }
+.ef-mt-hora { font-family: var(--mono); min-width: 96px; }
+.ef-mt-cel:disabled,
+.ef-mt-hora:disabled { opacity: 0.75; }
+.ef-mt-cel:focus,
+.ef-mt-hora:focus { outline: none; border-color: var(--accent); }
+
+.ef-mt-nome { font-size: 0.72rem; color: var(--accent3); min-height: 0.9em; margin-top: 2px; }
+.ef-mt-tags { display: flex; flex-wrap: wrap; gap: 3px; justify-content: center; margin-top: 2px; }
+.ef-mt-tags .ef-tag { font-size: 0.65rem; }
+.ef-mt-nota { font-size: 0.7rem; color: #fcd34d; margin-top: 2px; max-width: 220px; }
+.ef-mt-re .ef-sugestoes { min-width: 240px; text-align: left; }
+
+.ef-mt-plantao-box { margin: 12px 0; }
+
+.ef-mt-plantao-linha {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    align-items: center;
+    margin-bottom: 8px;
+}
+
+.ef-mt-plantao-linha .ef-campo-mini { flex: 1 1 120px; }
+
+.ef-mt-rodape .btn { min-height: 48px; }
+
+.ef-mt-modal-corpo { font-size: 0.95rem; line-height: 1.5; margin-bottom: 12px; }
+.ef-mt-modal-corpo ul { padding-left: 18px; }
+.ef-mt-modal-acoes { display: flex; gap: 8px; }
+.ef-mt-modal-acoes .btn { flex: 1; min-height: 48px; }
+
+@media (max-width: 600px) {
+    .ef-mt-campo { flex: 1 1 100%; }
+    .ef-mt-rodape { flex-wrap: wrap; }
+    .ef-mt-rodape .btn { flex: 1 1 30%; font-size: 0.85rem; padding-left: 6px; padding-right: 6px; }
+}
