@@ -1,0 +1,335 @@
+<!DOCTYPE html>
+<!--
+  Sistema de Gestão Operacional Sambaíba — V3
+  Escala de Fiscais — cadastros e importação dos modelos (Fase 2)
+  Desenvolvido por Alisson Martins
+  © 2026 — Todos os direitos reservados
+-->
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, interactive-widget=resizes-content">
+    <meta name="theme-color" content="#0a0a0a">
+    <title>Escala de Fiscais — Sambaíba V3</title>
+
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700;800&family=Barlow+Condensed:wght@400;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="assets/css/style.css">
+</head>
+<body>
+
+<header class="app-header">
+    <div class="app-header-brand">
+        <img class="app-header-logo" src="assets/img/sambaiba-logo.jpg" alt="Eu amo Sambaíba">
+        <div class="app-header-titles">
+            <div class="app-header-empresa">Sambaíba</div>
+            <div class="app-header-title">GESTÃO OPERACIONAL SAMBAÍBA</div>
+        </div>
+    </div>
+
+    <div class="app-header-user">
+        <div class="app-user-info">
+            <div class="app-user-name" id="user-name">—</div>
+            <div class="app-user-meta" id="user-meta">—</div>
+        </div>
+        <button class="btn-logout" id="btn-logout" title="Sair">Sair</button>
+    </div>
+</header>
+
+<nav class="app-nav"></nav>
+<script type="module" src="./assets/js/nav.js"></script>
+
+<main class="patio-main">
+
+    <div class="remanejo-filtros">
+        <h1 style="font-size:1.1rem;margin-right:auto">Escala de Fiscais — cadastros</h1>
+    </div>
+
+    <!-- Sub-abas: uma aba só no módulo, cadastros separados aqui dentro -->
+    <div class="ef-abas" role="tablist">
+        <button type="button" class="filtro-btn active" data-aba="quadro" role="tab">Fiscais do quadro</button>
+        <button type="button" class="filtro-btn" data-aba="coordenadores" role="tab">Coordenadores</button>
+        <button type="button" class="filtro-btn" data-aba="pontos" role="tab">Pontos finais</button>
+        <button type="button" class="filtro-btn" data-aba="postos" role="tab">Postos</button>
+        <button type="button" class="filtro-btn" data-aba="modelos" role="tab">Modelos</button>
+        <button type="button" class="filtro-btn" data-aba="ausencias" role="tab">Ausências</button>
+        <button type="button" class="filtro-btn" data-aba="trocas" role="tab">Trocas</button>
+        <button type="button" class="filtro-btn" data-aba="importar" role="tab">Importar planilha</button>
+    </div>
+
+    <div id="ef-mensagem" class="ef-mensagem" role="status" hidden></div>
+
+    <!-- ── Fiscais do quadro ─────────────────────────────────────────── -->
+    <section class="ef-painel" data-painel="quadro">
+        <form class="ef-form" id="form-quadro" autocomplete="off">
+            <div class="ef-grade">
+                <div class="form-group ef-re-campo">
+                    <label class="form-label" for="quadro-re">RE do fiscal *</label>
+                    <input type="text" class="form-input" id="quadro-re" inputmode="numeric" maxlength="20" required>
+                </div>
+                <div class="form-group">
+                    <label class="form-label" for="quadro-periodo">Período *</label>
+                    <select class="form-select" id="quadro-periodo" required>
+                        <option value="1">1º período</option>
+                        <option value="2">2º período</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label class="form-label" for="quadro-folga">Folga base (mês ímpar)</label>
+                    <select class="form-select" id="quadro-folga">
+                        <option value="">— a definir —</option>
+                        <option value="sabado">Sábado</option>
+                        <option value="domingo">Domingo</option>
+                    </select>
+                </div>
+            </div>
+            <div class="ef-rodape"><button type="submit" class="btn btn-primary btn-full">Pôr no quadro</button></div>
+        </form>
+        <div id="lista-quadro" class="ef-lista"><div class="patio-loading">Carregando…</div></div>
+    </section>
+
+    <!-- ── Coordenadores ─────────────────────────────────────────────── -->
+    <section class="ef-painel" data-painel="coordenadores" hidden>
+        <h2 class="ef-subtitulo">Quem edita cada período</h2>
+        <form class="ef-form" id="form-coord-periodo" autocomplete="off">
+            <div class="ef-grade">
+                <div class="form-group ef-re-campo">
+                    <label class="form-label" for="coordp-re">RE do coordenador *</label>
+                    <input type="text" class="form-input" id="coordp-re" inputmode="numeric" maxlength="20" required data-exige-cadastro>
+                </div>
+                <div class="form-group">
+                    <label class="form-label" for="coordp-periodo">Período *</label>
+                    <select class="form-select" id="coordp-periodo">
+                        <option value="1">1º período</option>
+                        <option value="2">2º período</option>
+                    </select>
+                </div>
+            </div>
+            <div class="ef-rodape"><button type="submit" class="btn btn-primary btn-full">Ligar ao período</button></div>
+        </form>
+        <div id="lista-coord-periodo" class="ef-lista"></div>
+
+        <h2 class="ef-subtitulo">Horário padrão do plantão</h2>
+        <p class="ef-ajuda">Pode passar da meia-noite: 15:00 às 02:30 termina na madrugada do dia seguinte.</p>
+        <form class="ef-form" id="form-coord-horario" autocomplete="off">
+            <input type="hidden" id="coordh-id">
+            <div class="ef-grade">
+                <div class="form-group ef-re-campo">
+                    <label class="form-label" for="coordh-re">RE do coordenador *</label>
+                    <input type="text" class="form-input" id="coordh-re" inputmode="numeric" maxlength="20" required data-exige-cadastro>
+                </div>
+                <div class="form-group">
+                    <label class="form-label" for="coordh-turno">Turno *</label>
+                    <select class="form-select" id="coordh-turno">
+                        <option value="manha">Manhã</option>
+                        <option value="tarde">Tarde</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label class="form-label" for="coordh-inicio">Início *</label>
+                    <input type="time" class="form-input" id="coordh-inicio" required>
+                </div>
+                <div class="form-group">
+                    <label class="form-label" for="coordh-fim">Fim *</label>
+                    <input type="time" class="form-input" id="coordh-fim" required>
+                </div>
+            </div>
+            <div class="ef-rodape">
+                <button type="submit" class="btn btn-primary btn-full" id="btn-coordh-salvar">Salvar horário</button>
+                <button type="button" class="btn btn-ghost btn-full ef-cancelar-edicao" id="btn-coordh-cancelar" hidden>Cancelar edição</button>
+            </div>
+        </form>
+        <div id="lista-coord-horario" class="ef-lista"></div>
+    </section>
+
+    <!-- ── Pontos finais ─────────────────────────────────────────────── -->
+    <section class="ef-painel" data-painel="pontos" hidden>
+        <p class="ef-ajuda">Postos no mesmo ponto final podem ficar com um fiscal só (acúmulo). A importação não cria ponto final: cadastre aqui e ligue na aba Postos.</p>
+        <form class="ef-form" id="form-ponto" autocomplete="off">
+            <div class="form-group">
+                <label class="form-label" for="ponto-nome">Nome do ponto final *</label>
+                <input type="text" class="form-input" id="ponto-nome" maxlength="80" required>
+            </div>
+            <div class="ef-rodape"><button type="submit" class="btn btn-primary btn-full">Cadastrar ponto final</button></div>
+        </form>
+        <div id="lista-pontos" class="ef-lista"></div>
+    </section>
+
+    <!-- ── Postos ────────────────────────────────────────────────────── -->
+    <section class="ef-painel" data-painel="postos" hidden>
+        <form class="ef-form" id="form-posto" autocomplete="off">
+            <input type="hidden" id="posto-id">
+            <div class="ef-grade">
+                <div class="form-group">
+                    <label class="form-label" for="posto-lado">Ponta *</label>
+                    <select class="form-select" id="posto-lado">
+                        <option value="TP">TP</option>
+                        <option value="TS">TS</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label class="form-label" for="posto-codjb">Cód. JB</label>
+                    <input type="text" class="form-input" id="posto-codjb" maxlength="40">
+                </div>
+                <div class="form-group">
+                    <label class="form-label" for="posto-lote">Lote</label>
+                    <input type="text" class="form-input" id="posto-lote" maxlength="20">
+                </div>
+                <div class="form-group">
+                    <label class="form-label" for="posto-ponto">Ponto final</label>
+                    <select class="form-select" id="posto-ponto"><option value="">— nenhum —</option></select>
+                </div>
+            </div>
+            <div class="form-group">
+                <label class="form-label" for="posto-linhas">Linhas * (separe por vírgula ou espaço)</label>
+                <input type="text" class="form-input" id="posto-linhas" placeholder="ex.: 1767/10, 2161/10" required>
+            </div>
+            <div class="ef-rodape">
+                <button type="submit" class="btn btn-primary btn-full" id="btn-posto-salvar">Cadastrar posto</button>
+                <button type="button" class="btn btn-ghost btn-full ef-cancelar-edicao" id="btn-posto-cancelar" hidden>Cancelar edição</button>
+            </div>
+        </form>
+        <div class="form-group">
+            <label class="form-label" for="posto-filtro">Filtrar por linha, cód. JB ou ponto final</label>
+            <input type="search" class="form-input" id="posto-filtro">
+        </div>
+        <div id="lista-postos" class="ef-lista"></div>
+    </section>
+
+    <!-- ── Modelos ───────────────────────────────────────────────────── -->
+    <section class="ef-painel" data-painel="modelos" hidden>
+        <div class="ef-grade">
+            <div class="form-group">
+                <label class="form-label" for="modelo-sel">Modelo</label>
+                <select class="form-select" id="modelo-sel"><option value="">— escolha —</option></select>
+            </div>
+        </div>
+        <details class="ef-detalhes">
+            <summary>Criar modelo vazio</summary>
+            <form class="ef-form" id="form-modelo" autocomplete="off">
+                <div class="ef-grade">
+                    <div class="form-group">
+                        <label class="form-label" for="modelo-tipo">Tipo de dia *</label>
+                        <select class="form-select" id="modelo-tipo">
+                            <option value="util">Útil</option>
+                            <option value="sabado">Sábado</option>
+                            <option value="domingo">Domingo</option>
+                            <option value="feriado">Feriado</option>
+                            <option value="natal">Natal</option>
+                            <option value="ano_novo">Ano novo</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label" for="modelo-paridade">Mês (só fim de semana)</label>
+                        <select class="form-select" id="modelo-paridade">
+                            <option value="">—</option>
+                            <option value="impar">Ímpar</option>
+                            <option value="par">Par</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label" for="modelo-nome">Nome *</label>
+                        <input type="text" class="form-input" id="modelo-nome" maxlength="60" required>
+                    </div>
+                </div>
+                <div class="ef-rodape"><button type="submit" class="btn btn-primary btn-full">Criar modelo</button></div>
+            </form>
+        </details>
+        <div id="modelo-detalhe" class="ef-lista"></div>
+    </section>
+
+    <!-- ── Ausências ─────────────────────────────────────────────────── -->
+    <section class="ef-painel" data-painel="ausencias" hidden>
+        <form class="ef-form" id="form-ausencia" autocomplete="off">
+            <div class="ef-grade">
+                <div class="form-group ef-re-campo">
+                    <label class="form-label" for="aus-re">RE do fiscal *</label>
+                    <input type="text" class="form-input" id="aus-re" inputmode="numeric" maxlength="20" required>
+                </div>
+                <div class="form-group">
+                    <label class="form-label" for="aus-tipo">Tipo *</label>
+                    <select class="form-select" id="aus-tipo">
+                        <option value="ferias">Férias</option>
+                        <option value="atestado">Atestado</option>
+                        <option value="afastado">Afastado</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label class="form-label" for="aus-inicio">Primeiro dia fora *</label>
+                    <input type="date" class="form-input" id="aus-inicio" required>
+                </div>
+                <div class="form-group">
+                    <label class="form-label" for="aus-fim">Último dia fora (inclusive)</label>
+                    <input type="date" class="form-input" id="aus-fim">
+                </div>
+            </div>
+            <div class="form-group">
+                <label class="form-label" for="aus-obs">Observação (nada de CID/diagnóstico)</label>
+                <input type="text" class="form-input" id="aus-obs" maxlength="500">
+            </div>
+            <div class="ef-rodape"><button type="submit" class="btn btn-primary btn-full">Lançar ausência</button></div>
+        </form>
+        <div class="ef-grade">
+            <div class="form-group">
+                <label class="form-label" for="aus-dia">Quem está fora no dia</label>
+                <input type="date" class="form-input" id="aus-dia">
+            </div>
+        </div>
+        <div id="lista-ausencias" class="ef-lista"></div>
+    </section>
+
+    <!-- ── Trocas ────────────────────────────────────────────────────── -->
+    <section class="ef-painel" data-painel="trocas" hidden>
+        <form class="ef-form" id="form-troca" autocomplete="off">
+            <div class="ef-grade">
+                <div class="form-group">
+                    <label class="form-label" for="troca-tipo">Tipo *</label>
+                    <select class="form-select" id="troca-tipo">
+                        <option value="1x1">1x1</option>
+                        <option value="2x2">2x2</option>
+                    </select>
+                </div>
+                <div class="form-group ef-re-campo">
+                    <label class="form-label" for="troca-re-a">RE do fiscal A *</label>
+                    <input type="text" class="form-input" id="troca-re-a" inputmode="numeric" maxlength="20" required>
+                </div>
+                <div class="form-group ef-re-campo">
+                    <label class="form-label" for="troca-re-b">RE do fiscal B *</label>
+                    <input type="text" class="form-input" id="troca-re-b" inputmode="numeric" maxlength="20" required>
+                </div>
+                <div class="form-group">
+                    <label class="form-label" for="troca-sabado">Sábado do fim de semana *</label>
+                    <input type="date" class="form-input" id="troca-sabado" required>
+                </div>
+            </div>
+            <div class="form-group">
+                <label class="form-label" for="troca-obs">Observação</label>
+                <input type="text" class="form-input" id="troca-obs" maxlength="500">
+            </div>
+            <div class="ef-rodape"><button type="submit" class="btn btn-primary btn-full">Lançar troca</button></div>
+        </form>
+        <div id="lista-trocas" class="ef-lista"></div>
+    </section>
+
+    <!-- ── Importar planilha ─────────────────────────────────────────── -->
+    <section class="ef-painel" data-painel="importar" hidden>
+        <p class="ef-ajuda">
+            Dois passos. <strong>Simular</strong> não grava nada: mostra o que entraria e o que está errado.
+            Corrija aqui mesmo (os campos com problema ficam editáveis) e simule de novo.
+            <strong>Confirmar</strong> só libera quando não sobrar problema que impede.
+        </p>
+        <div class="form-group">
+            <label class="form-label" for="imp-arquivo">Arquivo JSON extraído da planilha</label>
+            <input type="file" class="form-input" id="imp-arquivo" accept=".json,application/json">
+        </div>
+        <div id="imp-relatorio" class="ef-lista"></div>
+        <div class="ef-rodape">
+            <button type="button" class="btn btn-ghost btn-full" id="btn-imp-simular" disabled>Simular</button>
+            <button type="button" class="btn btn-primary btn-full" id="btn-imp-confirmar" disabled>Confirmar importação</button>
+        </div>
+    </section>
+
+</main>
+
+<script type="module" src="./assets/js/escala-fiscais.page.js"></script>
+</body>
+</html>

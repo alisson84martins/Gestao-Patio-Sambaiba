@@ -39,6 +39,7 @@ const PAGINAS = {
     'ocorrencias.html':            { modulo: 'COORDENADORIA' },
     'ocorrencia-form.html':        { modulo: 'COORDENADORIA', ativo: 'ocorrencias.html' },
     'pre-ocorrencias.html':        { modulo: 'COORDENADORIA' },
+    'escala-fiscais.html':         { modulo: 'COORDENADORIA' },
     'fiscal-painel.html':          { modulo: 'FISCALIZACAO' },
     'fiscal.html':                 { modulo: 'FISCALIZACAO' },
     'portaria.html':               { modulo: 'PORTARIA' },
@@ -65,6 +66,10 @@ const LINKS = [
     // conteúdo — decisão 4) — qualquerAcesso mostra o link pra quem tem
     // ler OU escrever, não só ler como os outros.
     { href: 'pre-ocorrencias.html', texto: 'Pré-ocorrências', recurso: 'pre_ocorrencia', qualquerAcesso: true, modulo: 'COORDENADORIA' },
+    // Migration 045 (Fase 2) — cadastros da escala dos fiscais. Só quem
+    // monta a escala (escala_fiscal); o fiscal tem escala_fiscal_propria e
+    // NÃO vê este link (a tela dele é da Fase 3).
+    { href: 'escala-fiscais.html', texto: 'Escala de Fiscais', recurso: 'escala_fiscal', modulo: 'COORDENADORIA' },
     { href: 'cadastros.html', texto: 'Cadastros', recurso: 'usuarios', modulo: 'ADMINISTRACAO' },
     { href: 'permissoes.html', texto: 'Permissões', recurso: 'usuarios', modulo: 'ADMINISTRACAO' },
     // Módulo Portaria (migration 024) — cada link só aparece com podeLer()

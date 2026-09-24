@@ -4137,3 +4137,282 @@ body.modal-open {
     color: var(--accent3);
     letter-spacing: 0.5px;
 }
+
+/* =====================================================================
+   Escala de Fiscais (escala-fiscais.html) — prefixo ef-
+   ---------------------------------------------------------------------
+   Só classes novas, nenhuma regra existente alterada. Reusa .filtro-btn
+   (sub-abas), .remanejo-card/.remanejo-badge (cartões), .form-* e .btn-*.
+   Rodapé de botões sticky, mesmo padrão de .fis-rodape-fixo e
+   .modal-acoes (armadilha_teclado_celular_viewport): com o teclado do
+   Android aberto o botão principal continua visível.
+   ===================================================================== */
+.ef-abas {
+    display: flex;
+    gap: 8px;
+    overflow-x: auto;
+    padding-bottom: 6px;
+    margin-bottom: 14px;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: thin;
+}
+
+.ef-abas .filtro-btn { flex: 0 0 auto; white-space: nowrap; }
+
+.ef-painel { padding-bottom: 8px; }
+
+.ef-subtitulo {
+    font-size: 0.95rem;
+    color: var(--muted);
+    margin: 1.2rem 0 0.5rem;
+}
+
+.ef-ajuda {
+    font-size: 0.85rem;
+    color: var(--muted);
+    line-height: 1.5;
+    margin-bottom: 10px;
+}
+
+.ef-form {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 14px 14px 0;
+    margin-bottom: 14px;
+}
+
+.ef-grade {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+    gap: 0 12px;
+}
+
+.ef-grade-compacta {
+    grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+    gap: 8px;
+    margin: 8px 0;
+}
+
+.ef-rodape {
+    position: sticky;
+    bottom: 0;
+    display: flex;
+    gap: 10px;
+    margin: 8px -14px 0;
+    padding: 10px 14px calc(10px + env(safe-area-inset-bottom));
+    background: linear-gradient(to top, var(--surface) 70%, transparent);
+    z-index: 6;
+}
+
+.ef-painel > .ef-rodape {
+    margin: 12px 0 0;
+    padding: 10px 0 calc(6px + env(safe-area-inset-bottom));
+    background: linear-gradient(to top, var(--bg) 70%, transparent);
+}
+
+.ef-rodape .btn { flex: 1; min-height: 48px; }
+
+.ef-lista { margin-top: 8px; }
+
+.ef-card { margin-bottom: 8px; }
+
+.ef-card-linha {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 8px;
+    color: var(--text);
+    font-size: 0.9rem;
+}
+
+.ef-card-linha > span:first-child { min-width: 0; overflow-wrap: anywhere; }
+.ef-card-linha .remanejo-badge { flex-shrink: 0; }
+
+.ef-meta {
+    font-size: 0.8rem;
+    color: var(--muted);
+    margin-top: 4px;
+    overflow-wrap: anywhere;
+}
+
+.ef-inativo { opacity: 0.55; }
+
+.ef-acoes {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 8px;
+}
+
+.ef-btn-mini {
+    font-size: 0.75rem;
+    padding: 6px 10px;
+    min-height: 36px;
+}
+
+.ef-mini {
+    width: auto;
+    min-width: 0;
+    padding: 6px 8px;
+    font-size: 0.8rem;
+}
+
+.ef-campo-mini {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    font-size: 0.72rem;
+    color: var(--muted);
+}
+
+.ef-tag {
+    display: inline-block;
+    padding: 1px 6px;
+    border-radius: 4px;
+    font-size: 0.7rem;
+    background: rgba(59, 130, 246, 0.15);
+    color: #93c5fd;
+}
+
+.ef-tag-alerta {
+    background: rgba(245, 158, 11, 0.15);
+    color: #fcd34d;
+}
+
+.ef-mensagem {
+    border-radius: 8px;
+    padding: 10px 12px;
+    margin-bottom: 12px;
+    font-size: 0.85rem;
+    border: 1px solid var(--border);
+}
+
+.ef-mensagem-ok { border-color: var(--accent3); color: #6ee7b7; background: rgba(16, 185, 129, 0.08); }
+.ef-mensagem-erro { border-color: var(--accent2); color: #fca5a5; background: rgba(204, 31, 31, 0.1); }
+.ef-mensagem-alerta { border-color: #f59e0b; color: #fcd34d; background: rgba(245, 158, 11, 0.08); }
+
+/* Autocomplete de RE */
+.ef-re-campo { position: relative; }
+
+.ef-sugestoes {
+    position: absolute;
+    left: 0;
+    right: 0;
+    z-index: 20;
+    max-height: 240px;
+    overflow-y: auto;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    box-shadow: 0 8px 20px rgba(0, 0, 0, 0.45);
+}
+
+.ef-sugestoes button {
+    display: block;
+    width: 100%;
+    text-align: left;
+    padding: 10px 12px;
+    min-height: 44px;
+    background: none;
+    border: 0;
+    border-bottom: 1px solid var(--border);
+    color: var(--text);
+    font-family: var(--display);
+    font-size: 0.9rem;
+    cursor: pointer;
+}
+
+.ef-sugestoes button:hover,
+.ef-sugestoes button:focus { background: var(--surface); }
+
+.ef-sugestao-vazia {
+    padding: 10px 12px;
+    font-size: 0.8rem;
+    color: var(--muted);
+}
+
+.ef-re-nome {
+    font-size: 0.8rem;
+    color: var(--accent3);
+    margin-top: 4px;
+    min-height: 1em;
+}
+
+/* Relatório da importação */
+.ef-resumo {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 6px 14px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 12px 14px;
+    font-size: 0.85rem;
+    margin-bottom: 8px;
+}
+
+.ef-texto-erro { color: #fca5a5; }
+.ef-texto-ok { color: #6ee7b7; }
+
+.ef-bloqueia { border-left: 3px solid var(--accent2); }
+.ef-aviso { border-left: 3px solid #f59e0b; }
+
+.ef-edicao {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    gap: 8px;
+    margin-top: 8px;
+}
+
+.ef-edicao .ef-campo-mini { flex: 1 1 180px; }
+
+.ef-check {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 0.8rem;
+    color: var(--text);
+    min-height: 36px;
+}
+
+.ef-detalhes {
+    margin: 10px 0;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 8px 12px;
+    background: var(--surface);
+}
+
+.ef-detalhes > summary {
+    cursor: pointer;
+    font-size: 0.9rem;
+    color: var(--text);
+    min-height: 32px;
+    display: flex;
+    align-items: center;
+}
+
+.ef-detalhes[open] > summary { margin-bottom: 8px; }
+
+.ef-lista-re {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    font-family: var(--mono);
+    font-size: 0.8rem;
+}
+
+.ef-lista-re span {
+    padding: 2px 8px;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    background: var(--surface2);
+}
+
+@media (max-width: 480px) {
+    .ef-grade { grid-template-columns: 1fr; }
+    .ef-grade-compacta { grid-template-columns: repeat(2, 1fr); }
+    .ef-card-linha { flex-direction: column; }
+}
