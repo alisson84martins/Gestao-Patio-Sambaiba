@@ -79,6 +79,14 @@ class Settings(BaseSettings):
     # serviço, sem migration nem deploy de frontend.
     leitura_placa_ativa: bool = False
 
+    # Escala de Fiscais (D-E, 24/09/2026) — horário PADRÃO de cada período,
+    # "HH:MM-HH:MM". Usado só quando a planilha traz horário inválido,
+    # invertido ou vazio: o posto entra com o padrão e o caso vai para o
+    # relatório como AJUSTADO PARA O PADRÃO. Trocar é mudar o .env, sem
+    # deploy de código — o único horário "fixo" é este default.
+    escala_fiscal_padrao_periodo_1: str = Field(default="05:00-14:00", pattern=r"^\d{2}:\d{2}-\d{2}:\d{2}$")
+    escala_fiscal_padrao_periodo_2: str = Field(default="14:00-23:00", pattern=r"^\d{2}:\d{2}-\d{2}:\d{2}$")
+
     @property
     def cors_origins_list(self) -> list[str]:
         """Retorna a lista de origens permitidas para CORS."""
