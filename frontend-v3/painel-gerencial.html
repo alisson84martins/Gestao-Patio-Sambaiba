@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<!--
+  Sistema de Gestão Operacional Sambaíba — V3
+  Painel Gerencial — tudo que a Portaria e o Pátio registram, ao vivo e
+  histórico. SÓ LEITURA (migration 046).
+  Desenvolvido por Alisson Martins
+  © 2026 — Todos os direitos reservados
+-->
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, interactive-widget=resizes-content">
+    <meta name="theme-color" content="#0a0a0a">
+    <title>Painel Gerencial — Sambaíba V3</title>
+
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700;800&family=Barlow+Condensed:wght@400;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="assets/css/style.css">
+</head>
+<body>
+
+<header class="app-header">
+    <div class="app-header-brand">
+        <img class="app-header-logo" src="assets/img/sambaiba-logo.jpg" alt="Eu amo Sambaíba">
+        <div class="app-header-titles">
+            <div class="app-header-empresa">Sambaíba</div>
+            <div class="app-header-title">PAINEL GERENCIAL</div>
+        </div>
+    </div>
+
+    <div class="app-header-user">
+        <div class="app-user-info">
+            <div class="app-user-name" id="user-name">—</div>
+            <div class="app-user-meta" id="user-meta">—</div>
+        </div>
+        <button class="btn-logout" id="btn-logout" title="Sair">Sair</button>
+    </div>
+</header>
+
+<nav class="app-nav"></nav>
+<script type="module" src="./assets/js/nav.js"></script>
+
+<main class="patio-main pg-main">
+
+    <!-- Topo fixo: período + selo ao vivo/histórico + ações -->
+    <div class="pg-topo">
+        <div class="pg-topo-linha">
+            <h1 class="pg-titulo">Painel Gerencial</h1>
+            <span class="pg-selo" id="pg-selo" hidden></span>
+            <div class="pg-acoes">
+                <button type="button" class="btn btn-ghost pg-btn" id="pg-btn-csv">Exportar CSV</button>
+                <button type="button" class="btn btn-ghost pg-btn" id="pg-btn-imprimir">Imprimir</button>
+            </div>
+        </div>
+
+        <div class="pg-periodos" id="pg-periodos" role="group" aria-label="Período">
+            <button type="button" class="filtro-btn active" data-preset="hoje">Hoje</button>
+            <button type="button" class="filtro-btn" data-preset="ontem">Ontem</button>
+            <button type="button" class="filtro-btn" data-preset="7d">7 dias</button>
+            <button type="button" class="filtro-btn" data-preset="30d">30 dias</button>
+            <button type="button" class="filtro-btn" data-preset="mes">Mês atual</button>
+            <button type="button" class="filtro-btn" data-preset="inicio">Desde o início</button>
+            <button type="button" class="filtro-btn" data-preset="personalizado">Personalizado</button>
+        </div>
+
+        <div class="pg-personalizado" id="pg-personalizado" hidden>
+            <label class="pg-campo-data">De <input type="date" class="form-input" id="pg-de"></label>
+            <label class="pg-campo-data">Até <input type="date" class="form-input" id="pg-ate"></label>
+            <button type="button" class="btn btn-primary pg-btn" id="pg-aplicar">Aplicar</button>
+        </div>
+
+        <div class="pg-desde" id="pg-desde">—</div>
+    </div>
+
+    <div class="pg-erro" id="pg-erro" hidden></div>
+
+    <div class="pg-abas" role="tablist">
+        <button type="button" class="filtro-btn active" role="tab" data-aba="geral">Visão geral</button>
+        <button type="button" class="filtro-btn" role="tab" data-aba="portaria">Portaria</button>
+        <button type="button" class="filtro-btn" role="tab" data-aba="patio">Pátio</button>
+        <button type="button" class="filtro-btn" role="tab" data-aba="linha">Linha do tempo</button>
+    </div>
+
+    <!-- 1 · VISÃO GERAL -->
+    <section class="pg-aba" id="pg-aba-geral">
+        <div class="pg-kpis" id="pg-kpis"><div class="patio-loading">Carregando…</div></div>
+
+        <div class="pg-bloco" id="pg-bloco-por-dia">
+            <div class="patio-section-title">Registros por dia</div>
+            <div class="pg-legenda">
+                <span><i class="pg-cor pg-cor-portaria"></i>Portaria</span>
+                <span><i class="pg-cor pg-cor-patio"></i>Pátio</span>
+            </div>
+            <div class="pg-grafico" id="pg-graf-dia"></div>
+        </div>
+
+        <div class="pg-bloco">
+            <div class="patio-section-title">Quando a garagem ferve</div>
+            <div class="pg-ajuda">Registros por dia da semana e hora (Portaria + Pátio). Mais escuro = mais movimento.</div>
+            <div class="pg-grafico" id="pg-graf-calor"></div>
+        </div>
+    </section>
+
+    <!-- 2 · PORTARIA -->
+    <section class="pg-aba" id="pg-aba-portaria" hidden>
+        <div class="pg-grade">
+            <div class="pg-bloco">
+                <div class="patio-section-title">Recolhidas por motivo</div>
+                <div class="pg-grafico" id="pg-pareto-motivo"></div>
+            </div>
+            <div class="pg-bloco">
+                <div class="patio-section-title">Recolhidas por defeito</div>
+                <div class="pg-grafico" id="pg-pareto-defeito"></div>
+            </div>
+            <div class="pg-bloco">
+                <div class="patio-section-title">Avarias novas por zona</div>
+                <div class="pg-grafico" id="pg-avarias-zona"></div>
+            </div>
+            <div class="pg-bloco">
+                <div class="patio-section-title">Permanência de terceiros</div>
+                <div class="pg-numeros" id="pg-permanencia"></div>
+            </div>
+            <div class="pg-bloco">
+                <div class="patio-section-title">Veículos que mais passam</div>
+                <div class="pg-grafico" id="pg-top-veiculos"></div>
+            </div>
+            <div class="pg-bloco">
+                <div class="patio-section-title">Carros com mais recolhidas</div>
+                <div class="pg-grafico" id="pg-top-recolhida"></div>
+            </div>
+            <div class="pg-bloco">
+                <div class="patio-section-title">Quem registra na Portaria</div>
+                <div class="pg-grafico" id="pg-registrante-portaria"></div>
+            </div>
+        </div>
+    </section>
+
+    <!-- 3 · PÁTIO -->
+    <section class="pg-aba" id="pg-aba-patio" hidden>
+        <div class="pg-bloco">
+            <div class="patio-section-title">Alocações e movimentações por hora</div>
+            <div class="pg-legenda">
+                <span><i class="pg-cor pg-cor-patio"></i>Alocações</span>
+                <span><i class="pg-cor pg-cor-mov"></i>Movimentações</span>
+            </div>
+            <div class="pg-grafico" id="pg-graf-patio-hora"></div>
+        </div>
+        <div class="pg-grade">
+            <div class="pg-bloco">
+                <div class="patio-section-title">Ônibus mais movimentados (retrabalho)</div>
+                <div class="pg-grafico" id="pg-top-movimentados"></div>
+            </div>
+            <div class="pg-bloco">
+                <div class="patio-section-title">Quem aloca</div>
+                <div class="pg-grafico" id="pg-registrante-patio"></div>
+            </div>
+        </div>
+    </section>
+
+    <!-- 4 · LINHA DO TEMPO -->
+    <section class="pg-aba" id="pg-aba-linha" hidden>
+        <div class="pg-filtros">
+            <select class="form-input" id="pg-f-modulo" aria-label="Módulo">
+                <option value="">Todos os módulos</option>
+                <option value="PORTARIA">Portaria</option>
+                <option value="PATIO">Pátio</option>
+            </select>
+            <select class="form-input" id="pg-f-tipo" aria-label="Tipo"></select>
+            <input type="search" class="form-input" id="pg-f-busca" maxlength="60"
+                   placeholder="Placa, prefixo, RE ou nome" aria-label="Buscar">
+        </div>
+        <ol class="pg-linha" id="pg-linha"></ol>
+        <div class="pg-linha-rodape">
+            <button type="button" class="btn btn-ghost pg-btn" id="pg-mais" hidden>Carregar mais</button>
+        </div>
+    </section>
+
+</main>
+
+<!-- Detalhe do evento — só leitura -->
+<div class="modal-overlay" id="pg-modal">
+    <div class="modal">
+        <button type="button" class="modal-close" id="pg-modal-fechar" aria-label="Fechar">&times;</button>
+        <div class="modal-title" id="pg-modal-titulo">Evento</div>
+        <dl class="pg-detalhe" id="pg-modal-corpo"></dl>
+    </div>
+</div>
+
+<script type="module" src="./assets/js/painel-gerencial.page.js"></script>
+</body>
+</html>
