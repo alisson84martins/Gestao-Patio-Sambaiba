@@ -58,6 +58,7 @@ const PAGINAS = {
     'portaria-avaria.html':        { modulo: 'PORTARIA', ativo: 'portaria.html' },
     'cadastros.html':              { modulo: 'ADMINISTRACAO' },
     'permissoes.html':             { modulo: 'ADMINISTRACAO' },
+    'painel-gerencial.html':       { modulo: 'PAINEL_GERENCIAL' },
 };
 
 const LINKS = [
@@ -98,6 +99,9 @@ const LINKS = [
     // virou módulo próprio. UMA entrada só (decisão consciente, não
     // duplicar "por conveniência" — ver cabeçalho da migration).
     { href: 'manutencao.html', texto: 'Manutenção', recurso: 'manutencao', modulo: 'MANUTENCAO' },
+    // Painel Gerencial (migration 046) — recurso próprio, só gestão
+    // (ADMIN, gerentes, encarregado). O coordenador de tráfego não tem.
+    { href: 'painel-gerencial.html', texto: 'Painel', recurso: 'painel_gerencial', modulo: 'PAINEL_GERENCIAL' },
 ];
 
 export function initNav() {

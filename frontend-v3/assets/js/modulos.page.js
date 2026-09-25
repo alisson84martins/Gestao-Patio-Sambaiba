@@ -18,6 +18,7 @@ const NOMES_MODULO = {
     FISCALIZACAO: 'Fiscalização',
     ADMINISTRACAO: 'Administração',
     MANUTENCAO: 'Manutenção',
+    PAINEL_GERENCIAL: 'Painel Gerencial',
 };
 
 function initHeader() {

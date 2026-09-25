@@ -36,9 +36,13 @@ const PAGINA_INICIAL = {
     // (e sem 'MANUTENCAO' em PAGINAS_PRONTAS logo abaixo), o mecânico loga
     // e cai em modulos.html?indisponivel=MANUTENCAO.
     MANUTENCAO: 'manutencao.html',
+    // Migration 046 (25/09) — Painel Gerencial, só leitura. 🔴 Mesma
+    // armadilha: sem isto E sem 'PAINEL_GERENCIAL' em PAGINAS_PRONTAS, o
+    // cartão abre em modulos.html?indisponivel=PAINEL_GERENCIAL.
+    PAINEL_GERENCIAL: 'painel-gerencial.html',
 };
 
-const PAGINAS_PRONTAS = new Set(['PATIO', 'ADMINISTRACAO', 'COORDENADORIA', 'PORTARIA', 'FISCALIZACAO', 'MANUTENCAO']);
+const PAGINAS_PRONTAS = new Set(['PATIO', 'ADMINISTRACAO', 'COORDENADORIA', 'PORTARIA', 'FISCALIZACAO', 'MANUTENCAO', 'PAINEL_GERENCIAL']);
 
 // Módulos cuja página inicial depende do acesso da pessoa. FISCALIZACAO tem
 // duas portas: quem tem `fiscalizacao_painel` (o coordenador) aterrissa no
