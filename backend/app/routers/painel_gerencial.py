@@ -104,12 +104,6 @@ def resolver_periodo(
     return dia_de, dia_ate
 
 
-def variacao(atual: int, anterior: int) -> dict:
-    """Valor do período + o do período anterior de mesmo tamanho (▲▼ %)."""
-    pct = round((atual - anterior) * 100.0 / anterior, 1) if anterior else None
-    return {"valor": atual, "anterior": anterior, "variacao_pct": pct}
-
-
 def formatar_momento_csv(momento: datetime) -> str:
     if momento.tzinfo is None:
         momento = momento.replace(tzinfo=timezone.utc)
@@ -190,94 +184,35 @@ def _consultar_eventos(db: Session, ini: datetime, fim: datetime, where: str, pa
     return [dict(l) for l in linhas]
 
 
-_SQL_RESUMO = text("""
-WITH ev AS MATERIALIZED (
-    SELECT modulo, tipo, categoria, identificacao, autor_nome, momento,
-           (momento >= :ini) AS atual
+# Contadores da faixa do topo: só o número do período, por tipo. Nada de
+# comparação, ranking ou agregação analítica — o painel é visualização
+# (decisão do Alisson, 25/09); a análise fica com a gerência.
+_CONTADORES = {
+    "entradas": "ENTRADA",
+    "saidas": "SAIDA",
+    "recolhidas": "RECOLHIDA",
+    "avarias": "AVARIA",
+    "alocacoes": "ALOCACAO",
+    "movimentacoes": "MOVIMENTACAO",
+    "retiradas": "RETIRADA",
+}
+
+_SQL_CONTADORES = text("""
+    SELECT tipo, count(*) AS n
       FROM public.vw_painel_evento
-     WHERE momento >= :ini_ant AND momento < :fim
-),
-cur AS (SELECT * FROM ev WHERE atual),
-rec AS (
-    SELECT status, (momento >= :ini) AS atual, motivo, tipo_defeito_codigo
-      FROM portaria.recolhida_anormal
-     WHERE momento >= :ini_ant AND momento < :fim
-)
-SELECT json_build_object(
-  'contagem_atual', (SELECT json_object_agg(tipo, n) FROM
-        (SELECT tipo, count(*) AS n FROM ev WHERE atual GROUP BY tipo) x),
-  'contagem_anterior', (SELECT json_object_agg(tipo, n) FROM
-        (SELECT tipo, count(*) AS n FROM ev WHERE NOT atual GROUP BY tipo) x),
-  'recolhidas', (SELECT json_build_object(
-        'abertas',            count(*) FILTER (WHERE atual AND status IN ('AGUARDANDO','AVALIADA')),
-        'encerradas',         count(*) FILTER (WHERE atual AND status = 'ENCERRADA'),
-        'abertas_anterior',   count(*) FILTER (WHERE NOT atual AND status IN ('AGUARDANDO','AVALIADA')),
-        'encerradas_anterior',count(*) FILTER (WHERE NOT atual AND status = 'ENCERRADA'))
-        FROM rec),
-  'por_dia', (SELECT json_agg(x ORDER BY x.dia) FROM (
-        SELECT CAST(timezone(:tz, momento) AS date) AS dia,
-               count(*) FILTER (WHERE modulo = 'PORTARIA') AS portaria,
-               count(*) FILTER (WHERE modulo = 'PATIO')    AS patio
-          FROM cur GROUP BY 1) x),
-  'por_hora', (SELECT json_agg(x) FROM (
-        SELECT CAST(extract(isodow FROM timezone(:tz, momento)) AS int) AS dow,
-               CAST(extract(hour   FROM timezone(:tz, momento)) AS int) AS hora,
-               count(*) AS total
-          FROM cur GROUP BY 1, 2) x),
-  'patio_por_hora', (SELECT json_agg(x ORDER BY x.hora) FROM (
-        SELECT CAST(extract(hour FROM timezone(:tz, momento)) AS int) AS hora,
-               count(*) FILTER (WHERE tipo = 'ALOCACAO')     AS alocacoes,
-               count(*) FILTER (WHERE tipo = 'MOVIMENTACAO') AS movimentacoes,
-               count(*) FILTER (WHERE tipo = 'RETIRADA')     AS retiradas
-          FROM cur WHERE modulo = 'PATIO' GROUP BY 1) x),
-  'recolhidas_por_motivo', (SELECT json_agg(x ORDER BY x.total DESC, x.chave) FROM (
-        SELECT motivo AS chave, count(*) AS total
-          FROM rec WHERE atual GROUP BY 1) x),
-  'recolhidas_por_defeito', (SELECT json_agg(x ORDER BY x.total DESC, x.chave) FROM (
-        SELECT COALESCE(td.nome, rec.tipo_defeito_codigo) AS chave, count(*) AS total
-          FROM rec LEFT JOIN public.tipo_defeito td ON td.codigo = rec.tipo_defeito_codigo
-         WHERE rec.atual AND rec.tipo_defeito_codigo IS NOT NULL GROUP BY 1) x),
-  'avarias_por_zona', (SELECT json_agg(x ORDER BY x.total DESC, x.chave) FROM (
-        SELECT COALESCE(z.nome, cur.categoria) AS chave, count(*) AS total
-          FROM cur LEFT JOIN portaria.avaria_zona z ON z.codigo = cur.categoria
-         WHERE cur.tipo = 'AVARIA' GROUP BY 1) x),
-  'top_veiculos_portaria', (SELECT json_agg(x ORDER BY x.total DESC, x.chave) FROM (
-        SELECT identificacao AS chave, count(*) AS total
-          FROM cur WHERE tipo IN ('ENTRADA','SAIDA') AND identificacao IS NOT NULL
-         GROUP BY 1 ORDER BY 2 DESC, 1 LIMIT 10) x),
-  'top_carros_recolhida', (SELECT json_agg(x ORDER BY x.total DESC, x.chave) FROM (
-        SELECT identificacao AS chave, count(*) AS total
-          FROM cur WHERE tipo = 'RECOLHIDA'
-         GROUP BY 1 ORDER BY 2 DESC, 1 LIMIT 10) x),
-  'top_carros_movimentados_patio', (SELECT json_agg(x ORDER BY x.total DESC, x.chave) FROM (
-        SELECT identificacao AS chave, count(*) AS total
-          FROM cur WHERE tipo = 'MOVIMENTACAO'
-         GROUP BY 1 ORDER BY 2 DESC, 1 LIMIT 10) x),
-  'por_registrante', (SELECT json_agg(x ORDER BY x.modulo, x.total DESC) FROM (
-        SELECT modulo, autor_nome, count(*) AS total
-          FROM cur GROUP BY 1, 2) x),
-  'permanencia_terceiros_min', (SELECT json_build_object(
-        'media',   round(CAST(avg(minutos) AS numeric), 0),
-        'mediana', round(CAST(percentile_cont(0.5) WITHIN GROUP (ORDER BY minutos) AS numeric), 0),
-        'amostras', count(*))
-        FROM (
-        SELECT extract(epoch FROM s.momento - e.momento) / 60.0 AS minutos
-          FROM portaria.movimento s
-          JOIN portaria.movimento e ON e.id = s.movimento_entrada_id
-          LEFT JOIN portaria.veiculo v ON v.id = s.veiculo_id
-         WHERE s.sentido = 'SAIDA'
-           AND s.momento >= :ini AND s.momento < :fim
-           AND s.prefixo IS NULL
-           AND (v.propriedade = 'TERCEIRO' OR s.terceiro_nome IS NOT NULL OR s.terceiro_empresa IS NOT NULL)
-           AND s.momento >= e.momento) p)
-) AS resumo
+     WHERE momento >= :ini AND momento < :fim
+       AND tipo IN ('ENTRADA','SAIDA','RECOLHIDA','AVARIA','ALOCACAO','MOVIMENTACAO','RETIRADA')
+     GROUP BY tipo
 """)
 
 
-def _consultar_resumo(db: Session, ini: datetime, fim: datetime, ini_ant: datetime) -> dict:
-    return db.execute(
-        _SQL_RESUMO, {"ini": ini, "fim": fim, "ini_ant": ini_ant, "tz": FUSO_OPERACAO.key}
-    ).scalar_one() or {}
+def _consultar_contagens(db: Session, ini: datetime, fim: datetime) -> dict:
+    """{tipo: quantidade} no período."""
+    return {r["tipo"]: r["n"] for r in db.execute(_SQL_CONTADORES, {"ini": ini, "fim": fim}).mappings()}
+
+
+def montar_contadores(contagens: dict) -> dict:
+    return {nome: int(contagens.get(tipo, 0)) for nome, tipo in _CONTADORES.items()}
 
 
 def _contar_dentro_agora(db: Session) -> int:
@@ -317,7 +252,7 @@ def eventos(
     return {"periodo": p, "eventos": linhas[:limit], "tem_mais": len(linhas) > limit}
 
 
-@router.get("/resumo", summary="Tudo que a Visão Geral precisa, numa chamada só")
+@router.get("/resumo", summary="Contadores do período para a faixa do topo")
 def resumo(
     _usuario: Leitura,
     db: DbSession,
@@ -325,46 +260,10 @@ def resumo(
     ate: Optional[str] = Query(None, description="AAAA-MM-DD"),
 ):
     p = _periodo(db, de, ate)
-    ini_ant = p["inicio"] - (p["fim"] - p["inicio"])
-    bruto = _consultar_resumo(db, p["inicio"], p["fim"], ini_ant)
-
-    atual = bruto.get("contagem_atual") or {}
-    anterior = bruto.get("contagem_anterior") or {}
-    rec = bruto.get("recolhidas") or {}
-
-    def kpi(tipo: str) -> dict:
-        return variacao(int(atual.get(tipo, 0)), int(anterior.get(tipo, 0)))
-
-    kpis = {
-        "entradas": kpi("ENTRADA"),
-        "saidas": kpi("SAIDA"),
-        "recolhidas": {
-            **kpi("RECOLHIDA"),
-            "abertas": int(rec.get("abertas", 0)),
-            "encerradas": int(rec.get("encerradas", 0)),
-        },
-        "avarias": kpi("AVARIA"),
-        "alocacoes": kpi("ALOCACAO"),
-        "movimentacoes": kpi("MOVIMENTACAO"),
-        "retiradas": kpi("RETIRADA"),
-    }
-
     return {
         "periodo": p,
-        "kpis": kpis,
+        "contadores": montar_contadores(_consultar_contagens(db, p["inicio"], p["fim"])),
         "dentro_agora": _contar_dentro_agora(db) if p["inclui_hoje"] else None,
-        "por_dia": bruto.get("por_dia") or [],
-        "por_hora": bruto.get("por_hora") or [],
-        "patio_por_hora": bruto.get("patio_por_hora") or [],
-        "recolhidas_por_motivo": bruto.get("recolhidas_por_motivo") or [],
-        "recolhidas_por_defeito": bruto.get("recolhidas_por_defeito") or [],
-        "avarias_por_zona": bruto.get("avarias_por_zona") or [],
-        "top_veiculos_portaria": bruto.get("top_veiculos_portaria") or [],
-        "top_carros_recolhida": bruto.get("top_carros_recolhida") or [],
-        "top_carros_movimentados_patio": bruto.get("top_carros_movimentados_patio") or [],
-        "por_registrante": bruto.get("por_registrante") or [],
-        "permanencia_terceiros_min": bruto.get("permanencia_terceiros_min")
-            or {"media": None, "mediana": None, "amostras": 0},
         "primeiro_registro": _primeiro_registro(db),
     }
 

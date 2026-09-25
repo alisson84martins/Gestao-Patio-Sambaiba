@@ -87,10 +87,8 @@ _EVENTO = {
 def painel_sem_banco(monkeypatch):
     """Troca as consultas SQL do painel por respostas fixas."""
     monkeypatch.setattr(pg, "_consultar_eventos", lambda *a, **k: [dict(_EVENTO)])
-    monkeypatch.setattr(pg, "_consultar_resumo", lambda *a, **k: {
-        "contagem_atual": {"ENTRADA": 12, "SAIDA": 10, "RECOLHIDA": 3, "MOVIMENTACAO": 40},
-        "contagem_anterior": {"ENTRADA": 8, "SAIDA": 10},
-        "recolhidas": {"abertas": 1, "encerradas": 2},
+    monkeypatch.setattr(pg, "_consultar_contagens", lambda *a, **k: {
+        "ENTRADA": 12, "SAIDA": 10, "RECOLHIDA": 3, "MOVIMENTACAO": 40,
     })
     monkeypatch.setattr(pg, "_primeiro_registro", lambda db: {
         "portaria": datetime(2026, 8, 22, 20, 49, tzinfo=timezone.utc),
@@ -227,18 +225,18 @@ def test_busca_escapa_curinga_do_ilike():
 
 # ─── Resumo ──────────────────────────────────────────────────────────────────
 
-def test_variacao_contra_periodo_anterior():
-    assert pg.variacao(12, 8) == {"valor": 12, "anterior": 8, "variacao_pct": 50.0}
-    assert pg.variacao(5, 0)["variacao_pct"] is None  # sem base, sem %
-
-
-def test_resumo_monta_kpis_e_dentro_agora(painel_sem_banco):
+def test_resumo_so_devolve_contadores_simples(painel_sem_banco):
+    """Visualização, não análise: número do período, sem "anterior", sem %,
+    sem ranking nem agregação."""
     corpo = _chamar("/painel-gerencial/resumo", {"painel_gerencial"}).json()
-    assert corpo["kpis"]["entradas"] == {"valor": 12, "anterior": 8, "variacao_pct": 50.0}
-    assert corpo["kpis"]["recolhidas"]["abertas"] == 1
-    assert corpo["kpis"]["movimentacoes"]["valor"] == 40
+    assert set(corpo) == {"periodo", "contadores", "dentro_agora", "primeiro_registro"}
+    assert corpo["contadores"] == {
+        "entradas": 12, "saidas": 10, "recolhidas": 3, "avarias": 0,
+        "alocacoes": 0, "movimentacoes": 40, "retiradas": 0,
+    }
     assert corpo["periodo"]["inclui_hoje"] is True
     assert corpo["dentro_agora"] == 7
+    assert corpo["primeiro_registro"]["patio"].startswith("2026-06-13")
 
 
 def test_resumo_de_periodo_passado_nao_calcula_dentro_agora(painel_sem_banco):
