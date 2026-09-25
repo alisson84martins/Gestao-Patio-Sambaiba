@@ -73,103 +73,38 @@
 
     <div class="pg-erro" id="pg-erro" hidden></div>
 
+    <!-- Contadores do período: só número e rótulo, iguais em todas as abas -->
+    <div class="pg-contadores" id="pg-contadores"><div class="patio-loading">Carregando…</div></div>
+
     <div class="pg-abas" role="tablist">
-        <button type="button" class="filtro-btn active" role="tab" data-aba="geral">Visão geral</button>
-        <button type="button" class="filtro-btn" role="tab" data-aba="portaria">Portaria</button>
-        <button type="button" class="filtro-btn" role="tab" data-aba="patio">Pátio</button>
-        <button type="button" class="filtro-btn" role="tab" data-aba="linha">Linha do tempo</button>
+        <button type="button" class="filtro-btn active" role="tab" aria-selected="true" data-aba="">Tudo</button>
+        <button type="button" class="filtro-btn" role="tab" aria-selected="false" data-aba="PORTARIA">Portaria</button>
+        <button type="button" class="filtro-btn" role="tab" aria-selected="false" data-aba="PATIO">Pátio</button>
     </div>
 
-    <!-- 1 · VISÃO GERAL -->
-    <section class="pg-aba" id="pg-aba-geral">
-        <div class="pg-kpis" id="pg-kpis"><div class="patio-loading">Carregando…</div></div>
-
-        <div class="pg-bloco" id="pg-bloco-por-dia">
-            <div class="patio-section-title">Registros por dia</div>
-            <div class="pg-legenda">
-                <span><i class="pg-cor pg-cor-portaria"></i>Portaria</span>
-                <span><i class="pg-cor pg-cor-patio"></i>Pátio</span>
-            </div>
-            <div class="pg-grafico" id="pg-graf-dia"></div>
-        </div>
-
-        <div class="pg-bloco">
-            <div class="patio-section-title">Quando a garagem ferve</div>
-            <div class="pg-ajuda">Registros por dia da semana e hora (Portaria + Pátio). Mais escuro = mais movimento.</div>
-            <div class="pg-grafico" id="pg-graf-calor"></div>
-        </div>
-    </section>
-
-    <!-- 2 · PORTARIA -->
-    <section class="pg-aba" id="pg-aba-portaria" hidden>
-        <div class="pg-grade">
-            <div class="pg-bloco">
-                <div class="patio-section-title">Recolhidas por motivo</div>
-                <div class="pg-grafico" id="pg-pareto-motivo"></div>
-            </div>
-            <div class="pg-bloco">
-                <div class="patio-section-title">Recolhidas por defeito</div>
-                <div class="pg-grafico" id="pg-pareto-defeito"></div>
-            </div>
-            <div class="pg-bloco">
-                <div class="patio-section-title">Avarias novas por zona</div>
-                <div class="pg-grafico" id="pg-avarias-zona"></div>
-            </div>
-            <div class="pg-bloco">
-                <div class="patio-section-title">Permanência de terceiros</div>
-                <div class="pg-numeros" id="pg-permanencia"></div>
-            </div>
-            <div class="pg-bloco">
-                <div class="patio-section-title">Veículos que mais passam</div>
-                <div class="pg-grafico" id="pg-top-veiculos"></div>
-            </div>
-            <div class="pg-bloco">
-                <div class="patio-section-title">Carros com mais recolhidas</div>
-                <div class="pg-grafico" id="pg-top-recolhida"></div>
-            </div>
-            <div class="pg-bloco">
-                <div class="patio-section-title">Quem registra na Portaria</div>
-                <div class="pg-grafico" id="pg-registrante-portaria"></div>
-            </div>
-        </div>
-    </section>
-
-    <!-- 3 · PÁTIO -->
-    <section class="pg-aba" id="pg-aba-patio" hidden>
-        <div class="pg-bloco">
-            <div class="patio-section-title">Alocações e movimentações por hora</div>
-            <div class="pg-legenda">
-                <span><i class="pg-cor pg-cor-patio"></i>Alocações</span>
-                <span><i class="pg-cor pg-cor-mov"></i>Movimentações</span>
-            </div>
-            <div class="pg-grafico" id="pg-graf-patio-hora"></div>
-        </div>
-        <div class="pg-grade">
-            <div class="pg-bloco">
-                <div class="patio-section-title">Ônibus mais movimentados (retrabalho)</div>
-                <div class="pg-grafico" id="pg-top-movimentados"></div>
-            </div>
-            <div class="pg-bloco">
-                <div class="patio-section-title">Quem aloca</div>
-                <div class="pg-grafico" id="pg-registrante-patio"></div>
-            </div>
-        </div>
-    </section>
-
-    <!-- 4 · LINHA DO TEMPO -->
-    <section class="pg-aba" id="pg-aba-linha" hidden>
+    <!-- A mesma lista de registros nas três abas; a aba só pré-filtra o módulo -->
+    <section class="pg-registros">
         <div class="pg-filtros">
-            <select class="form-input" id="pg-f-modulo" aria-label="Módulo">
-                <option value="">Todos os módulos</option>
-                <option value="PORTARIA">Portaria</option>
-                <option value="PATIO">Pátio</option>
-            </select>
             <select class="form-input" id="pg-f-tipo" aria-label="Tipo"></select>
             <input type="search" class="form-input" id="pg-f-busca" maxlength="60"
                    placeholder="Placa, prefixo, RE ou nome" aria-label="Buscar">
         </div>
-        <ol class="pg-linha" id="pg-linha"></ol>
-        <div class="pg-linha-rodape">
+        <div class="pg-tabela-caixa">
+            <table class="pg-tabela">
+                <thead>
+                    <tr>
+                        <th scope="col">Hora</th>
+                        <th scope="col">Tipo</th>
+                        <th scope="col">Veículo</th>
+                        <th scope="col">Detalhe</th>
+                        <th scope="col">Pessoa</th>
+                        <th scope="col">Registrado por</th>
+                    </tr>
+                </thead>
+                <tbody id="pg-lista"></tbody>
+            </table>
+        </div>
+        <div class="pg-lista-rodape">
             <button type="button" class="btn btn-ghost pg-btn" id="pg-mais" hidden>Carregar mais</button>
         </div>
     </section>

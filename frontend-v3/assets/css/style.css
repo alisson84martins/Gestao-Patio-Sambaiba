@@ -4592,11 +4592,11 @@ body.modal-open {
 /* ============================================================
    PAINEL GERENCIAL (migration 046) — painel-gerencial.html
    Tudo escopado em .pg-* — nenhuma regra genérica (table, .card,
-   button…) que mude outras telas. Poucos números grandes, gráficos
-   simples, bastante espaço. Portaria = vermelho (--accent), Pátio =
-   azul (--accent4).
+   button…) que mude outras telas. Só visualização: contadores
+   simples no topo e a lista de registros. Portaria = vermelho
+   (--accent), Pátio = azul (--accent4), só na marquinha do tipo.
    ============================================================ */
-.pg-main { max-width: 1100px; margin: 0 auto; }
+.pg-main { max-width: 1200px; margin: 0 auto; }
 
 .pg-topo {
     position: sticky;
@@ -4652,99 +4652,115 @@ body.modal-open {
 }
 .pg-erro[hidden] { display: none; }
 
-.pg-abas { display: flex; gap: 6px; overflow-x: auto; margin-bottom: 18px; padding-bottom: 2px; }
-.pg-abas .filtro-btn { flex: 0 0 auto; white-space: nowrap; min-height: 40px; }
-
-.pg-aba { display: flex; flex-direction: column; gap: 26px; }
-.pg-aba[hidden] { display: none; }
-.pg-bloco { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
-.pg-bloco[hidden] { display: none; }
-.pg-grade { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 26px; }
-
-/* Cartões grandes */
-.pg-kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; }
-.pg-kpi {
+/* Contadores: número e rótulo, nada mais (sem seta, %, cor de bom/ruim) */
+.pg-contadores {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+    gap: 8px;
+    margin-bottom: 18px;
+}
+.pg-contador {
     background: var(--surface);
     border: 1px solid var(--border);
-    border-radius: 12px;
-    padding: 14px 16px;
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
+    border-radius: 10px;
+    padding: 10px 12px;
     min-width: 0;
 }
-.pg-kpi-rot { font-family: var(--mono); font-size: 10px; font-weight: 700; letter-spacing: 1.5px; text-transform: uppercase; color: var(--muted); }
-.pg-kpi-num { font-family: var(--display); font-size: 40px; font-weight: 800; line-height: 1; }
-.pg-kpi-var, .pg-kpi-sub { font-family: var(--mono); font-size: 11px; }
-.pg-kpi-sub { color: var(--muted); }
-.pg-neutro { color: var(--muted); }
-.pg-bom { color: #6ee7b7; }
-.pg-ruim { color: #fca5a5; }
-
-/* Gráficos */
-.pg-grafico { width: 100%; overflow-x: auto; }
-.pg-svg { width: 100%; height: auto; display: block; }
-.pg-svg-rot, .pg-svg-val, .pg-svg-pct, .pg-svg-eixo { font-family: var(--mono); font-size: 10px; }
-.pg-svg-rot { fill: var(--text); }
-.pg-svg-val { fill: var(--text); font-weight: 700; }
-.pg-svg-pct { fill: var(--muted); }
-.pg-svg-eixo { fill: var(--muted); }
-.pg-svg-grade { stroke: var(--border); stroke-width: 1; }
-.pg-svg-pareto { fill: none; stroke: #fcd34d; stroke-width: 1.5; }
-.pg-svg-pareto-ponto { fill: #fcd34d; }
-.pg-calor { fill: var(--accent2); }
-.pg-calor-zero { fill: var(--surface2); }
-.pg-legenda { display: flex; gap: 14px; font-family: var(--mono); font-size: 11px; color: var(--muted); }
-.pg-cor { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 6px; vertical-align: -1px; }
-.pg-cor-portaria, .pg-cor-mov { background: var(--accent); }
-.pg-cor-patio { background: var(--accent4); }
-.pg-ajuda { font-size: 0.85rem; color: var(--muted); }
-.pg-vazio { color: var(--muted); font-family: var(--mono); font-size: 12px; padding: 14px 0; list-style: none; }
-
-.pg-numeros { display: flex; gap: 24px; flex-wrap: wrap; align-items: baseline; }
-.pg-num-grande { font-family: var(--display); font-size: 36px; font-weight: 800; margin-right: 6px; }
-.pg-num-rot { font-family: var(--mono); font-size: 11px; color: var(--muted); }
-
-/* Linha do tempo */
-.pg-filtros { display: grid; grid-template-columns: 180px 220px 1fr; gap: 8px; }
-.pg-linha { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
-.pg-ev {
-    display: grid;
-    grid-template-columns: 8px auto 1fr;
-    gap: 10px;
-    align-items: baseline;
-    padding: 10px 6px;
-    border-bottom: 1px solid var(--border);
-    cursor: pointer;
-    border-radius: 6px;
-    transition: background-color 0.6s ease;
+.pg-contador-num { font-family: var(--display); font-size: 30px; font-weight: 800; line-height: 1; }
+.pg-contador-rot {
+    margin-top: 4px;
+    font-family: var(--mono);
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 1.2px;
+    text-transform: uppercase;
+    color: var(--muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
+
+.pg-abas { display: flex; gap: 6px; margin-bottom: 12px; }
+.pg-abas .filtro-btn { flex: 0 0 auto; white-space: nowrap; min-height: 40px; }
+
+/* Lista de registros */
+.pg-registros { display: flex; flex-direction: column; gap: 10px; }
+.pg-filtros { display: grid; grid-template-columns: 220px 1fr; gap: 8px; }
+
+.pg-tabela-caixa { width: 100%; overflow-x: auto; }
+.pg-tabela { width: 100%; border-collapse: collapse; font-size: 14px; }
+.pg-tabela th {
+    text-align: left;
+    font-family: var(--mono);
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 1.2px;
+    text-transform: uppercase;
+    color: var(--muted);
+    padding: 8px 10px;
+    border-bottom: 1px solid var(--border);
+    white-space: nowrap;
+}
+.pg-tabela td { padding: 9px 10px; border-bottom: 1px solid var(--border); vertical-align: top; }
+.pg-ev { cursor: pointer; transition: background-color 0.6s ease; }
 .pg-ev:hover, .pg-ev:focus-visible { background: var(--surface); outline: none; }
 .pg-ev-novo { background: rgba(204, 31, 31, 0.16); }
-.pg-ev-marca { width: 8px; height: 8px; border-radius: 50%; align-self: center; }
-.pg-ev-portaria { background: var(--accent); }
-.pg-ev-patio { background: var(--accent4); }
-.pg-ev-hora { font-family: var(--mono); font-size: 13px; font-weight: 700; color: var(--muted); white-space: nowrap; }
-.pg-ev-texto { font-size: 15px; line-height: 1.35; min-width: 0; overflow-wrap: anywhere; }
-.pg-ev-id { font-family: var(--mono); font-weight: 700; }
-.pg-ev-autor { color: var(--muted); }
-.pg-linha-rodape { display: flex; justify-content: center; }
-.pg-linha-rodape .pg-btn[hidden] { display: none; }
+.pg-c-hora { font-family: var(--mono); font-weight: 700; color: var(--muted); white-space: nowrap; }
+.pg-c-tipo { white-space: nowrap; font-weight: 600; }
+.pg-c-veiculo { font-family: var(--mono); font-weight: 700; white-space: nowrap; }
+.pg-c-detalhe { min-width: 180px; overflow-wrap: anywhere; }
+.pg-c-pessoa, .pg-c-autor { color: var(--muted); overflow-wrap: anywhere; }
+.pg-marca { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 8px; vertical-align: 1px; }
+.pg-marca-portaria { background: var(--accent); }
+.pg-marca-patio { background: var(--accent4); }
+.pg-vazio td { color: var(--muted); font-family: var(--mono); font-size: 12px; padding: 18px 10px; }
+
+.pg-lista-rodape { display: flex; justify-content: center; }
+.pg-lista-rodape .pg-btn[hidden] { display: none; }
 
 .pg-detalhe { display: grid; grid-template-columns: max-content 1fr; gap: 6px 14px; margin: 0; }
 .pg-detalhe dt { font-family: var(--mono); font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 1px; padding-top: 2px; }
 .pg-detalhe dd { margin: 0; overflow-wrap: anywhere; }
 
-@media (max-width: 600px) {
+/* Celular: cada registro vira um cartão de UMA linha
+   (hora · tipo · veículo · detalhe cortado). Pessoa e autor ficam no detalhe. */
+@media (max-width: 700px) {
     .pg-titulo { font-size: 22px; }
     .pg-acoes { margin-left: 0; width: 100%; }
     .pg-acoes .pg-btn { flex: 1; }
-    .pg-kpis { grid-template-columns: repeat(2, 1fr); }
-    .pg-kpi-num { font-size: 32px; }
-    .pg-grade { grid-template-columns: 1fr; }
-    .pg-filtros { grid-template-columns: 1fr 1fr; }
-    .pg-filtros input[type="search"] { grid-column: 1 / -1; }
-    .pg-ev-texto { font-size: 14px; }
+    .pg-contadores { grid-template-columns: repeat(4, 1fr); gap: 6px; }
+    .pg-contador { padding: 8px; }
+    .pg-contador-num { font-size: 22px; }
+    .pg-contador-rot { font-size: 9px; letter-spacing: 0.5px; }
+    .pg-abas .filtro-btn { flex: 1; }
+    .pg-filtros { grid-template-columns: 1fr; }
+
+    .pg-tabela thead { display: none; }
+    .pg-tabela, .pg-tabela tbody { display: block; }
+    .pg-tabela .pg-ev {
+        display: flex;
+        align-items: baseline;
+        gap: 8px;
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 10px;
+        margin-bottom: 6px;
+        white-space: nowrap;
+        overflow: hidden;
+    }
+    .pg-tabela .pg-ev-novo { background: rgba(204, 31, 31, 0.16); }
+    .pg-tabela .pg-ev td { padding: 0; border: 0; }
+    .pg-tabela .pg-c-detalhe {
+        min-width: 0;
+        flex: 1;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        color: var(--muted);
+    }
+    .pg-tabela .pg-c-pessoa, .pg-tabela .pg-c-autor { display: none; }
+    .pg-tabela .pg-vazio, .pg-tabela .pg-vazio td { display: block; }
+
     .pg-detalhe { grid-template-columns: 1fr; gap: 2px; }
     .pg-detalhe dd { margin-bottom: 8px; }
 }
@@ -4755,7 +4771,8 @@ body.modal-open {
 }
 
 /* Impressão — mesmo mecanismo de #print-content das outras folhas
-   (a regra global esconde o resto da página). Fundo branco, texto preto. */
+   (a regra global esconde o resto da página). Fundo branco, texto preto,
+   sempre a tabela (nunca os cartões do celular). */
 @media print {
     .pg-print-folha { background: #fff; color: #000; font-family: Arial, Helvetica, sans-serif; }
     .pg-print-cabecalho {
@@ -4764,27 +4781,28 @@ body.modal-open {
         align-items: flex-start;
         border-bottom: 2px solid #000;
         padding-bottom: 6px;
-        margin-bottom: 12px;
+        margin-bottom: 10px;
     }
     .pg-print-titulo { font-size: 16px; font-weight: 800; letter-spacing: 1px; text-transform: uppercase; }
     .pg-print-meta { font-size: 10px; color: #444; text-align: right; }
     .pg-print-cabecalho > div:first-child .pg-print-meta { text-align: left; }
-    .pg-print-folha .pg-aba, .pg-print-folha .pg-grade { gap: 14px; }
-    .pg-print-folha .pg-grade { grid-template-columns: 1fr 1fr; }
-    .pg-print-folha .pg-bloco { break-inside: avoid; }
-    .pg-print-folha .patio-section-title { color: #000; border-bottom-color: #999; }
-    .pg-print-folha .pg-kpis { grid-template-columns: repeat(4, 1fr); }
-    .pg-print-folha .pg-kpi { background: #fff; border-color: #999; }
-    .pg-print-folha .pg-kpi-num, .pg-print-folha .pg-num-grande { color: #000; }
-    .pg-print-folha .pg-kpi-rot, .pg-print-folha .pg-kpi-var, .pg-print-folha .pg-kpi-sub,
-    .pg-print-folha .pg-ajuda, .pg-print-folha .pg-legenda, .pg-print-folha .pg-num-rot,
-    .pg-print-folha .pg-ev-hora, .pg-print-folha .pg-ev-autor, .pg-print-folha .pg-vazio { color: #444; }
-    .pg-print-folha .pg-svg-rot, .pg-print-folha .pg-svg-val { fill: #000; }
-    .pg-print-folha .pg-svg-eixo, .pg-print-folha .pg-svg-pct { fill: #444; }
-    .pg-print-folha .pg-calor-zero { fill: #eee; }
-    .pg-print-folha .pg-svg-pareto { stroke: #b45309; }
-    .pg-print-folha .pg-svg-pareto-ponto { fill: #b45309; }
-    .pg-print-folha .pg-ev { border-bottom-color: #ccc; padding: 4px 0; break-inside: avoid; }
-    .pg-print-folha .pg-ev-texto { font-size: 11px; color: #000; }
+    .pg-print-folha .pg-contadores { grid-template-columns: repeat(8, 1fr); gap: 4px; margin-bottom: 10px; }
+    .pg-print-folha .pg-contador { background: #fff; border-color: #999; padding: 4px 6px; }
+    .pg-print-folha .pg-contador-num { font-size: 16px; color: #000; }
+    .pg-print-folha .pg-contador-rot { font-size: 7px; color: #444; }
+    .pg-print-folha .pg-tabela { display: table; font-size: 9px; }
+    .pg-print-folha .pg-tabela thead { display: table-header-group; }
+    .pg-print-folha .pg-tabela tbody { display: table-row-group; }
+    .pg-print-folha .pg-tabela .pg-ev { display: table-row; background: #fff; break-inside: avoid; }
+    .pg-print-folha .pg-tabela th { color: #000; border-bottom: 1px solid #000; padding: 3px 4px; }
+    .pg-print-folha .pg-tabela td,
+    .pg-print-folha .pg-tabela .pg-ev td {
+        display: table-cell;
+        color: #000;
+        border-bottom: 1px solid #ccc;
+        padding: 3px 4px;
+        white-space: normal;
+    }
+    .pg-print-folha .pg-c-detalhe { min-width: 0; }
     .pg-print-folha * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
 }

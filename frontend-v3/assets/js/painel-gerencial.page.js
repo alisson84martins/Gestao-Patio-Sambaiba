@@ -1,22 +1,23 @@
 /*
  * painel-gerencial.page.js — Painel Gerencial (migration 046)
  * -------------------------------------------------------------------------------
- * Tudo que a Portaria e o Pátio registram, ao vivo e histórico. SÓ LEITURA:
- * nenhuma chamada aqui escreve nada.
+ * Uma JANELA para o que a Portaria e o Pátio registram: ver, filtrar, buscar,
+ * exportar e imprimir. SÓ LEITURA e SÓ VISUALIZAÇÃO — sem gráfico, ranking,
+ * comparação nem indicador calculado (decisão do Alisson, 25/09: a análise
+ * fica com a gerência).
  *
- * Quatro abas: Visão geral · Portaria · Pátio · Linha do tempo. Tudo vem de
- * duas rotas: /painel-gerencial/resumo (números e gráficos, numa chamada) e
- * /painel-gerencial/eventos (a linha do tempo). Gráficos em SVG feito à mão —
- * sem biblioteca externa.
+ * Duas rotas: /painel-gerencial/resumo (os contadores do topo) e
+ * /painel-gerencial/eventos (a lista de registros). As abas Tudo · Portaria ·
+ * Pátio são a MESMA lista; a aba só pré-filtra o módulo.
  *
  * Dia = dia do RELÓGIO em São Paulo. As datas saem de dataLocalISO()
  * (⛔ nunca toISOString().slice(0,10) — erra o dia depois das 21h); quem corta
  * o dia em UTC é o backend (intervalo_utc). Horas exibidas sempre com
  * timeZone 'America/Sao_Paulo'.
  *
- * Tempo real só quando o período inclui hoje: eventos a cada
- * POLLING_INTERVAL_MS, resumo a cada 30 s, tudo pausado com a aba escondida.
- * Período passado carrega uma vez, sem polling.
+ * Tempo real só quando o período inclui hoje: registros a cada
+ * POLLING_INTERVAL_MS, contadores a cada 30 s, tudo pausado com a aba
+ * escondida. Período passado carrega uma vez, sem polling.
  *
  * Texto da API só entra em innerHTML via escapeHtml().
  */
@@ -82,20 +83,30 @@ const CATEGORIAS = {
     BAIXADO: 'Baixado',
 };
 
-const DIAS_SEMANA = ['Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb', 'Dom'];  // isodow 1..7
+// Faixa do topo: só número e rótulo. "Dentro agora" só existe quando o
+// período inclui hoje (o backend devolve null nos outros).
+const CONTADORES = [
+    { chave: 'entradas', rotulo: 'Entradas' },
+    { chave: 'saidas', rotulo: 'Saídas' },
+    { chave: 'dentro_agora', rotulo: 'Dentro agora' },
+    { chave: 'recolhidas', rotulo: 'Recolhidas' },
+    { chave: 'avarias', rotulo: 'Avarias' },
+    { chave: 'alocacoes', rotulo: 'Alocações' },
+    { chave: 'movimentacoes', rotulo: 'Movimentações' },
+    { chave: 'retiradas', rotulo: 'Retiradas' },
+];
 
 // ─── Estado ─────────────────────────────────────────────────────────────
 const estado = {
     preset: 'hoje',
     deCustom: null,
     ateCustom: null,
-    aba: 'geral',
     resumo: null,
     periodo: null,          // o que o backend resolveu (de, ate, inclui_hoje)
     eventos: [],
     chaves: new Set(),
     temMais: false,
-    filtros: { modulo: '', tipo: '', busca: '' },
+    filtros: { modulo: '', tipo: '', busca: '' },   // modulo = a aba
     geracao: 0,             // descarta resposta atrasada de um período anterior
 };
 
@@ -164,14 +175,28 @@ function rotuloCategoria(c) {
     return CATEGORIAS[c] ?? c ?? '';
 }
 
+function pessoaDe(ev) {
+    return [ev.pessoa_nome, ev.pessoa_re && `RE ${ev.pessoa_re}`].filter(Boolean).join(' · ');
+}
+
 function autorDe(ev) {
-    if (ev.autor_nome) return `por ${ev.autor_nome}${ev.autor_re ? ` (RE ${ev.autor_re})` : ''}`;
+    if (ev.autor_nome) return `${ev.autor_nome}${ev.autor_re ? ` (RE ${ev.autor_re})` : ''}`;
     if (ev.tipo === 'RETIRADA') return 'Limpeza geral do pátio';
     return '';
 }
 
+function detalheDe(ev) {
+    return [rotuloCategoria(ev.categoria), ev.detalhe].filter(Boolean).join(' — ');
+}
+
 function periodoMultiDia() {
     return estado.periodo && estado.periodo.de !== estado.periodo.ate;
+}
+
+function textoPeriodo() {
+    if (!estado.periodo) return '';
+    const { de, ate } = estado.periodo;
+    return de === ate ? fmtDiaISO(de) : `${fmtDiaISO(de)} a ${fmtDiaISO(ate)}`;
 }
 
 function mostrarErro(msg) {
@@ -198,210 +223,7 @@ function initHeader() {
     });
 }
 
-// ─── Gráficos em SVG ────────────────────────────────────────────────────
-// Cores vêm dos tokens do style.css (var(--…)) para herdar o tema.
-
-function svgVazio(msg = 'Sem registro no período.') {
-    return `<div class="pg-vazio">${escapeHtml(msg)}</div>`;
-}
-
-/** Barras horizontais ordenadas; com `pareto`, linha de % acumulado por cima. */
-function barrasHorizontais(itens, { pareto = false, rotulo = (i) => i.chave, cor = 'var(--accent)' } = {}) {
-    if (!itens || itens.length === 0) return svgVazio();
-    const lista = itens.slice(0, 12);
-    const total = itens.reduce((s, i) => s + i.total, 0);
-    const max = Math.max(...lista.map((i) => i.total), 1);
-    const W = 360, esq = 120, dir = pareto ? 64 : 40, alt = 24, H = lista.length * alt + 6;
-    const larg = W - esq - dir;
-    let acumulado = 0;
-    const pontos = [];
-    const linhas = lista.map((item, idx) => {
-        const y = idx * alt + 4;
-        const w = Math.max(2, (item.total / max) * larg);
-        acumulado += item.total;
-        const pct = total ? (acumulado * 100) / total : 0;
-        pontos.push(`${esq + (pct / 100) * larg},${y + 9}`);
-        const nome = String(rotulo(item) ?? '—');
-        const nomeCurto = nome.length > 18 ? `${nome.slice(0, 17)}…` : nome;
-        return `
-            <text x="${esq - 6}" y="${y + 13}" class="pg-svg-rot" text-anchor="end"><title>${escapeHtml(nome)}</title>${escapeHtml(nomeCurto)}</text>
-            <rect x="${esq}" y="${y + 2}" width="${w}" height="14" rx="3" fill="${cor}"></rect>
-            <text x="${esq + w + 4}" y="${y + 13}" class="pg-svg-val">${fmtNumero(item.total)}</text>
-            ${pareto ? `<text x="${W - 2}" y="${y + 13}" class="pg-svg-pct" text-anchor="end">${pct.toFixed(0)}%</text>` : ''}`;
-    }).join('');
-    const linhaPareto = pareto && lista.length > 1
-        ? `<polyline points="${pontos.join(' ')}" class="pg-svg-pareto"></polyline>
-           ${pontos.map((p) => { const [x, y] = p.split(','); return `<circle cx="${x}" cy="${y}" r="2.5" class="pg-svg-pareto-ponto"></circle>`; }).join('')}`
-        : '';
-    return `<svg viewBox="0 0 ${W} ${H}" class="pg-svg" role="img" aria-label="Gráfico de barras">${linhas}${linhaPareto}</svg>`;
-}
-
-/** Barras verticais agrupadas: series = [{ chave, cor }], dados = [{ rotulo, valores: {chave: n} }]. */
-function barrasVerticais(dados, series, { rotuloACada = 1 } = {}) {
-    if (!dados || dados.length === 0) return svgVazio();
-    const W = 600, H = 190, base = 160, topo = 12, esq = 30;
-    const max = Math.max(1, ...dados.flatMap((d) => series.map((s) => d.valores[s.chave] || 0)));
-    const passo = (W - esq - 4) / dados.length;
-    const largBarra = Math.max(1, (passo * 0.8) / series.length);
-    const escala = (v) => ((base - topo) * v) / max;
-    const grade = [0, 0.5, 1].map((f) => {
-        const y = base - (base - topo) * f;
-        return `<line x1="${esq}" x2="${W}" y1="${y}" y2="${y}" class="pg-svg-grade"></line>
-                <text x="${esq - 4}" y="${y + 3}" class="pg-svg-eixo" text-anchor="end">${fmtNumero(Math.round(max * f))}</text>`;
-    }).join('');
-    const barras = dados.map((d, i) => {
-        const x0 = esq + i * passo + passo * 0.1;
-        const cols = series.map((s, j) => {
-            const v = d.valores[s.chave] || 0;
-            const h = escala(v);
-            return `<rect x="${x0 + j * largBarra}" y="${base - h}" width="${largBarra}" height="${h}" fill="${s.cor}"><title>${escapeHtml(d.rotulo)} · ${escapeHtml(s.nome)}: ${fmtNumero(v)}</title></rect>`;
-        }).join('');
-        const rot = (i % rotuloACada === 0 || i === dados.length - 1)
-            ? `<text x="${esq + i * passo + passo / 2}" y="${base + 14}" class="pg-svg-eixo" text-anchor="middle">${escapeHtml(d.rotulo)}</text>`
-            : '';
-        return cols + rot;
-    }).join('');
-    return `<svg viewBox="0 0 ${W} ${H}" class="pg-svg" role="img" aria-label="Gráfico de barras por período">${grade}${barras}</svg>`;
-}
-
-/** Mapa de calor 7 × 24 (dia da semana × hora, SP). */
-function mapaDeCalor(porHora) {
-    if (!porHora || porHora.length === 0) return svgVazio();
-    const matriz = Array.from({ length: 7 }, () => Array(24).fill(0));
-    for (const c of porHora) matriz[c.dow - 1][c.hora] = c.total;
-    const max = Math.max(1, ...matriz.flat());
-    const cel = 22, esq = 34, topo = 16, W = esq + 24 * cel, H = topo + 7 * cel + 2;
-    let svg = '';
-    for (let h = 0; h < 24; h += 3) {
-        svg += `<text x="${esq + h * cel + cel / 2}" y="11" class="pg-svg-eixo" text-anchor="middle">${h}h</text>`;
-    }
-    matriz.forEach((linha, d) => {
-        svg += `<text x="${esq - 6}" y="${topo + d * cel + 15}" class="pg-svg-eixo" text-anchor="end">${DIAS_SEMANA[d]}</text>`;
-        linha.forEach((v, h) => {
-            const op = v === 0 ? 0 : 0.12 + 0.88 * (v / max);
-            svg += `<rect x="${esq + h * cel + 1}" y="${topo + d * cel + 1}" width="${cel - 2}" height="${cel - 2}" rx="3"
-                      class="${v === 0 ? 'pg-calor-zero' : 'pg-calor'}" fill-opacity="${op.toFixed(2)}"><title>${DIAS_SEMANA[d]} ${h}h: ${fmtNumero(v)}</title></rect>`;
-        });
-    });
-    return `<svg viewBox="0 0 ${W} ${H}" class="pg-svg" role="img" aria-label="Mapa de calor por dia da semana e hora">${svg}</svg>`;
-}
-
-// ─── Render: Visão geral ────────────────────────────────────────────────
-// Direção "ruim" de cada indicador: sobe = vermelho para recolhida, avaria e
-// movimentação (retrabalho de pátio); entradas, saídas e alocações são
-// volume, sem juízo — o indicador fica neutro.
-const KPIS = [
-    { chave: 'entradas', rotulo: 'Entradas', ruim: null },
-    { chave: 'saidas', rotulo: 'Saídas', ruim: null },
-    { chave: 'dentro', rotulo: 'Dentro agora', ruim: null },
-    { chave: 'recolhidas', rotulo: 'Recolhidas', ruim: 'sobe' },
-    { chave: 'avarias', rotulo: 'Avarias', ruim: 'sobe' },
-    { chave: 'alocacoes', rotulo: 'Alocações', ruim: null },
-    { chave: 'movimentacoes', rotulo: 'Movimentações', ruim: 'sobe' },
-];
-
-function indicador(k, def) {
-    if (!k || k.variacao_pct === null || k.variacao_pct === undefined) {
-        return '<span class="pg-kpi-var pg-neutro">— sem base anterior</span>';
-    }
-    const pct = k.variacao_pct;
-    if (pct === 0) return '<span class="pg-kpi-var pg-neutro">= igual ao período anterior</span>';
-    const seta = pct > 0 ? '▲' : '▼';
-    let classe = 'pg-neutro';
-    if (def.ruim === 'sobe') classe = pct > 0 ? 'pg-ruim' : 'pg-bom';
-    return `<span class="pg-kpi-var ${classe}">${seta} ${Math.abs(pct).toLocaleString('pt-BR')}%</span>`;
-}
-
-function renderKpis(r) {
-    const el = document.getElementById('pg-kpis');
-    el.innerHTML = KPIS.map((def) => {
-        if (def.chave === 'dentro') {
-            const v = r.dentro_agora;
-            return `<div class="pg-kpi">
-                <div class="pg-kpi-rot">${def.rotulo}</div>
-                <div class="pg-kpi-num">${v === null || v === undefined ? '—' : fmtNumero(v)}</div>
-                <span class="pg-kpi-var pg-neutro">${v === null || v === undefined ? 'só no período de hoje' : 'veículos na garagem'}</span>
-            </div>`;
-        }
-        const k = r.kpis[def.chave];
-        const extra = def.chave === 'recolhidas'
-            ? `<span class="pg-kpi-sub">${fmtNumero(k.abertas)} abertas · ${fmtNumero(k.encerradas)} encerradas</span>`
-            : '';
-        return `<div class="pg-kpi">
-            <div class="pg-kpi-rot">${def.rotulo}</div>
-            <div class="pg-kpi-num">${fmtNumero(k.valor)}</div>
-            ${indicador(k, def)}
-            ${extra}
-        </div>`;
-    }).join('');
-}
-
-function renderGeral(r) {
-    renderKpis(r);
-
-    const blocoDia = document.getElementById('pg-bloco-por-dia');
-    blocoDia.hidden = !periodoMultiDia();
-    if (periodoMultiDia()) {
-        // Preenche os dias sem registro com zero — senão o eixo "encolhe".
-        const porDia = new Map((r.por_dia || []).map((d) => [d.dia, d]));
-        const dados = [];
-        for (let dia = r.periodo.de; dia <= r.periodo.ate; dia = somarDias(dia, 1)) {
-            const d = porDia.get(dia) || { portaria: 0, patio: 0 };
-            dados.push({ rotulo: fmtDiaISO(dia).slice(0, 5), valores: { portaria: d.portaria, patio: d.patio } });
-        }
-        document.getElementById('pg-graf-dia').innerHTML = barrasVerticais(dados, [
-            { chave: 'portaria', nome: 'Portaria', cor: 'var(--accent)' },
-            { chave: 'patio', nome: 'Pátio', cor: 'var(--accent4)' },
-        ], { rotuloACada: Math.max(1, Math.ceil(dados.length / 8)) });
-    }
-
-    document.getElementById('pg-graf-calor').innerHTML = mapaDeCalor(r.por_hora);
-}
-
-// ─── Render: Portaria ───────────────────────────────────────────────────
-function renderPortaria(r) {
-    document.getElementById('pg-pareto-motivo').innerHTML =
-        barrasHorizontais(r.recolhidas_por_motivo, { pareto: true, rotulo: (i) => rotuloCategoria(i.chave) });
-    document.getElementById('pg-pareto-defeito').innerHTML =
-        barrasHorizontais(r.recolhidas_por_defeito, { pareto: true });
-    document.getElementById('pg-avarias-zona').innerHTML = barrasHorizontais(r.avarias_por_zona);
-    document.getElementById('pg-top-veiculos').innerHTML = barrasHorizontais(r.top_veiculos_portaria);
-    document.getElementById('pg-top-recolhida').innerHTML = barrasHorizontais(r.top_carros_recolhida);
-    document.getElementById('pg-registrante-portaria').innerHTML = barrasHorizontais(
-        (r.por_registrante || []).filter((p) => p.modulo === 'PORTARIA'),
-        { rotulo: (i) => i.autor_nome || 'Sem autor' },
-    );
-    const p = r.permanencia_terceiros_min || {};
-    document.getElementById('pg-permanencia').innerHTML = p.amostras
-        ? `<div><span class="pg-num-grande">${fmtNumero(Number(p.media))}</span><span class="pg-num-rot">min em média</span></div>
-           <div><span class="pg-num-grande">${fmtNumero(Number(p.mediana))}</span><span class="pg-num-rot">min na mediana</span></div>
-           <div class="pg-ajuda">${fmtNumero(p.amostras)} saídas de terceiro com entrada correspondente.</div>`
-        : svgVazio('Nenhuma saída de terceiro com entrada correspondente no período.');
-}
-
-// ─── Render: Pátio ──────────────────────────────────────────────────────
-function renderPatio(r) {
-    const porHora = new Map((r.patio_por_hora || []).map((h) => [h.hora, h]));
-    const dados = Array.from({ length: 24 }, (_, h) => {
-        const x = porHora.get(h) || {};
-        return { rotulo: `${h}h`, valores: { alocacoes: x.alocacoes || 0, movimentacoes: x.movimentacoes || 0 } };
-    });
-    const temAlgo = dados.some((d) => d.valores.alocacoes || d.valores.movimentacoes);
-    document.getElementById('pg-graf-patio-hora').innerHTML = temAlgo
-        ? barrasVerticais(dados, [
-            { chave: 'alocacoes', nome: 'Alocações', cor: 'var(--accent4)' },
-            { chave: 'movimentacoes', nome: 'Movimentações', cor: 'var(--accent)' },
-        ], { rotuloACada: 3 })
-        : svgVazio();
-    document.getElementById('pg-top-movimentados').innerHTML =
-        barrasHorizontais(r.top_carros_movimentados_patio, { cor: 'var(--accent4)' });
-    document.getElementById('pg-registrante-patio').innerHTML = barrasHorizontais(
-        (r.por_registrante || []).filter((p) => p.modulo === 'PATIO'),
-        { rotulo: (i) => i.autor_nome || 'Limpeza geral do pátio', cor: 'var(--accent4)' },
-    );
-}
-
-// ─── Topo: selo e "dados desde" ─────────────────────────────────────────
+// ─── Topo: selo, "dados desde" e contadores ─────────────────────────────
 function renderTopo() {
     const selo = document.getElementById('pg-selo');
     if (estado.periodo) {
@@ -413,73 +235,78 @@ function renderTopo() {
     const partes = [];
     if (pr?.portaria) partes.push(`Dados da Portaria desde ${fmtDataCompleta(pr.portaria)}`);
     if (pr?.patio) partes.push(`do Pátio desde ${fmtDataCompleta(pr.patio)}`);
-    const periodoTxt = estado.periodo
-        ? (estado.periodo.de === estado.periodo.ate
-            ? fmtDiaISO(estado.periodo.de)
-            : `${fmtDiaISO(estado.periodo.de)} a ${fmtDiaISO(estado.periodo.ate)}`)
-        : '';
+    const periodoTxt = textoPeriodo();
     document.getElementById('pg-desde').textContent =
         [periodoTxt && `Período: ${periodoTxt}`, partes.join(' · ')].filter(Boolean).join('  —  ') || '—';
 }
 
-// ─── Carga do resumo ────────────────────────────────────────────────────
+function renderContadores(r) {
+    const valores = { ...r.contadores, dentro_agora: r.dentro_agora };
+    document.getElementById('pg-contadores').innerHTML = CONTADORES
+        .filter((c) => c.chave !== 'dentro_agora' || r.dentro_agora !== null)
+        .map((c) => `<div class="pg-contador">
+            <div class="pg-contador-num">${fmtNumero(valores[c.chave])}</div>
+            <div class="pg-contador-rot">${c.rotulo}</div>
+        </div>`).join('');
+}
+
 async function carregarResumo() {
     const geracao = estado.geracao;
-    const p = periodoDoPreset();
     try {
-        const r = await apiGet(`/painel-gerencial/resumo?${qs(p)}`);
+        const r = await apiGet(`/painel-gerencial/resumo?${qs(periodoDoPreset())}`);
         if (geracao !== estado.geracao) return;
         estado.resumo = r;
         estado.periodo = r.periodo;
         mostrarErro('');
         renderTopo();
-        renderGeral(r);
-        renderPortaria(r);
-        renderPatio(r);
+        renderContadores(r);
     } catch (err) {
         if (ignoravel(err)) return;
-        mostrarErro(err.message || 'Falha ao carregar o resumo.');
+        mostrarErro(err.message || 'Falha ao carregar os contadores.');
     }
 }
 
-// ─── Linha do tempo ─────────────────────────────────────────────────────
+// ─── Lista de registros ─────────────────────────────────────────────────
+// Uma <tr> por registro. No computador é tabela; no celular o CSS vira cada
+// linha num cartão de uma linha só (hora · tipo · veículo · detalhe) — o
+// resto está no detalhe, ao tocar.
 function linhaEvento(ev) {
     const quando = periodoMultiDia() ? fmtDiaHora(ev.momento) : fmtHora(ev.momento);
-    const cat = rotuloCategoria(ev.categoria);
-    const det = ev.detalhe ? ` — ${ev.detalhe}` : '';
-    const autor = autorDe(ev);
+    const modulo = ev.modulo === 'PATIO' ? 'patio' : 'portaria';
     return `
-        <span class="pg-ev-marca pg-ev-${ev.modulo === 'PATIO' ? 'patio' : 'portaria'}" aria-hidden="true"></span>
-        <span class="pg-ev-hora">${escapeHtml(quando)}</span>
-        <span class="pg-ev-texto">
-            <strong>${escapeHtml(rotuloTipo(ev.tipo).toUpperCase())}</strong>
-            · <span class="pg-ev-id">${escapeHtml(ev.identificacao || '—')}</span>
-            ${cat ? ` · ${escapeHtml(cat)}` : ''}${escapeHtml(det)}
-            ${autor ? `<span class="pg-ev-autor"> · ${escapeHtml(autor)}</span>` : ''}
-        </span>`;
+        <td class="pg-c-hora">${escapeHtml(quando)}</td>
+        <td class="pg-c-tipo"><span class="pg-marca pg-marca-${modulo}" aria-hidden="true"></span>${escapeHtml(rotuloTipo(ev.tipo))}</td>
+        <td class="pg-c-veiculo">${escapeHtml(ev.identificacao || '—')}</td>
+        <td class="pg-c-detalhe">${escapeHtml(detalheDe(ev))}</td>
+        <td class="pg-c-pessoa">${escapeHtml(pessoaDe(ev))}</td>
+        <td class="pg-c-autor">${escapeHtml(autorDe(ev))}</td>`;
 }
 
-function criarItem(ev, novo = false) {
-    const li = document.createElement('li');
-    li.className = `pg-ev${novo ? ' pg-ev-novo' : ''}`;
-    li.tabIndex = 0;
-    li.dataset.chave = chaveDe(ev);
-    li.innerHTML = linhaEvento(ev);
-    li.addEventListener('click', () => abrirDetalhe(ev));
-    li.addEventListener('keydown', (e) => { if (e.key === 'Enter') abrirDetalhe(ev); });
-    if (novo) setTimeout(() => li.classList.remove('pg-ev-novo'), 3000);
-    return li;
+function criarLinha(ev, novo = false) {
+    const tr = document.createElement('tr');
+    tr.className = `pg-ev${novo ? ' pg-ev-novo' : ''}`;
+    tr.tabIndex = 0;
+    tr.dataset.chave = chaveDe(ev);
+    tr.innerHTML = linhaEvento(ev);
+    tr.addEventListener('click', () => abrirDetalhe(ev));
+    tr.addEventListener('keydown', (e) => { if (e.key === 'Enter') abrirDetalhe(ev); });
+    if (novo) setTimeout(() => tr.classList.remove('pg-ev-novo'), 3000);
+    return tr;
 }
 
-function renderLinhaInteira() {
-    const ol = document.getElementById('pg-linha');
-    ol.innerHTML = '';
+function linhaVazia() {
+    return '<tr class="pg-vazio"><td colspan="6">Nenhum registro com esses filtros no período.</td></tr>';
+}
+
+function renderListaInteira() {
+    const tbody = document.getElementById('pg-lista');
+    tbody.innerHTML = '';
     if (estado.eventos.length === 0) {
-        ol.innerHTML = '<li class="pg-vazio">Nenhum registro com esses filtros no período.</li>';
+        tbody.innerHTML = linhaVazia();
     } else {
         const frag = document.createDocumentFragment();
-        for (const ev of estado.eventos) frag.appendChild(criarItem(ev));
-        ol.appendChild(frag);
+        for (const ev of estado.eventos) frag.appendChild(criarLinha(ev));
+        tbody.appendChild(frag);
     }
     document.getElementById('pg-mais').hidden = !estado.temMais;
 }
@@ -493,16 +320,16 @@ async function carregarEventos() {
     try {
         const r = await apiGet(`/painel-gerencial/eventos?${paramsEventos()}`);
         if (geracao !== estado.geracao) return;
-        // O resumo pode chegar depois — sem isto a primeira lista de um
+        // Os contadores podem chegar depois — sem isto a primeira lista de um
         // período de vários dias sairia só com a hora, sem o dia.
         estado.periodo = estado.periodo ?? r.periodo;
         estado.eventos = r.eventos;
         estado.chaves = new Set(r.eventos.map(chaveDe));
         estado.temMais = r.tem_mais;
-        renderLinhaInteira();
+        renderListaInteira();
     } catch (err) {
         if (ignoravel(err)) return;
-        mostrarErro(err.message || 'Falha ao carregar a linha do tempo.');
+        mostrarErro(err.message || 'Falha ao carregar os registros.');
     }
 }
 
@@ -515,13 +342,13 @@ async function carregarMais() {
     try {
         const r = await apiGet(`/painel-gerencial/eventos?${paramsEventos({ antes: ultimo.momento, antes_chave: chaveDe(ultimo) })}`);
         if (geracao !== estado.geracao) return;
-        const ol = document.getElementById('pg-linha');
+        const tbody = document.getElementById('pg-lista');
         for (const ev of r.eventos) {
             const k = chaveDe(ev);
             if (estado.chaves.has(k)) continue;
             estado.chaves.add(k);
             estado.eventos.push(ev);
-            ol.appendChild(criarItem(ev));
+            tbody.appendChild(criarLinha(ev));
         }
         estado.temMais = r.tem_mais;
         btn.hidden = !estado.temMais;
@@ -544,14 +371,14 @@ async function buscarNovos() {
         if (geracao !== estado.geracao) return;
         const novos = r.eventos.filter((ev) => !estado.chaves.has(chaveDe(ev)));
         if (novos.length === 0) return;
-        const ol = document.getElementById('pg-linha');
-        ol.querySelector('.pg-vazio')?.remove();
+        const tbody = document.getElementById('pg-lista');
+        tbody.querySelector('.pg-vazio')?.remove();
         // r.eventos vem do mais novo pro mais velho; insere de trás pra
         // frente para o mais novo terminar no topo.
         for (const ev of novos.reverse()) {
             estado.chaves.add(chaveDe(ev));
             estado.eventos.unshift(ev);
-            ol.prepend(criarItem(ev, true));
+            tbody.prepend(criarLinha(ev, true));
         }
         estado.eventos.sort((a, b) => (a.momento < b.momento ? 1 : -1));
     } catch (err) {
@@ -568,8 +395,8 @@ function abrirDetalhe(ev) {
         ['Categoria', rotuloCategoria(ev.categoria)],
         [ev.modulo === 'PATIO' ? 'Ônibus' : 'Placa / prefixo', ev.identificacao],
         ['Detalhe', ev.detalhe],
-        ['Envolvido', [ev.pessoa_nome, ev.pessoa_re && `RE ${ev.pessoa_re}`].filter(Boolean).join(' · ')],
-        ['Registrado por', autorDe(ev).replace(/^por /, '')],
+        ['Pessoa', pessoaDe(ev)],
+        ['Registrado por', autorDe(ev)],
     ].filter(([, v]) => v);
     document.getElementById('pg-modal-titulo').textContent = `${rotuloTipo(ev.tipo)} · ${ev.identificacao || ''}`;
     document.getElementById('pg-modal-corpo').innerHTML = campos
@@ -581,7 +408,7 @@ function fecharDetalhe() {
     document.getElementById('pg-modal').classList.remove('open');
 }
 
-// ─── Filtros da linha do tempo ──────────────────────────────────────────
+// ─── Abas e filtros ─────────────────────────────────────────────────────
 function preencherTipos() {
     const sel = document.getElementById('pg-f-tipo');
     const modulo = estado.filtros.modulo;
@@ -593,13 +420,22 @@ function preencherTipos() {
     else estado.filtros.tipo = '';
 }
 
-function initFiltros() {
-    preencherTipos();
-    document.getElementById('pg-f-modulo').addEventListener('change', (e) => {
-        estado.filtros.modulo = e.target.value;
+function initAbas() {
+    const botoes = document.querySelectorAll('.pg-abas [data-aba]');
+    botoes.forEach((b) => b.addEventListener('click', () => {
+        if (estado.filtros.modulo === b.dataset.aba) return;
+        estado.filtros.modulo = b.dataset.aba;
+        botoes.forEach((x) => {
+            x.classList.toggle('active', x === b);
+            x.setAttribute('aria-selected', x === b ? 'true' : 'false');
+        });
         preencherTipos();
         recarregarEventos();
-    });
+    }));
+}
+
+function initFiltros() {
+    preencherTipos();
     document.getElementById('pg-f-tipo').addEventListener('change', (e) => {
         estado.filtros.tipo = e.target.value;
         recarregarEventos();
@@ -660,21 +496,6 @@ async function recarregarTudo() {
     estado.periodo = null;
     await Promise.all([carregarResumo(), carregarEventos()]);
     iniciarPolling();
-}
-
-// ─── Abas ───────────────────────────────────────────────────────────────
-function initAbas() {
-    const botoes = document.querySelectorAll('.pg-abas [data-aba]');
-    botoes.forEach((b) => b.addEventListener('click', () => {
-        estado.aba = b.dataset.aba;
-        botoes.forEach((x) => {
-            x.classList.toggle('active', x === b);
-            x.setAttribute('aria-selected', x === b ? 'true' : 'false');
-        });
-        document.querySelectorAll('.pg-aba').forEach((s) => {
-            s.hidden = s.id !== `pg-aba-${estado.aba}`;
-        });
-    }));
 }
 
 // ─── Tempo real ─────────────────────────────────────────────────────────
@@ -740,16 +561,25 @@ async function exportarCsv() {
 // ─── Imprimir ───────────────────────────────────────────────────────────
 // Mesmo mecanismo das outras impressões do V3: monta a folha em
 // #print-content (o @media print global do style.css esconde o resto).
+// Sai o cabeçalho (período, emissão, filtros), os contadores e a lista
+// filtrada — a que está carregada na tela.
 function imprimir() {
-    const aba = document.getElementById(`pg-aba-${estado.aba}`);
-    const titulo = document.querySelector(`.pg-abas [data-aba="${estado.aba}"]`)?.textContent || '';
-    const conteudo = aba.cloneNode(true);
-    conteudo.hidden = false;
-    conteudo.querySelectorAll('button, select, input, .pg-filtros').forEach((n) => n.remove());
-    conteudo.querySelectorAll('[id]').forEach((n) => n.removeAttribute('id'));
-
+    const aba = document.querySelector('.pg-abas .active')?.textContent || 'Tudo';
+    const filtros = [
+        `Aba: ${aba}`,
+        estado.filtros.tipo && `Tipo: ${rotuloTipo(estado.filtros.tipo)}`,
+        estado.filtros.busca && `Busca: "${estado.filtros.busca}"`,
+    ].filter(Boolean).join(' · ');
     const emitido = new Date().toLocaleString('pt-BR', { timeZone: FUSO });
-    const periodo = document.getElementById('pg-desde').textContent;
+    const qtd = estado.eventos.length;
+    const nota = estado.temMais
+        ? `${fmtNumero(qtd)} registros mais recentes (há mais no período — use Exportar CSV para a lista completa)`
+        : `${fmtNumero(qtd)} registros`;
+
+    const contadores = document.getElementById('pg-contadores').cloneNode(true);
+    contadores.removeAttribute('id');
+    const tabela = document.querySelector('.pg-tabela').cloneNode(true);
+    tabela.querySelector('tbody').removeAttribute('id');
 
     let area = document.getElementById('print-content');
     if (!area) {
@@ -761,13 +591,16 @@ function imprimir() {
         <div class="pg-print-folha">
             <div class="pg-print-cabecalho">
                 <div>
-                    <div class="pg-print-titulo">Painel Gerencial — ${escapeHtml(titulo)}</div>
-                    <div class="pg-print-meta">${escapeHtml(periodo)}</div>
+                    <div class="pg-print-titulo">Painel Gerencial</div>
+                    <div class="pg-print-meta">Período: ${escapeHtml(textoPeriodo())}</div>
+                    <div class="pg-print-meta">${escapeHtml(filtros)} · ${escapeHtml(nota)}</div>
                 </div>
                 <div class="pg-print-meta">Sambaíba Transportes Urbanos<br>Emitido em ${escapeHtml(emitido)}</div>
             </div>
         </div>`;
-    area.querySelector('.pg-print-folha').appendChild(conteudo);
+    const folha = area.querySelector('.pg-print-folha');
+    folha.appendChild(contadores);
+    folha.appendChild(tabela);
     window.print();
 }
 
