@@ -12,7 +12,7 @@ from app.core.exception_handlers import register_exception_handlers
 from app.routers import (
     alertas, alocacoes, auth, escala_fiscais, escalas, filas, fiscalizacao, funcoes, funcionarios,
     health, identidade, importacao, linhas, manutencao, motoristas, ocorrencias, onibus,
-    patio, permissoes, portaria, portaria_avarias, portaria_recolhidas, portaria_veiculos,
+    painel_gerencial, patio, permissoes, portaria, portaria_avarias, portaria_recolhidas, portaria_veiculos,
     pre_cadastro, pre_ocorrencias, pre_ocorrencias_publico, tipos_defeito, usuarios,
 )
 from app.services import leitura_placa
@@ -67,6 +67,7 @@ tags_metadata = [
     {"name": "identidade", "description": "Busca por RE compartilhada entre módulos — nome, origem, funções e veículo particular, sem dado sensível"},
     {"name": "fiscalização", "description": "Turnos do fiscal, registro de partidas, contadores e fechamento — o app que escreve sozinho a mensagem de WhatsApp de fim de turno"},
     {"name": "escala de fiscais", "description": "Coordenadoria — cadastros da escala dos fiscais (quadro, coordenadores, pontos finais, postos, modelos, ausências, trocas) e importação dos modelos da planilha"},
+    {"name": "painel gerencial", "description": "Só leitura — tudo que Portaria e Pátio registram, ao vivo e histórico, com exportação CSV"},
 ]
 
 app = FastAPI(
@@ -178,3 +179,6 @@ app.include_router(fiscalizacao.router)
 # /escalas (Pátio) nem com /fiscalizacao. Dentro do router, rotas literais
 # vêm antes das com parâmetro.
 app.include_router(escala_fiscais.router)
+# Painel Gerencial (migration 046) — só leitura sobre vw_painel_evento;
+# nenhum router da Portaria/Pátio muda por causa dele.
+app.include_router(painel_gerencial.router)
