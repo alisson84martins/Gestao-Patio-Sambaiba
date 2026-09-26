@@ -68,38 +68,6 @@ class PostoFiscalizacaoRead(BaseModel):
 
 
 # ============================================================================
-# PONTO / PONTO_LINHA (D9, D11) — catálogo
-# ============================================================================
-
-class PontoRead(ORMBase):
-    codigo: str
-    nome: str
-    terminal: Terminal
-    ativo: bool
-    linhas: list[str] = Field(default_factory=list)
-
-
-class PontoCreate(BaseModel):
-    """POST /fiscalizacao/pontos — D37: o fiscal pode criar o ponto na
-    hora, se ele não existir, para destravar o primeiro turno."""
-
-    codigo: str = Field(..., min_length=1, max_length=20)
-    nome: str = Field(..., min_length=1, max_length=60)
-    terminal: Terminal
-    linhas: list[str] = Field(..., min_length=1)
-
-
-class PontoUpdate(BaseModel):
-    """PATCH /fiscalizacao/pontos/{codigo} — renomeia, ativa/desativa e
-    substitui o conjunto de linhas. Todos os campos opcionais (PATCH
-    parcial); `linhas`, quando informado, SUBSTITUI o conjunto inteiro."""
-
-    nome: Optional[str] = Field(None, min_length=1, max_length=60)
-    ativo: Optional[bool] = None
-    linhas: Optional[list[str]] = None
-
-
-# ============================================================================
 # TURNO (D8, D9, D14, D15)
 # ============================================================================
 

@@ -33,7 +33,7 @@ from app.main import app
 from app.models.cadastro import Funcao, Funcionario, FuncionarioFuncao
 from app.models.catalogos import Linha
 from app.models.fiscalizacao import (
-    Baita, EventoTurno, LinhaCoordenador, ObservacaoTurno, PartidaProgramada, Ponto, PontoLinha,
+    Baita, EventoTurno, LinhaCoordenador, ObservacaoTurno, PartidaProgramada,
     RegistroPartida, Turno, TurnoLinha, TurnoPosto,
 )
 from app.models.enums import SetorEnum
@@ -62,7 +62,7 @@ _COORDENADOR_B = Funcionario(id=uuid4(), re="70005", nome="Coordenador Teste B")
 
 _TABELAS = [
     Funcionario.__table__, Funcao.__table__, FuncionarioFuncao.__table__,
-    Ponto.__table__, PontoLinha.__table__, Turno.__table__, TurnoLinha.__table__, TurnoPosto.__table__,
+    Turno.__table__, TurnoLinha.__table__, TurnoPosto.__table__,
     PartidaProgramada.__table__, RegistroPartida.__table__, EventoTurno.__table__, ObservacaoTurno.__table__,
     Baita.__table__, RecolhidaAnormal.__table__, LinhaCoordenador.__table__, Linha.__table__,
     EscalaFiscalPontoFinal.__table__, EscalaFiscalPosto.__table__, EscalaFiscalPostoLinha.__table__,
@@ -105,8 +105,6 @@ def ambiente():
     with Session(engine) as setup:
         for f in (_FISCAL_A, _FISCAL_B, _COORDENADOR, _ADMIN, _COORDENADOR_B):
             setup.add(Funcionario(id=f.id, re=f.re, nome=f.nome, status="ATIVO"))
-        setup.add(Ponto(codigo="PQ_TESTE", nome="Ponto Teste", terminal="TP", ativo=True))
-        setup.add(PontoLinha(ponto_codigo="PQ_TESTE", linha_codigo="1726-10", ativo=True))
         setup.add(Linha(id=uuid4(), codigo="1726-10", nome="Linha 1726-10", setor=SetorEnum.E2, ativa=True))
         setup.add(Linha(id=uuid4(), codigo="2032-10", nome="Linha 2032-10", setor=SetorEnum.AR2, ativa=True))
         setup.add(Linha(id=uuid4(), codigo="9999-10", nome="Linha 9999-10 (inativa)", setor=SetorEnum.E2, ativa=False))
@@ -991,20 +989,27 @@ def test_prontidao_sem_refeicao_cobra(ambiente):
 
 
 # ============================================================================
-# Bloco D — D37: cadastro de pontos pela tela
+# D37 revogado (047) — o fiscal não cadastra mais ponto: a lista vem dos
+# postos da Escala de Fiscais. As rotas de cadastro não existem mais.
 # ============================================================================
 
-def test_post_ponto_codigo_repetido_nega_409(ambiente):
+def test_post_pontos_nao_existe_mais(ambiente):
     _como(ambiente, "FISCAL")
-    primeiro = ambiente["http"].post("/fiscalizacao/pontos", json={
+    resp = ambiente["http"].post("/fiscalizacao/pontos", json={
         "codigo": "PQ_NOVO", "nome": "Ponto Novo", "terminal": "TP", "linhas": ["1726-10"],
     })
-    assert primeiro.status_code == 201, primeiro.text
+    assert resp.status_code in (404, 405), resp.text
 
-    segundo = ambiente["http"].post("/fiscalizacao/pontos", json={
-        "codigo": "PQ_NOVO", "nome": "Outro nome", "terminal": "TS", "linhas": ["9999-10"],
-    })
-    assert segundo.status_code == 409, segundo.text
+
+def test_patch_pontos_nao_existe_mais(ambiente):
+    _como(ambiente, "FISCAL")
+    resp = ambiente["http"].patch("/fiscalizacao/pontos/PQ_TESTE", json={"nome": "Outro"})
+    assert resp.status_code in (404, 405), resp.text
+
+
+def test_get_pontos_nao_existe_mais(ambiente):
+    _como(ambiente, "FISCAL")
+    assert ambiente["http"].get("/fiscalizacao/pontos").status_code in (404, 405)
 
 
 # ============================================================================
@@ -1014,23 +1019,6 @@ def test_post_ponto_codigo_repetido_nega_409(ambiente):
 # por fora dela.
 # ============================================================================
 
-def test_post_ponto_com_linha_fora_do_catalogo_recusado_422(ambiente):
-    _como(ambiente, "FISCAL")
-    resp = ambiente["http"].post("/fiscalizacao/pontos", json={
-        "codigo": "PQ_FORA", "nome": "Ponto Fora", "terminal": "TP", "linhas": ["1726"],
-    })
-    assert resp.status_code == 422, resp.text
-    assert "1726" in resp.text
-
-
-def test_post_ponto_com_linha_inativa_recusado_422(ambiente):
-    _como(ambiente, "FISCAL")
-    resp = ambiente["http"].post("/fiscalizacao/pontos", json={
-        "codigo": "PQ_INATIVA", "nome": "Ponto Inativa", "terminal": "TP", "linhas": ["9999-10"],
-    })
-    assert resp.status_code == 422, resp.text
-
-
 def test_post_minha_linha_fora_do_catalogo_recusado_422(ambiente):
     _como(ambiente, "COORDENADOR")
     resp = ambiente["http"].post("/fiscalizacao/minhas-linhas", json={
@@ -1038,15 +1026,6 @@ def test_post_minha_linha_fora_do_catalogo_recusado_422(ambiente):
     })
     assert resp.status_code == 422, resp.text
     assert "1726" in resp.text
-
-
-def test_post_ponto_com_linhas_validas_cria_201(ambiente):
-    # Caminho feliz não pode ter sido quebrado pela validação nova.
-    _como(ambiente, "FISCAL")
-    resp = ambiente["http"].post("/fiscalizacao/pontos", json={
-        "codigo": "PQ_VALIDO", "nome": "Ponto Válido", "terminal": "TP", "linhas": ["1726-10", "2032-10"],
-    })
-    assert resp.status_code == 201, resp.text
 
 
 # ============================================================================

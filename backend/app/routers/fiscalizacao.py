@@ -28,7 +28,7 @@ from app.models.catalogos import Linha
 from app.models.escala_fiscais import EscalaFiscalPontoFinal, EscalaFiscalPosto, EscalaFiscalPostoLinha
 from app.models.fiscalizacao import (
     AcaoCoordenacao, Baita, EventoTurno, LinhaCoordenador, ObservacaoTurno, Parametro,
-    PartidaProgramada, Ponto, PontoLinha, RegistroPartida, Turno, TurnoLinha, TurnoPosto,
+    PartidaProgramada, RegistroPartida, Turno, TurnoLinha, TurnoPosto,
 )
 from app.models.portaria import RecolhidaAnormal
 from app.schemas.fiscalizacao import (
@@ -36,8 +36,8 @@ from app.schemas.fiscalizacao import (
     EventoTurnoCreate, EventoTurnoRead, IcvCoordenadorDiaRead, IcvLinhaDiaRead, LinhaSemCoordenadorItem,
     MinhaLinhaCreate, MinhaLinhaItem, MotivoLivreItem, ObservacaoTurnoCreate, ObservacaoTurnoRead,
     PainelAoVivoItem, PainelLinhaResponse, PainelPartidaItem, PainelTurnoAbertoItem,
-    ParametrosRead, PartidaEstadoItem, PendenciaItem, Periodo, PlacarLinhaRead, PontoCreate, PontoRead,
-    PontoUpdate, PostoFiscalizacaoRead, PostoLinhaItem, PrioridadeLinhaItem, ProntidaoResponse, RegistroPartidaRead,
+    ParametrosRead, PartidaEstadoItem, PendenciaItem, Periodo, PlacarLinhaRead,
+    PostoFiscalizacaoRead, PostoLinhaItem, PrioridadeLinhaItem, ProntidaoResponse, RegistroPartidaRead,
     RegistroPartidaUpsert, TipoDia, TurnoAbrirRequest, TurnoLinhaContagemUpdate, TurnoLinhaRead,
     TurnoRead, TurnoUpdateRequest,
 )
@@ -114,18 +114,6 @@ def _eh_admin(db: Session, funcionario_id: UUID) -> bool:
         {"fid": funcionario_id},
     ).first()
     return row is not None
-
-
-def _normalizar_linhas(linhas: list[str]) -> list[str]:
-    """D37 — remove vazias e repetidas preservando a ordem; a lista vazia
-    resultante é responsabilidade de quem chama recusar com 422."""
-    vistas: list[str] = []
-    for linha in linhas:
-        codigo = (linha or "").strip()
-        if not codigo or codigo in vistas:
-            continue
-        vistas.append(codigo)
-    return vistas
 
 
 def _exige_linha_no_catalogo(db: Session, linhas: list[str]) -> None:
@@ -396,94 +384,6 @@ def listar_postos(usuario: LeituraFiscalizacao, db: DbSession):
     Só leitura — quem cadastra posto e linha é o coordenador na aba Escala
     de Fiscais → Postos; nenhuma FK nova (regra de fronteira)."""
     return _postos_da_escala(db)
-
-
-# ============================================================================
-# CATÁLOGO DE PONTOS
-# ============================================================================
-
-@router.get("/pontos", response_model=list[PontoRead], summary="Pontos com suas linhas — só ativos por padrão")
-def listar_pontos(usuario: LeituraFiscalizacao, db: DbSession, incluir_inativos: bool = Query(False)):
-    query = select(Ponto)
-    if not incluir_inativos:
-        query = query.where(Ponto.ativo.is_(True))
-    pontos = db.execute(query.order_by(Ponto.codigo)).scalars().all()
-    resultado = []
-    for p in pontos:
-        linhas = db.execute(
-            select(PontoLinha.linha_codigo)
-            .where(PontoLinha.ponto_codigo == p.codigo, PontoLinha.ativo.is_(True))
-            .order_by(PontoLinha.linha_codigo)
-        ).scalars().all()
-        resultado.append(PontoRead(codigo=p.codigo, nome=p.nome, terminal=p.terminal, ativo=p.ativo, linhas=list(linhas)))
-    return resultado
-
-
-@router.post(
-    "/pontos", response_model=PontoRead, status_code=status.HTTP_201_CREATED,
-    summary="Cadastra ponto (D37) — o fiscal cria na hora, se não existir",
-)
-def criar_ponto(payload: PontoCreate, usuario: EscritaFiscalizacao, db: DbSession):
-    codigo = payload.codigo.strip().upper()
-    if not codigo:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Código do ponto não pode ser vazio.")
-    if db.get(Ponto, codigo) is not None:
-        raise HTTPException(status.HTTP_409_CONFLICT, detail=f"Já existe um ponto com o código '{codigo}'.")
-
-    linhas = _normalizar_linhas(payload.linhas)
-    if not linhas:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Informe ao menos uma linha.")
-    _exige_linha_no_catalogo(db, linhas)
-
-    ponto = Ponto(codigo=codigo, nome=payload.nome.strip(), terminal=payload.terminal, ativo=True)
-    db.add(ponto)
-    db.flush()
-    for linha_codigo in linhas:
-        db.add(PontoLinha(ponto_codigo=codigo, linha_codigo=linha_codigo))
-    db.commit()
-    return PontoRead(codigo=ponto.codigo, nome=ponto.nome, terminal=ponto.terminal, ativo=ponto.ativo, linhas=linhas)
-
-
-@router.patch(
-    "/pontos/{codigo}", response_model=PontoRead,
-    summary="Renomeia, ativa/desativa e substitui as linhas do ponto (D37) — nunca DELETE",
-)
-def atualizar_ponto(codigo: str, payload: PontoUpdate, usuario: EscritaFiscalizacao, db: DbSession):
-    ponto = db.get(Ponto, codigo)
-    if ponto is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Ponto não encontrado")
-
-    dados = payload.model_dump(exclude_unset=True)
-    if "nome" in dados:
-        ponto.nome = dados["nome"].strip()
-    if "ativo" in dados:
-        ponto.ativo = dados["ativo"]
-    if "linhas" in dados:
-        linhas = _normalizar_linhas(dados["linhas"] or [])
-        if not linhas:
-            raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Informe ao menos uma linha.")
-        _exige_linha_no_catalogo(db, linhas)
-        existentes = {
-            pl.linha_codigo: pl
-            for pl in db.execute(select(PontoLinha).where(PontoLinha.ponto_codigo == codigo)).scalars().all()
-        }
-        for linha_codigo in linhas:
-            if linha_codigo in existentes:
-                existentes[linha_codigo].ativo = True
-            else:
-                db.add(PontoLinha(ponto_codigo=codigo, linha_codigo=linha_codigo))
-        for linha_codigo, pl in existentes.items():
-            if linha_codigo not in linhas:
-                pl.ativo = False
-
-    db.commit()
-    db.refresh(ponto)
-    linhas_atuais = db.execute(
-        select(PontoLinha.linha_codigo)
-        .where(PontoLinha.ponto_codigo == codigo, PontoLinha.ativo.is_(True))
-        .order_by(PontoLinha.linha_codigo)
-    ).scalars().all()
-    return PontoRead(codigo=ponto.codigo, nome=ponto.nome, terminal=ponto.terminal, ativo=ponto.ativo, linhas=list(linhas_atuais))
 
 
 # ============================================================================

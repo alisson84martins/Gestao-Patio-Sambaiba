@@ -9,6 +9,12 @@ sem prefixo de schema, mesmo padrão de app/models/portaria.py (Funcionario
 não declara __table_args__ com schema, então "funcionario.id" é a chave
 correta no MetaData; "public.funcionario.id" não bate com a tabela já
 registrada).
+
+Desde a 047 o lugar do turno vem dos postos da Escala de Fiscais
+(coordenadoria.escala_fiscal_posto), que a Fiscalização só LÊ por SELECT —
+nenhuma FK para o schema coordenadoria; turno_posto guarda posto_id solto e
+um snapshot de lado/ponto final. O cadastro próprio de ponto (ponto,
+ponto_linha, D37) foi apagado.
 """
 from datetime import date, datetime, time
 from typing import Optional
@@ -25,39 +31,6 @@ from sqlalchemy.sql import func
 from app.core.database import Base
 
 SCHEMA = "fiscalizacao"
-
-
-class Ponto(Base):
-    """Ponto final de fiscalização. O turno é do PONTO, não da linha (D9)."""
-
-    __tablename__ = "ponto"
-    __table_args__ = {"schema": SCHEMA}
-
-    codigo: Mapped[str] = mapped_column(String(20), primary_key=True)
-    nome: Mapped[str] = mapped_column(String(60), nullable=False)
-    terminal: Mapped[str] = mapped_column(String(2), nullable=False)
-    ativo: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
-    criado_em: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, server_default=func.now()
-    )
-
-
-class PontoLinha(Base):
-    """Quais linhas saem de cada ponto — ponto com mais de uma linha é
-    comum na G3 (D9). Alimenta as abas do app do fiscal (D11)."""
-
-    __tablename__ = "ponto_linha"
-    __table_args__ = (
-        UniqueConstraint("ponto_codigo", "linha_codigo"),
-        {"schema": SCHEMA},
-    )
-
-    id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True, default=uuid4)
-    ponto_codigo: Mapped[str] = mapped_column(
-        String(20), ForeignKey(f"{SCHEMA}.ponto.codigo"), nullable=False
-    )
-    linha_codigo: Mapped[str] = mapped_column(String(20), nullable=False)
-    ativo: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
 
 
 class Turno(Base):
