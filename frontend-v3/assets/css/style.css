@@ -4770,6 +4770,37 @@ body.modal-open {
     .pg-ev { transition: none; }
 }
 
+/* Chips clicáveis (26/09): o contador vira botão-filtro. Mesmo visual de
+   antes (número grande + rótulo); ativo = vermelho, como .filtro-btn.active. */
+.pg-chip {
+    font: inherit;
+    color: var(--text);
+    text-align: left;
+    cursor: pointer;
+    min-height: 44px;
+    transition: border-color 0.15s, background-color 0.15s;
+}
+.pg-chip .pg-contador-num, .pg-chip .pg-contador-rot { display: block; }
+.pg-chip:hover { border-color: var(--muted); }
+.pg-chip:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.pg-chip.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+.pg-chip.active .pg-contador-rot { color: #fff; }
+
+.pg-subchips { display: flex; flex-wrap: wrap; gap: 6px; margin: -8px 0 16px; }
+.pg-subchips[hidden] { display: none; }
+.pg-subchip { min-height: 44px; display: inline-flex; align-items: center; gap: 6px; }
+.pg-subchip-num { font-family: var(--display); font-size: 16px; font-weight: 800; letter-spacing: 0; }
+
+/* Sem o seletor de tipo, a busca ocupa a linha toda. */
+.pg-filtros.pg-filtros-busca { grid-template-columns: 1fr; }
+
+.pg-c-tempo { font-family: var(--mono); font-weight: 700; white-space: nowrap; }
+
+@media (max-width: 700px) {
+    .pg-subchip { flex: 1 1 auto; justify-content: center; }
+    .pg-tabela .pg-c-tempo { text-align: right; }
+}
+
 /* Impressão — mesmo mecanismo de #print-content das outras folhas
    (a regra global esconde o resto da página). Fundo branco, texto preto,
    sempre a tabela (nunca os cartões do celular). */

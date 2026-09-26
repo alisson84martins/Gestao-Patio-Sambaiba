@@ -6,9 +6,15 @@
  * comparação nem indicador calculado (decisão do Alisson, 25/09: a análise
  * fica com a gerência).
  *
- * Duas rotas: /painel-gerencial/resumo (os contadores do topo) e
- * /painel-gerencial/eventos (a lista de registros). As abas Tudo · Portaria ·
- * Pátio são a MESMA lista; a aba só pré-filtra o módulo.
+ * Rotas: /painel-gerencial/resumo (os chips do topo), /painel-gerencial/eventos
+ * (a lista de registros) e /painel-gerencial/dentro-agora (a lista do chip
+ * "Dentro agora"). Abas Portaria · Pátio (26/09: saiu a aba Tudo).
+ *
+ * Um assunto por vez (26/09): os chips do topo são filtros. Clicou, a
+ * tabela mostra só aquele grupo; clicou de novo, volta tudo da aba. Um chip
+ * ativo por vez; trocar de aba limpa. Entradas e Saídas abrem a fileira de
+ * sub-chips de categoria (D1). Regra de ouro: o número do chip = as linhas
+ * que ele mostra — por isso o backend conta e filtra pelo MESMO GRUPOS.
  *
  * Dia = dia do RELÓGIO em São Paulo. As datas saem de dataLocalISO()
  * (⛔ nunca toISOString().slice(0,10) — erra o dia depois das 21h); quem corta
@@ -83,18 +89,40 @@ const CATEGORIAS = {
     BAIXADO: 'Baixado',
 };
 
-// Faixa do topo: só número e rótulo. "Dentro agora" só existe quando o
-// período inclui hoje (o backend devolve null nos outros).
-const CONTADORES = [
-    { chave: 'entradas', rotulo: 'Entradas' },
-    { chave: 'saidas', rotulo: 'Saídas' },
-    { chave: 'dentro_agora', rotulo: 'Dentro agora' },
-    { chave: 'recolhidas', rotulo: 'Recolhidas' },
-    { chave: 'avarias', rotulo: 'Avarias' },
-    { chave: 'alocacoes', rotulo: 'Alocações' },
-    { chave: 'movimentacoes', rotulo: 'Movimentações' },
-    { chave: 'retiradas', rotulo: 'Retiradas' },
+// Chips de cada aba — `grupo` é o que vai para a API (GRUPOS do backend);
+// `chave` é onde o /resumo põe o número; `nenhum` é o começo do texto de
+// lista vazia. DENTRO não é grupo da API: troca a tabela pela lista de
+// /dentro-agora (D2) e só aparece quando o período inclui hoje (o backend
+// devolve dentro_agora = null nos outros).
+const DENTRO = 'DENTRO';
+const CHIPS = {
+    PORTARIA: [
+        { grupo: 'ENTRADAS', chave: 'entradas', rotulo: 'Entradas', nenhum: 'Nenhuma entrada', categorias: true },
+        { grupo: 'SAIDAS', chave: 'saidas', rotulo: 'Saídas', nenhum: 'Nenhuma saída', categorias: true },
+        { grupo: DENTRO, chave: 'dentro_agora', rotulo: 'Dentro agora', nenhum: 'Nenhum veículo dentro agora' },
+        { grupo: 'RA', chave: 'ra', rotulo: 'RA', nenhum: 'Nenhuma RA' },
+        { grupo: 'AVARIAS', chave: 'avarias', rotulo: 'Avarias', nenhum: 'Nenhuma avaria' },
+    ],
+    PATIO: [
+        { grupo: 'ALOCACOES', chave: 'alocacoes', rotulo: 'Alocações', nenhum: 'Nenhuma alocação' },
+        { grupo: 'MOVIMENTACOES', chave: 'movimentacoes', rotulo: 'Movimentações', nenhum: 'Nenhuma movimentação' },
+        { grupo: 'RETIRADAS', chave: 'retiradas', rotulo: 'Retiradas', nenhum: 'Nenhuma retirada' },
+    ],
+};
+
+// Sub-chips de Entradas/Saídas (D1), na ordem da tela. `de` completa o texto
+// de lista vazia ("Nenhuma entrada de terceiro neste período.").
+const SUB_CHIPS = [
+    { categoria: 'FUNCIONARIO', rotulo: 'Funcionário', de: 'de funcionário', arquivo: 'funcionario' },
+    { categoria: 'FROTA_APOIO', rotulo: 'Frota de apoio', de: 'da frota de apoio', arquivo: 'frota-apoio' },
+    { categoria: 'TERCEIRO', rotulo: 'Terceiro', de: 'de terceiro', arquivo: 'terceiro' },
+    { categoria: 'RESERVADO', rotulo: 'Reservado', de: 'de reservado', arquivo: 'reservado' },
 ];
+
+const ABAS = { PORTARIA: 'Portaria', PATIO: 'Pátio' };
+
+const CABECALHO_EVENTOS = ['Hora', 'Tipo', 'Veículo', 'Detalhe', 'Pessoa', 'Registrado por'];
+const CABECALHO_DENTRO = ['Entrou em', 'Veículo', 'Categoria', 'Pessoa', 'Há quanto tempo'];
 
 // ─── Estado ─────────────────────────────────────────────────────────────
 const estado = {
@@ -106,7 +134,9 @@ const estado = {
     eventos: [],
     chaves: new Set(),
     temMais: false,
-    filtros: { modulo: '', tipo: '', busca: '' },   // modulo = a aba
+    dentro: [],             // lista do chip Dentro agora
+    // modulo = a aba; grupo = chip ativo ('' = nenhum); categoria = sub-chip
+    filtros: { modulo: 'PORTARIA', grupo: '', categoria: '', busca: '' },
     geracao: 0,             // descarta resposta atrasada de um período anterior
 };
 
@@ -209,6 +239,40 @@ function ignoravel(err) {
     return err instanceof ApiError && err.status === 401;
 }
 
+function chipAtivo() {
+    return CHIPS[estado.filtros.modulo].find((c) => c.grupo === estado.filtros.grupo) ?? null;
+}
+
+function subChipAtivo() {
+    return SUB_CHIPS.find((s) => s.categoria === estado.filtros.categoria) ?? null;
+}
+
+function modoDentro() {
+    return estado.filtros.grupo === DENTRO;
+}
+
+function diaSP(iso) {
+    return new Date(iso).toLocaleDateString('en-CA', { timeZone: FUSO });
+}
+
+function fmtPermanencia(iso) {
+    const minutos = Math.max(0, Math.floor((Date.now() - new Date(iso).getTime()) / 60000));
+    const h = Math.floor(minutos / 60);
+    const m = minutos % 60;
+    return h ? `${h} h ${String(m).padStart(2, '0')} min` : `${m} min`;
+}
+
+// "Aba: Portaria · Filtro: Entradas · Terceiro" — usado na impressão.
+function textoFiltroAtivo() {
+    const chip = chipAtivo();
+    const sub = subChipAtivo();
+    return [
+        `Aba: ${ABAS[estado.filtros.modulo]}`,
+        chip && `Filtro: ${chip.rotulo}${sub ? ` · ${sub.rotulo}` : ''}`,
+        estado.filtros.busca && `Busca: "${estado.filtros.busca}"`,
+    ].filter(Boolean).join(' · ');
+}
+
 // ─── Header ─────────────────────────────────────────────────────────────
 function initHeader() {
     const user = getCurrentUser();
@@ -240,14 +304,54 @@ function renderTopo() {
         [periodoTxt && `Período: ${periodoTxt}`, partes.join(' · ')].filter(Boolean).join('  —  ') || '—';
 }
 
-function renderContadores(r) {
+// Os chips da aba atual, como botões (liga/desliga). O visual continua o de
+// antes (número grande + rótulo); o ativo fica vermelho, como .filtro-btn.
+// Re-renderiza a cada /resumo (30 s) — devolve o foco ao mesmo chip.
+function renderContadores() {
+    const caixa = document.getElementById('pg-contadores');
+    const r = estado.resumo;
+    if (!r) {
+        caixa.innerHTML = '<div class="patio-loading">Carregando…</div>';
+        renderSubChips();
+        return;
+    }
+    const focado = document.activeElement?.closest?.('#pg-contadores [data-grupo]')?.dataset.grupo;
     const valores = { ...r.contadores, dentro_agora: r.dentro_agora };
-    document.getElementById('pg-contadores').innerHTML = CONTADORES
-        .filter((c) => c.chave !== 'dentro_agora' || r.dentro_agora !== null)
-        .map((c) => `<div class="pg-contador">
-            <div class="pg-contador-num">${fmtNumero(valores[c.chave])}</div>
-            <div class="pg-contador-rot">${c.rotulo}</div>
-        </div>`).join('');
+    caixa.innerHTML = CHIPS[estado.filtros.modulo]
+        .filter((c) => c.grupo !== DENTRO || r.dentro_agora !== null)
+        .map((c) => {
+            const ativo = c.grupo === estado.filtros.grupo;
+            return `<button type="button" class="pg-contador pg-chip${ativo ? ' active' : ''}"
+                    data-grupo="${c.grupo}" aria-pressed="${ativo}">
+                <span class="pg-contador-num">${fmtNumero(valores[c.chave])}</span>
+                <span class="pg-contador-rot">${c.rotulo}</span>
+            </button>`;
+        }).join('');
+    if (focado) caixa.querySelector(`[data-grupo="${focado}"]`)?.focus();
+    renderSubChips();
+}
+
+// Segunda fileira (D1): só com Entradas ou Saídas ativo.
+function renderSubChips() {
+    const caixa = document.getElementById('pg-subchips');
+    const chip = chipAtivo();
+    const contagem = estado.resumo?.categorias?.[chip?.chave];
+    if (!chip?.categorias || !contagem) {
+        caixa.hidden = true;
+        caixa.innerHTML = '';
+        return;
+    }
+    const focado = document.activeElement?.closest?.('#pg-subchips [data-categoria]')?.dataset.categoria;
+    caixa.hidden = false;
+    caixa.setAttribute('aria-label', `Categorias de ${chip.rotulo}`);
+    caixa.innerHTML = SUB_CHIPS.map((s) => {
+        const ativo = s.categoria === estado.filtros.categoria;
+        return `<button type="button" class="filtro-btn pg-subchip${ativo ? ' active' : ''}"
+                data-categoria="${s.categoria}" aria-pressed="${ativo}">
+            ${s.rotulo} <span class="pg-subchip-num">${fmtNumero(contagem[s.categoria])}</span>
+        </button>`;
+    }).join('');
+    if (focado) caixa.querySelector(`[data-categoria="${focado}"]`)?.focus();
 }
 
 async function carregarResumo() {
@@ -259,7 +363,13 @@ async function carregarResumo() {
         estado.periodo = r.periodo;
         mostrarErro('');
         renderTopo();
-        renderContadores(r);
+        // Dentro agora ativo e o período deixou de incluir hoje: o chip some,
+        // então o filtro também sai (senão a tabela ficaria presa nele).
+        if (modoDentro() && r.dentro_agora === null) {
+            estado.filtros.grupo = '';
+            recarregarEventos();
+        }
+        renderContadores();
     } catch (err) {
         if (ignoravel(err)) return;
         mostrarErro(err.message || 'Falha ao carregar os contadores.');
@@ -294,15 +404,34 @@ function criarLinha(ev, novo = false) {
     return tr;
 }
 
-function linhaVazia() {
-    return '<tr class="pg-vazio"><td colspan="6">Nenhum registro com esses filtros no período.</td></tr>';
+// A lista vazia fala do assunto: "Nenhuma entrada de terceiro neste período."
+function textoVazio() {
+    const chip = chipAtivo();
+    const sub = subChipAtivo();
+    const busca = estado.filtros.busca ? ' com essa busca' : '';
+    if (!chip) {
+        const doModulo = estado.filtros.modulo === 'PATIO' ? 'do Pátio' : 'da Portaria';
+        return `Nenhum registro ${doModulo}${busca} neste período.`;
+    }
+    if (chip.grupo === DENTRO) return `${chip.nenhum}${busca}.`;
+    return `${chip.nenhum}${sub ? ` ${sub.de}` : ''}${busca} neste período.`;
+}
+
+function linhaVazia(colunas) {
+    return `<tr class="pg-vazio"><td colspan="${colunas}">${escapeHtml(textoVazio())}</td></tr>`;
+}
+
+function renderCabecalho(colunas) {
+    document.getElementById('pg-cabecalho').innerHTML =
+        `<tr>${colunas.map((c) => `<th scope="col">${c}</th>`).join('')}</tr>`;
 }
 
 function renderListaInteira() {
+    renderCabecalho(CABECALHO_EVENTOS);
     const tbody = document.getElementById('pg-lista');
     tbody.innerHTML = '';
     if (estado.eventos.length === 0) {
-        tbody.innerHTML = linhaVazia();
+        tbody.innerHTML = linhaVazia(CABECALHO_EVENTOS.length);
     } else {
         const frag = document.createDocumentFragment();
         for (const ev of estado.eventos) frag.appendChild(criarLinha(ev));
@@ -312,14 +441,69 @@ function renderListaInteira() {
 }
 
 function paramsEventos(extra = {}) {
-    return qs({ ...periodoDoPreset(), ...estado.filtros, limit: LIMITE_PAGINA, ...extra });
+    const { modulo, grupo, categoria, busca } = estado.filtros;
+    return qs({ ...periodoDoPreset(), modulo, grupo, categoria, busca, limit: LIMITE_PAGINA, ...extra });
+}
+
+// ─── Dentro agora (D2) ──────────────────────────────────────────────────
+// Mesma regra da Portaria (D18, 36 h), calculada no backend. Lista curta:
+// sem "Carregar mais"; o polling recarrega inteira (o tempo muda sozinho).
+function linhaDentro(d) {
+    const quando = diaSP(d.entrou_em) === dataLocalISO() ? fmtHora(d.entrou_em) : fmtDiaHora(d.entrou_em);
+    const pessoa = [d.pessoa_nome, d.pessoa_re && `RE ${d.pessoa_re}`].filter(Boolean).join(' · ');
+    return `
+        <td class="pg-c-hora">${escapeHtml(quando)}</td>
+        <td class="pg-c-veiculo">${escapeHtml(d.identificacao || '—')}</td>
+        <td class="pg-c-tipo"><span class="pg-marca pg-marca-portaria" aria-hidden="true"></span>${escapeHtml(rotuloCategoria(d.categoria))}</td>
+        <td class="pg-c-pessoa">${escapeHtml(pessoa)}</td>
+        <td class="pg-c-detalhe pg-c-tempo">${escapeHtml(fmtPermanencia(d.entrou_em))}</td>`;
+}
+
+function renderDentro() {
+    renderCabecalho(CABECALHO_DENTRO);
+    const tbody = document.getElementById('pg-lista');
+    tbody.innerHTML = '';
+    document.getElementById('pg-mais').hidden = true;
+    if (estado.dentro.length === 0) {
+        tbody.innerHTML = linhaVazia(CABECALHO_DENTRO.length);
+        return;
+    }
+    const frag = document.createDocumentFragment();
+    for (const d of estado.dentro) {
+        const tr = document.createElement('tr');
+        tr.className = 'pg-ev';
+        tr.tabIndex = 0;
+        tr.innerHTML = linhaDentro(d);
+        tr.addEventListener('click', () => abrirDetalheDentro(d));
+        tr.addEventListener('keydown', (e) => { if (e.key === 'Enter') abrirDetalheDentro(d); });
+        frag.appendChild(tr);
+    }
+    tbody.appendChild(frag);
+}
+
+async function carregarDentro() {
+    const geracao = estado.geracao;
+    try {
+        const r = await apiGet(`/painel-gerencial/dentro-agora?${qs({ busca: estado.filtros.busca })}`);
+        if (geracao !== estado.geracao || !modoDentro()) return;
+        estado.dentro = r.dentro;
+        renderDentro();
+    } catch (err) {
+        if (ignoravel(err)) return;
+        mostrarErro(err.message || 'Falha ao carregar quem está dentro.');
+    }
+}
+
+// A tabela mostra registros ou, com Dentro agora ativo, a lista de dentro.
+function carregarLista() {
+    return modoDentro() ? carregarDentro() : carregarEventos();
 }
 
 async function carregarEventos() {
     const geracao = estado.geracao;
     try {
         const r = await apiGet(`/painel-gerencial/eventos?${paramsEventos()}`);
-        if (geracao !== estado.geracao) return;
+        if (geracao !== estado.geracao || modoDentro()) return;
         // Os contadores podem chegar depois — sem isto a primeira lista de um
         // período de vários dias sairia só com a hora, sem o dia.
         estado.periodo = estado.periodo ?? r.periodo;
@@ -361,6 +545,7 @@ async function carregarMais() {
 
 async function buscarNovos() {
     if (!estado.periodo?.inclui_hoje) return;
+    if (modoDentro()) { await carregarDentro(); return; }
     const maisRecente = estado.eventos[0];
     const desde = maisRecente
         ? new Date(new Date(maisRecente.momento).getTime() - POLLING_SOBREPOSICAO_MS).toISOString()
@@ -368,7 +553,7 @@ async function buscarNovos() {
     const geracao = estado.geracao;
     try {
         const r = await apiGet(`/painel-gerencial/eventos?${paramsEventos(desde ? { desde } : {})}`);
-        if (geracao !== estado.geracao) return;
+        if (geracao !== estado.geracao || modoDentro()) return;
         const novos = r.eventos.filter((ev) => !estado.chaves.has(chaveDe(ev)));
         if (novos.length === 0) return;
         const tbody = document.getElementById('pg-lista');
@@ -404,42 +589,63 @@ function abrirDetalhe(ev) {
     document.getElementById('pg-modal').classList.add('open');
 }
 
+function abrirDetalheDentro(d) {
+    const campos = [
+        ['Entrou em', new Date(d.entrou_em).toLocaleString('pt-BR', { timeZone: FUSO })],
+        ['Há quanto tempo', fmtPermanencia(d.entrou_em)],
+        ['Placa / prefixo', d.identificacao],
+        ['Categoria', rotuloCategoria(d.categoria)],
+        ['Pessoa', [d.pessoa_nome, d.pessoa_re && `RE ${d.pessoa_re}`].filter(Boolean).join(' · ')],
+        ['Detalhe', d.detalhe],
+    ].filter(([, v]) => v);
+    document.getElementById('pg-modal-titulo').textContent = `Dentro agora · ${d.identificacao || ''}`;
+    document.getElementById('pg-modal-corpo').innerHTML = campos
+        .map(([k, v]) => `<dt>${escapeHtml(k)}</dt><dd>${escapeHtml(v)}</dd>`).join('');
+    document.getElementById('pg-modal').classList.add('open');
+}
+
 function fecharDetalhe() {
     document.getElementById('pg-modal').classList.remove('open');
 }
 
-// ─── Abas e filtros ─────────────────────────────────────────────────────
-function preencherTipos() {
-    const sel = document.getElementById('pg-f-tipo');
-    const modulo = estado.filtros.modulo;
-    const atual = estado.filtros.tipo;
-    const opcoes = Object.entries(TIPOS).filter(([, t]) => !modulo || t.modulo === modulo);
-    sel.innerHTML = '<option value="">Todos os tipos</option>'
-        + opcoes.map(([k, t]) => `<option value="${k}">${escapeHtml(t.rotulo)}</option>`).join('');
-    if (opcoes.some(([k]) => k === atual)) sel.value = atual;
-    else estado.filtros.tipo = '';
-}
-
+// ─── Abas, chips e busca ────────────────────────────────────────────────
 function initAbas() {
     const botoes = document.querySelectorAll('.pg-abas [data-aba]');
     botoes.forEach((b) => b.addEventListener('click', () => {
         if (estado.filtros.modulo === b.dataset.aba) return;
         estado.filtros.modulo = b.dataset.aba;
+        // Trocar de aba limpa o chip (cada aba só tem os seus).
+        estado.filtros.grupo = '';
+        estado.filtros.categoria = '';
         botoes.forEach((x) => {
             x.classList.toggle('active', x === b);
             x.setAttribute('aria-selected', x === b ? 'true' : 'false');
         });
-        preencherTipos();
+        renderContadores();
         recarregarEventos();
     }));
 }
 
-function initFiltros() {
-    preencherTipos();
-    document.getElementById('pg-f-tipo').addEventListener('change', (e) => {
-        estado.filtros.tipo = e.target.value;
+// Clique liga; clique no mesmo desliga e volta tudo da aba. Um por vez.
+function initChips() {
+    document.getElementById('pg-contadores').addEventListener('click', (e) => {
+        const b = e.target.closest('[data-grupo]');
+        if (!b) return;
+        estado.filtros.grupo = estado.filtros.grupo === b.dataset.grupo ? '' : b.dataset.grupo;
+        estado.filtros.categoria = '';
+        renderContadores();
         recarregarEventos();
     });
+    document.getElementById('pg-subchips').addEventListener('click', (e) => {
+        const b = e.target.closest('[data-categoria]');
+        if (!b) return;
+        estado.filtros.categoria = estado.filtros.categoria === b.dataset.categoria ? '' : b.dataset.categoria;
+        renderSubChips();
+        recarregarEventos();
+    });
+}
+
+function initFiltros() {
     let espera = null;
     document.getElementById('pg-f-busca').addEventListener('input', (e) => {
         clearTimeout(espera);
@@ -453,7 +659,7 @@ function initFiltros() {
 
 function recarregarEventos() {
     estado.geracao += 1;
-    carregarEventos();
+    carregarLista();
 }
 
 // ─── Período ────────────────────────────────────────────────────────────
@@ -491,10 +697,13 @@ function initPeriodo() {
 
 async function recarregarTudo() {
     pararPolling();
+    // Dentro agora só existe com o período incluindo hoje.
+    if (modoDentro() && periodoDoPreset().ate !== dataLocalISO()) estado.filtros.grupo = '';
     estado.geracao += 1;
     estado.resumo = null;
     estado.periodo = null;
-    await Promise.all([carregarResumo(), carregarEventos()]);
+    renderContadores();
+    await Promise.all([carregarResumo(), carregarLista()]);
     iniciarPolling();
 }
 
@@ -530,7 +739,8 @@ async function exportarCsv() {
     const btn = document.getElementById('pg-btn-csv');
     btn.disabled = true;
     try {
-        const params = qs({ ...periodoDoPreset(), ...estado.filtros });
+        const { modulo, grupo, categoria, busca } = estado.filtros;
+        const params = qs({ ...periodoDoPreset(), modulo, grupo, categoria, busca });
         const resp = await fetch(`${API_BASE_URL}/painel-gerencial/exportar.csv?${params}`, {
             headers: { Authorization: `Bearer ${localStorage.getItem(TOKEN_KEY)}` },
         });
@@ -564,12 +774,7 @@ async function exportarCsv() {
 // Sai o cabeçalho (período, emissão, filtros), os contadores e a lista
 // filtrada — a que está carregada na tela.
 function imprimir() {
-    const aba = document.querySelector('.pg-abas .active')?.textContent || 'Tudo';
-    const filtros = [
-        `Aba: ${aba}`,
-        estado.filtros.tipo && `Tipo: ${rotuloTipo(estado.filtros.tipo)}`,
-        estado.filtros.busca && `Busca: "${estado.filtros.busca}"`,
-    ].filter(Boolean).join(' · ');
+    const filtros = textoFiltroAtivo();
     const emitido = new Date().toLocaleString('pt-BR', { timeZone: FUSO });
     const qtd = estado.eventos.length;
     const nota = estado.temMais
@@ -609,6 +814,7 @@ function init() {
     initHeader();
     initPeriodo();
     initAbas();
+    initChips();
     initFiltros();
     document.getElementById('pg-btn-csv').addEventListener('click', exportarCsv);
     document.getElementById('pg-btn-imprimir').addEventListener('click', imprimir);

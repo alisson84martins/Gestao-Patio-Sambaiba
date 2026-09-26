@@ -73,25 +73,24 @@
 
     <div class="pg-erro" id="pg-erro" hidden></div>
 
-    <!-- Contadores do período: só número e rótulo, iguais em todas as abas -->
-    <div class="pg-contadores" id="pg-contadores"><div class="patio-loading">Carregando…</div></div>
-
     <div class="pg-abas" role="tablist">
-        <button type="button" class="filtro-btn active" role="tab" aria-selected="true" data-aba="">Tudo</button>
-        <button type="button" class="filtro-btn" role="tab" aria-selected="false" data-aba="PORTARIA">Portaria</button>
+        <button type="button" class="filtro-btn active" role="tab" aria-selected="true" data-aba="PORTARIA">Portaria</button>
         <button type="button" class="filtro-btn" role="tab" aria-selected="false" data-aba="PATIO">Pátio</button>
     </div>
 
-    <!-- A mesma lista de registros nas três abas; a aba só pré-filtra o módulo -->
+    <!-- Chips da aba: número do período e filtro ao mesmo tempo (um por vez) -->
+    <div class="pg-contadores" id="pg-contadores" role="group" aria-label="Filtrar por assunto"><div class="patio-loading">Carregando…</div></div>
+    <!-- Sub-chips de categoria: só com Entradas ou Saídas ativo -->
+    <div class="pg-subchips" id="pg-subchips" role="group" hidden></div>
+
     <section class="pg-registros">
-        <div class="pg-filtros">
-            <select class="form-input" id="pg-f-tipo" aria-label="Tipo"></select>
+        <div class="pg-filtros pg-filtros-busca">
             <input type="search" class="form-input" id="pg-f-busca" maxlength="60"
                    placeholder="Placa, prefixo, RE ou nome" aria-label="Buscar">
         </div>
         <div class="pg-tabela-caixa">
             <table class="pg-tabela">
-                <thead>
+                <thead id="pg-cabecalho">
                     <tr>
                         <th scope="col">Hora</th>
                         <th scope="col">Tipo</th>
