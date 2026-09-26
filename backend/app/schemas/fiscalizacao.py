@@ -43,6 +43,31 @@ class CatalogoLinhaItem(ORMBase):
 
 
 # ============================================================================
+# POSTOS — leitura dos postos da Escala de Fiscais (coordenadoria), servida
+# pela própria Fiscalização (ver GET /fiscalizacao/postos no router).
+# ============================================================================
+
+class PostoLinhaItem(BaseModel):
+    """Uma linha do posto. `codigo` é o da Escala com `/` trocado por `-`
+    (formato do catálogo, da grade e do ICV); `codigo_escala` é o texto
+    como a Escala grava. `no_catalogo=False` = código inexistente ou
+    inativo no catálogo — a linha aparece, mas não pode ser marcada."""
+
+    codigo: str
+    codigo_escala: str
+    nome: Optional[str] = None
+    no_catalogo: bool
+
+
+class PostoFiscalizacaoRead(BaseModel):
+    posto_id: UUID
+    lado: Terminal
+    ponto_final_id: Optional[UUID] = None
+    ponto_final_nome: Optional[str] = None
+    linhas: list[PostoLinhaItem] = Field(default_factory=list)
+
+
+# ============================================================================
 # PONTO / PONTO_LINHA (D9, D11) — catálogo
 # ============================================================================
 

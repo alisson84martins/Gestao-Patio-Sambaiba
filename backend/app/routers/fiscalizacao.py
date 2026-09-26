@@ -25,6 +25,7 @@ from app.core.deps import exige
 from app.core.uploads import ler_upload_limitado
 from app.models.cadastro import Funcionario
 from app.models.catalogos import Linha
+from app.models.escala_fiscais import EscalaFiscalPontoFinal, EscalaFiscalPosto, EscalaFiscalPostoLinha
 from app.models.fiscalizacao import (
     AcaoCoordenacao, Baita, EventoTurno, LinhaCoordenador, ObservacaoTurno, Parametro,
     PartidaProgramada, Ponto, PontoLinha, RegistroPartida, Turno, TurnoLinha,
@@ -36,7 +37,7 @@ from app.schemas.fiscalizacao import (
     MinhaLinhaCreate, MinhaLinhaItem, MotivoLivreItem, ObservacaoTurnoCreate, ObservacaoTurnoRead,
     PainelAoVivoItem, PainelLinhaResponse, PainelPartidaItem, PainelTurnoAbertoItem,
     ParametrosRead, PartidaEstadoItem, PendenciaItem, Periodo, PlacarLinhaRead, PontoCreate, PontoRead,
-    PontoUpdate, PrioridadeLinhaItem, ProntidaoResponse, RegistroPartidaRead,
+    PontoUpdate, PostoFiscalizacaoRead, PostoLinhaItem, PrioridadeLinhaItem, ProntidaoResponse, RegistroPartidaRead,
     RegistroPartidaUpsert, TipoDia, TurnoAbrirRequest, TurnoLinhaContagemUpdate, TurnoLinhaRead,
     TurnoRead, TurnoUpdateRequest,
 )
@@ -314,6 +315,87 @@ def catalogo_linhas(usuario: LeituraFiscalizacao, db: DbSession, incluir_inativa
     if not incluir_inativas:
         query = query.where(Linha.ativa.is_(True))
     return db.execute(query.order_by(Linha.codigo)).scalars().all()
+
+
+# ============================================================================
+# POSTOS — leitura dos postos da Escala de Fiscais, servida por aqui
+# ============================================================================
+
+def codigo_escala_para_catalogo(txt: str) -> str:
+    """A Escala grava a linha como a planilha escreve, com barra
+    (`1156/10`, `900A/21`); catálogo, grade, ICV e turno_linha usam hífen
+    (`1156-10`). Troca SÓ o separador. ⛔ Nunca completa nem adivinha
+    código: `1726` continua `1726` (e cai fora do catálogo, com aviso)."""
+    return (txt or "").strip().upper().replace("/", "-")
+
+
+def _postos_da_escala(db: Session, posto_ids: Optional[list[UUID]] = None) -> list[PostoFiscalizacaoRead]:
+    """Postos ATIVOS da Escala com linhas (na `ordem`), nome do ponto final
+    e situação de cada linha no catálogo. Ordem: ponto final por nome (sem
+    ponto final no fim), depois lado, depois primeira linha."""
+    query = select(EscalaFiscalPosto).where(EscalaFiscalPosto.ativo.is_(True))
+    if posto_ids is not None:
+        query = query.where(EscalaFiscalPosto.id.in_(posto_ids))
+    postos = db.execute(query).scalars().all()
+    if not postos:
+        return []
+
+    pontos_finais = {
+        p.id: p.nome for p in db.execute(select(EscalaFiscalPontoFinal)).scalars().all()
+    }
+    linhas_por_posto: dict[UUID, list[str]] = {}
+    for pl in db.execute(
+        select(EscalaFiscalPostoLinha)
+        .where(EscalaFiscalPostoLinha.posto_id.in_([p.id for p in postos]))
+        .order_by(EscalaFiscalPostoLinha.ordem, EscalaFiscalPostoLinha.linha)
+    ).scalars().all():
+        linhas_por_posto.setdefault(pl.posto_id, []).append(pl.linha)
+
+    codigos = {codigo_escala_para_catalogo(txt) for lista in linhas_por_posto.values() for txt in lista}
+    catalogo = {
+        linha.codigo: linha
+        for linha in db.execute(select(Linha).where(Linha.codigo.in_(codigos))).scalars().all()
+    } if codigos else {}
+
+    resultado: list[PostoFiscalizacaoRead] = []
+    for posto in postos:
+        itens = []
+        for txt in linhas_por_posto.get(posto.id, []):
+            codigo = codigo_escala_para_catalogo(txt)
+            linha = catalogo.get(codigo)
+            itens.append(PostoLinhaItem(
+                codigo=codigo,
+                codigo_escala=txt,
+                nome=linha.nome if linha is not None else None,
+                no_catalogo=linha is not None and bool(linha.ativa),
+            ))
+        resultado.append(PostoFiscalizacaoRead(
+            posto_id=posto.id,
+            lado=posto.lado,
+            ponto_final_id=posto.ponto_final_id,
+            ponto_final_nome=pontos_finais.get(posto.ponto_final_id) if posto.ponto_final_id else None,
+            linhas=itens,
+        ))
+
+    resultado.sort(key=lambda p: (
+        p.ponto_final_nome is None,
+        (p.ponto_final_nome or "").casefold(),
+        p.lado,
+        p.linhas[0].codigo if p.linhas else "",
+    ))
+    return resultado
+
+
+@router.get(
+    "/postos", response_model=list[PostoFiscalizacaoRead],
+    summary="Postos ativos da Escala de Fiscais, com código e nome de cada linha",
+)
+def listar_postos(usuario: LeituraFiscalizacao, db: DbSession):
+    """Mesmo raciocínio de GET /catalogo/linhas: o fiscal não tem o recurso
+    `escala_fiscal`, então não pode depender das rotas /escala-fiscais/*.
+    Só leitura — quem cadastra posto e linha é o coordenador na aba Escala
+    de Fiscais → Postos; nenhuma FK nova (regra de fronteira)."""
+    return _postos_da_escala(db)
 
 
 # ============================================================================

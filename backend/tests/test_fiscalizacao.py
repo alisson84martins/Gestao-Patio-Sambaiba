@@ -37,6 +37,7 @@ from app.models.fiscalizacao import (
     RegistroPartida, Turno, TurnoLinha,
 )
 from app.models.enums import SetorEnum
+from app.models.escala_fiscais import EscalaFiscalPontoFinal, EscalaFiscalPosto, EscalaFiscalPostoLinha
 from app.models.portaria import RecolhidaAnormal
 from app.routers import fiscalizacao as fiscalizacao_router_mod
 from app.services.fechamento_fiscal import calcular_fechamento_linha, montar_fechamento
@@ -64,6 +65,7 @@ _TABELAS = [
     Ponto.__table__, PontoLinha.__table__, Turno.__table__, TurnoLinha.__table__,
     PartidaProgramada.__table__, RegistroPartida.__table__, EventoTurno.__table__, ObservacaoTurno.__table__,
     Baita.__table__, RecolhidaAnormal.__table__, LinhaCoordenador.__table__, Linha.__table__,
+    EscalaFiscalPontoFinal.__table__, EscalaFiscalPosto.__table__, EscalaFiscalPostoLinha.__table__,
 ]
 
 _PERMISSOES = {
@@ -95,6 +97,7 @@ def ambiente():
     def _attach(dbapi_conn, _):
         dbapi_conn.execute("ATTACH DATABASE ':memory:' AS fiscalizacao")
         dbapi_conn.execute("ATTACH DATABASE ':memory:' AS portaria")
+        dbapi_conn.execute("ATTACH DATABASE ':memory:' AS coordenadoria")
         dbapi_conn.execute("PRAGMA foreign_keys=ON")
 
     Base.metadata.create_all(engine, tables=_TABELAS)
@@ -192,6 +195,39 @@ def _criar_evento(ambiente, **campos) -> None:
     with Session(ambiente["engine"]) as db:
         db.add(EventoTurno(id=uuid4(), **campos))
         db.commit()
+
+
+@pytest.fixture
+def catalogo_escala(ambiente):
+    """Duas linhas a mais no catálogo para os testes de posto — fora do
+    fixture principal para não mexer no teste que confere o catálogo exato."""
+    with Session(ambiente["engine"]) as db:
+        db.add(Linha(id=uuid4(), codigo="1156-10", nome="LINHA FICTICIA UM", setor=SetorEnum.E2, ativa=True))
+        db.add(Linha(id=uuid4(), codigo="2033-10", nome="LINHA FICTICIA DOIS", setor=SetorEnum.E2, ativa=True))
+        db.commit()
+    return ambiente
+
+
+def _criar_ponto_final(ambiente, nome: str) -> UUID:
+    ponto_final_id = uuid4()
+    with Session(ambiente["engine"]) as db:
+        db.add(EscalaFiscalPontoFinal(id=ponto_final_id, nome=nome, ativo=True))
+        db.commit()
+    return ponto_final_id
+
+
+def _criar_posto(ambiente, *linhas: str, lado="TP", ponto_final_id=None, ativo=True) -> UUID:
+    """Posto da Escala de Fiscais semeado direto na sessão — a Fiscalização
+    só LÊ; quem cadastra é a aba Escala de Fiscais → Postos. As linhas vão
+    no formato da Escala (com barra), na ordem dada."""
+    posto_id = uuid4()
+    with Session(ambiente["engine"]) as db:
+        db.add(EscalaFiscalPosto(id=posto_id, lado=lado, ponto_final_id=ponto_final_id, ativo=ativo))
+        db.flush()
+        for ordem, linha in enumerate(linhas, start=1):
+            db.add(EscalaFiscalPostoLinha(posto_id=posto_id, linha=linha, ordem=ordem))
+        db.commit()
+    return posto_id
 
 
 class _DatetimeFixo(datetime):
@@ -1210,3 +1246,71 @@ def test_linhas_sem_coordenador_com_coordenador_nao_aparece(ambiente):
 def test_linhas_sem_coordenador_fiscal_nega_403(ambiente):
     _como(ambiente, "FISCAL")
     assert ambiente["http"].get("/fiscalizacao/painel/linhas-sem-coordenador").status_code == 403
+
+
+# ============================================================================
+# Postos da Escala de Fiscais — GET /fiscalizacao/postos (fonte única)
+# ============================================================================
+
+def test_codigo_escala_para_catalogo_troca_so_o_separador():
+    conv = fiscalizacao_router_mod.codigo_escala_para_catalogo
+    assert conv("1156/10") == "1156-10"
+    assert conv(" 900a/21 ") == "900A-21"
+    assert conv("1156-10") == "1156-10"
+    # ⛔ nunca completa nem adivinha o sufixo
+    assert conv("1726") == "1726"
+
+
+def test_get_postos_converte_codigo_e_traz_nome_do_catalogo(catalogo_escala):
+    ambiente = catalogo_escala
+    santana = _criar_ponto_final(ambiente, "Santana")
+    _criar_posto(ambiente, "1156/10", "2033/10", lado="TS", ponto_final_id=santana)
+    _como(ambiente, "FISCAL")
+    resp = ambiente["http"].get("/fiscalizacao/postos")
+    assert resp.status_code == 200, resp.text
+    postos = resp.json()
+    assert len(postos) == 1
+    assert postos[0]["lado"] == "TS"
+    assert postos[0]["ponto_final_nome"] == "Santana"
+    assert postos[0]["linhas"] == [
+        {"codigo": "1156-10", "codigo_escala": "1156/10", "nome": "LINHA FICTICIA UM", "no_catalogo": True},
+        {"codigo": "2033-10", "codigo_escala": "2033/10", "nome": "LINHA FICTICIA DOIS", "no_catalogo": True},
+    ]
+
+
+def test_get_postos_nao_mostra_posto_inativo(ambiente):
+    _criar_posto(ambiente, "1156/10", ativo=False)
+    ativo = _criar_posto(ambiente, "2033/10")
+    _como(ambiente, "FISCAL")
+    postos = ambiente["http"].get("/fiscalizacao/postos").json()
+    assert [p["posto_id"] for p in postos] == [str(ativo)]
+
+
+def test_get_postos_linha_fora_do_catalogo_vem_marcada_e_sem_adivinhar(ambiente):
+    # "1726" sem sufixo NÃO vira "1726-10" (que existe no catálogo); a
+    # inativa 9999/10 também sai com no_catalogo=False.
+    _criar_posto(ambiente, "1726", "9999/10", "1234/10")
+    _como(ambiente, "FISCAL")
+    linhas = ambiente["http"].get("/fiscalizacao/postos").json()[0]["linhas"]
+    assert [(l["codigo"], l["no_catalogo"]) for l in linhas] == [
+        ("1726", False), ("9999-10", False), ("1234-10", False),
+    ]
+    assert linhas[0]["nome"] is None
+    assert linhas[2]["nome"] is None
+
+
+def test_get_postos_ordena_por_ponto_final_lado_e_sem_ponto_final_no_fim(ambiente):
+    zeta = _criar_ponto_final(ambiente, "Zeta")
+    alfa = _criar_ponto_final(ambiente, "Alfa")
+    sem = _criar_posto(ambiente, "1156/10")
+    z_tp = _criar_posto(ambiente, "2033/10", lado="TP", ponto_final_id=zeta)
+    a_ts = _criar_posto(ambiente, "1156/10", lado="TS", ponto_final_id=alfa)
+    a_tp = _criar_posto(ambiente, "2033/10", lado="TP", ponto_final_id=alfa)
+    _como(ambiente, "FISCAL")
+    ids = [p["posto_id"] for p in ambiente["http"].get("/fiscalizacao/postos").json()]
+    assert ids == [str(a_tp), str(a_ts), str(z_tp), str(sem)]
+
+
+def test_get_postos_sem_permissao_de_fiscalizacao_nega_403(ambiente):
+    ambiente["http"].app.dependency_overrides[ambiente["leitura"]] = _negar()
+    assert ambiente["http"].get("/fiscalizacao/postos").status_code == 403
