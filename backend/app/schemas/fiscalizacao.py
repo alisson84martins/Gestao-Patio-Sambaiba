@@ -104,14 +104,16 @@ class PontoUpdate(BaseModel):
 # ============================================================================
 
 class TurnoAbrirRequest(BaseModel):
-    """POST /fiscalizacao/turnos — ponto, período, linhas confirmadas.
-    terminal, fiscal_re e data_referencia são derivados pelo backend, nunca
-    aceitos do cliente (terminal vem do ponto; fiscal_re e funcionario_id do
-    usuário logado; data_referencia de FUSO_OPERACAO)."""
+    """POST /fiscalizacao/turnos — postos da Escala de Fiscais, período e
+    linhas confirmadas. terminal, ponto_nome, fiscal_re e data_referencia são
+    derivados pelo backend, nunca aceitos do cliente (terminal = lado do
+    posto; fiscal_re e funcionario_id do usuário logado; data_referencia de
+    FUSO_OPERACAO). Lista vazia é recusada no router, com mensagem em
+    português, não aqui."""
 
-    ponto_codigo: str = Field(..., min_length=1, max_length=20)
+    posto_ids: list[UUID]
     periodo: Periodo
-    linhas: list[str] = Field(..., min_length=1)
+    linhas: list[str]
 
 
 class TurnoUpdateRequest(BaseModel):
@@ -128,7 +130,9 @@ class TurnoRead(ORMBase):
     id: UUID
     funcionario_id: UUID
     fiscal_re: str
-    ponto_codigo: str
+    # Só turno antigo (antes da 047) tem ponto_codigo; o rótulo é ponto_nome.
+    ponto_codigo: Optional[str] = None
+    ponto_nome: Optional[str] = None
     terminal: Terminal
     periodo: Periodo
     data_referencia: date
@@ -387,7 +391,8 @@ class PainelAoVivoItem(BaseModel):
     tipo: str
     custou_viagem: bool
     horario: Optional[time] = None
-    ponto_codigo: str
+    ponto_nome: Optional[str] = None
+    ponto_codigo: Optional[str] = None  # só turno antigo
     fiscal_re: str
     minutos_atras: int
 
@@ -412,7 +417,8 @@ class PainelTurnoAbertoItem(BaseModel):
     turno_id: UUID
     fiscal_nome: str
     fiscal_re: str
-    ponto_codigo: str
+    ponto_nome: Optional[str] = None
+    ponto_codigo: Optional[str] = None  # só turno antigo
     terminal: Terminal
     periodo: Periodo
     linhas: list[str] = Field(default_factory=list)

@@ -34,7 +34,7 @@ from app.models.cadastro import Funcao, Funcionario, FuncionarioFuncao
 from app.models.catalogos import Linha
 from app.models.fiscalizacao import (
     Baita, EventoTurno, LinhaCoordenador, ObservacaoTurno, PartidaProgramada, Ponto, PontoLinha,
-    RegistroPartida, Turno, TurnoLinha,
+    RegistroPartida, Turno, TurnoLinha, TurnoPosto,
 )
 from app.models.enums import SetorEnum
 from app.models.escala_fiscais import EscalaFiscalPontoFinal, EscalaFiscalPosto, EscalaFiscalPostoLinha
@@ -62,7 +62,7 @@ _COORDENADOR_B = Funcionario(id=uuid4(), re="70005", nome="Coordenador Teste B")
 
 _TABELAS = [
     Funcionario.__table__, Funcao.__table__, FuncionarioFuncao.__table__,
-    Ponto.__table__, PontoLinha.__table__, Turno.__table__, TurnoLinha.__table__,
+    Ponto.__table__, PontoLinha.__table__, Turno.__table__, TurnoLinha.__table__, TurnoPosto.__table__,
     PartidaProgramada.__table__, RegistroPartida.__table__, EventoTurno.__table__, ObservacaoTurno.__table__,
     Baita.__table__, RecolhidaAnormal.__table__, LinhaCoordenador.__table__, Linha.__table__,
     EscalaFiscalPontoFinal.__table__, EscalaFiscalPosto.__table__, EscalaFiscalPostoLinha.__table__,
@@ -156,13 +156,13 @@ def _como(ambiente, papel, usuario=None):
     return usuario
 
 
-def _criar_turno(ambiente, *, funcionario=_FISCAL_A, ponto_codigo="PQ_TESTE", terminal="TP",
+def _criar_turno(ambiente, *, funcionario=_FISCAL_A, ponto_nome="Ponto Teste", terminal="TP",
                   periodo="1", data_referencia=None, tipo_dia="UTIL", status_="ABERTO",
                   linhas=("1726-10",), **campos) -> Turno:
     data_referencia = data_referencia or datetime.now(FUSO_OPERACAO).date()
     turno = Turno(
         id=uuid4(), funcionario_id=funcionario.id, fiscal_re=funcionario.re,
-        ponto_codigo=ponto_codigo, terminal=terminal, periodo=periodo,
+        ponto_nome=ponto_nome, terminal=terminal, periodo=periodo,
         data_referencia=data_referencia, tipo_dia=tipo_dia, status=status_,
         **campos,
     )
@@ -355,18 +355,19 @@ def test_coordenador_acessa_painel(ambiente):
 
 
 # ============================================================================
-# 6 — segundo turno ABERTO igual (funcionário/ponto/período/data) → 409
+# 6 — segundo turno ABERTO igual (funcionário/período/data) → 409
 # ============================================================================
 
 def test_segundo_turno_aberto_igual_nega_409(ambiente):
+    posto = _criar_posto(ambiente, "1726/10")
     _como(ambiente, "FISCAL")
     primeiro = ambiente["http"].post("/fiscalizacao/turnos", json={
-        "ponto_codigo": "PQ_TESTE", "periodo": "1", "linhas": ["1726-10"],
+        "posto_ids": [str(posto)], "periodo": "1", "linhas": ["1726-10"],
     })
     assert primeiro.status_code == 201, primeiro.text
 
     segundo = ambiente["http"].post("/fiscalizacao/turnos", json={
-        "ponto_codigo": "PQ_TESTE", "periodo": "1", "linhas": ["1726-10"],
+        "posto_ids": [str(posto)], "periodo": "1", "linhas": ["1726-10"],
     })
     assert segundo.status_code == 409, segundo.text
 
@@ -462,8 +463,9 @@ def test_turnos_ativo_nao_capturado_por_turno_id(ambiente):
     assert sem_turno.status_code == 200, sem_turno.text
     assert sem_turno.json() is None  # nunca um 422 de "ativo não é um UUID válido"
 
+    posto = _criar_posto(ambiente, "1726/10")
     aberto = ambiente["http"].post("/fiscalizacao/turnos", json={
-        "ponto_codigo": "PQ_TESTE", "periodo": "1", "linhas": ["1726-10"],
+        "posto_ids": [str(posto)], "periodo": "1", "linhas": ["1726-10"],
     })
     assert aberto.status_code == 201, aberto.text
 
@@ -1127,7 +1129,7 @@ def test_painel_ao_vivo_lista_registro_do_fiscal_na_linha_do_coordenador(ambient
     assert itens[0]["tipo"] == "RA"
     assert itens[0]["custou_viagem"] is True
     assert itens[0]["fiscal_re"] == _FISCAL_A.re
-    assert itens[0]["ponto_codigo"] == "PQ_TESTE"
+    assert itens[0]["ponto_nome"] == "Ponto Teste"
     assert itens[0]["minutos_atras"] >= 0
 
 
@@ -1189,7 +1191,7 @@ def test_painel_turnos_mostra_quem_esta_na_rua(ambiente):
     assert len(itens) == 1, itens
     assert itens[0]["fiscal_re"] == _FISCAL_A.re
     assert itens[0]["fiscal_nome"] == _FISCAL_A.nome
-    assert itens[0]["ponto_codigo"] == "PQ_TESTE"
+    assert itens[0]["ponto_nome"] == "Ponto Teste"
     assert itens[0]["linhas"] == ["1726-10"]
     assert itens[0]["minutos_sem_registrar"] is None
 
@@ -1314,3 +1316,155 @@ def test_get_postos_ordena_por_ponto_final_lado_e_sem_ponto_final_no_fim(ambient
 def test_get_postos_sem_permissao_de_fiscalizacao_nega_403(ambiente):
     ambiente["http"].app.dependency_overrides[ambiente["leitura"]] = _negar()
     assert ambiente["http"].get("/fiscalizacao/postos").status_code == 403
+
+
+# ============================================================================
+# Abrir turno por posto — R5 (juntar só mesmo ponto final e mesma ponta),
+# linha do posto, R4 (catálogo) e R7 (um turno aberto por período e dia)
+# ============================================================================
+
+def _abrir(ambiente, posto_ids, linhas, periodo="1"):
+    return ambiente["http"].post("/fiscalizacao/turnos", json={
+        "posto_ids": [str(p) for p in posto_ids], "periodo": periodo, "linhas": linhas,
+    })
+
+
+def _postos_do_turno(ambiente, turno_id) -> list[TurnoPosto]:
+    with Session(ambiente["engine"]) as db:
+        return db.execute(select(TurnoPosto).where(TurnoPosto.turno_id == UUID(turno_id))).scalars().all()
+
+
+def _nenhum_turno(ambiente) -> None:
+    with Session(ambiente["engine"]) as db:
+        assert db.execute(select(Turno)).scalars().all() == []
+        assert db.execute(select(TurnoPosto)).scalars().all() == []
+
+
+def test_abrir_turno_um_posto_grava_snapshot(catalogo_escala):
+    ambiente = catalogo_escala
+    santana = _criar_ponto_final(ambiente, "Santana")
+    posto = _criar_posto(ambiente, "1156/10", "2033/10", lado="TS", ponto_final_id=santana)
+    _como(ambiente, "FISCAL")
+    resp = _abrir(ambiente, [posto], ["1156-10"])
+    assert resp.status_code == 201, resp.text
+    corpo = resp.json()
+    assert corpo["terminal"] == "TS"
+    assert corpo["ponto_nome"] == "Santana"
+    assert corpo["ponto_codigo"] is None
+    assert corpo["linhas"] == ["1156-10"]  # desmarcou 2033-10 — R6
+    registros = _postos_do_turno(ambiente, corpo["id"])
+    assert [(r.posto_id, r.lado, r.ponto_final_nome) for r in registros] == [(posto, "TS", "Santana")]
+
+
+def test_abrir_turno_sem_ponto_final_nome_e_as_linhas_do_posto(catalogo_escala):
+    ambiente = catalogo_escala
+    posto = _criar_posto(ambiente, "1156/10", "2033/10")
+    _como(ambiente, "FISCAL")
+    resp = _abrir(ambiente, [posto], ["1156-10", "2033-10"])
+    assert resp.status_code == 201, resp.text
+    assert resp.json()["ponto_nome"] == "1156-10 / 2033-10"
+
+
+def test_abrir_turno_dois_postos_mesmo_ponto_final_e_lado_ok(catalogo_escala):
+    ambiente = catalogo_escala
+    santana = _criar_ponto_final(ambiente, "Santana")
+    a = _criar_posto(ambiente, "1156/10", lado="TS", ponto_final_id=santana)
+    b = _criar_posto(ambiente, "2033/10", lado="TS", ponto_final_id=santana)
+    _como(ambiente, "FISCAL")
+    resp = _abrir(ambiente, [a, b], ["1156-10", "2033-10"])
+    assert resp.status_code == 201, resp.text
+    assert resp.json()["linhas"] == ["1156-10", "2033-10"]
+    assert {r.posto_id for r in _postos_do_turno(ambiente, resp.json()["id"])} == {a, b}
+
+
+def test_abrir_turno_postos_de_pontos_finais_diferentes_nega_422(catalogo_escala):
+    ambiente = catalogo_escala
+    a = _criar_posto(ambiente, "1156/10", ponto_final_id=_criar_ponto_final(ambiente, "Santana"))
+    b = _criar_posto(ambiente, "2033/10", ponto_final_id=_criar_ponto_final(ambiente, "Tucuruvi"))
+    _como(ambiente, "FISCAL")
+    resp = _abrir(ambiente, [a, b], ["1156-10", "2033-10"])
+    assert resp.status_code == 422, resp.text
+    assert "mesmo ponto final" in resp.text
+    _nenhum_turno(ambiente)
+
+
+def test_abrir_turno_mesmo_ponto_final_lados_diferentes_nega_422(catalogo_escala):
+    ambiente = catalogo_escala
+    santana = _criar_ponto_final(ambiente, "Santana")
+    a = _criar_posto(ambiente, "1156/10", lado="TP", ponto_final_id=santana)
+    b = _criar_posto(ambiente, "2033/10", lado="TS", ponto_final_id=santana)
+    _como(ambiente, "FISCAL")
+    resp = _abrir(ambiente, [a, b], ["1156-10", "2033-10"])
+    assert resp.status_code == 422, resp.text
+    assert "pontas diferentes" in resp.text
+    _nenhum_turno(ambiente)
+
+
+def test_abrir_turno_posto_sem_ponto_final_nao_junta_nega_422(catalogo_escala):
+    ambiente = catalogo_escala
+    santana = _criar_ponto_final(ambiente, "Santana")
+    a = _criar_posto(ambiente, "1156/10")
+    b = _criar_posto(ambiente, "2033/10", ponto_final_id=santana)
+    _como(ambiente, "FISCAL")
+    resp = _abrir(ambiente, [a, b], ["1156-10", "2033-10"])
+    assert resp.status_code == 422, resp.text
+    _nenhum_turno(ambiente)
+
+
+def test_abrir_turno_posto_inativo_ou_inexistente_nega_422(catalogo_escala):
+    ambiente = catalogo_escala
+    inativo = _criar_posto(ambiente, "1156/10", ativo=False)
+    _como(ambiente, "FISCAL")
+    assert _abrir(ambiente, [inativo], ["1156-10"]).status_code == 422
+    assert _abrir(ambiente, [uuid4()], ["1156-10"]).status_code == 422
+    assert _abrir(ambiente, [], ["1156-10"]).status_code == 422
+    _nenhum_turno(ambiente)
+
+
+def test_abrir_turno_linha_que_nao_e_do_posto_nega_422(catalogo_escala):
+    # 1726-10 existe no catálogo, mas não é deste posto — linha solta não entra.
+    ambiente = catalogo_escala
+    posto = _criar_posto(ambiente, "1156/10")
+    _como(ambiente, "FISCAL")
+    resp = _abrir(ambiente, [posto], ["1156-10", "1726-10"])
+    assert resp.status_code == 422, resp.text
+    assert "1726-10" in resp.text
+    _nenhum_turno(ambiente)
+
+
+def test_abrir_turno_linha_fora_do_catalogo_nega_422(ambiente):
+    # O posto tem "1726" (sem sufixo): aparece na lista, mas não abre turno.
+    posto = _criar_posto(ambiente, "1726")
+    _como(ambiente, "FISCAL")
+    resp = _abrir(ambiente, [posto], ["1726"])
+    assert resp.status_code == 422, resp.text
+    assert "catálogo" in resp.text
+    _nenhum_turno(ambiente)
+
+
+def test_abrir_turno_lista_de_linhas_vazia_nega_422(catalogo_escala):
+    ambiente = catalogo_escala
+    posto = _criar_posto(ambiente, "1156/10")
+    _como(ambiente, "FISCAL")
+    assert _abrir(ambiente, [posto], []).status_code == 422
+    assert _abrir(ambiente, [posto], ["  "]).status_code == 422
+    _nenhum_turno(ambiente)
+
+
+def test_abrir_turno_segundo_aberto_mesmo_periodo_em_outro_posto_nega_409(catalogo_escala):
+    ambiente = catalogo_escala
+    a = _criar_posto(ambiente, "1156/10")
+    b = _criar_posto(ambiente, "2033/10")
+    _como(ambiente, "FISCAL")
+    assert _abrir(ambiente, [a], ["1156-10"]).status_code == 201
+    resp = _abrir(ambiente, [b], ["2033-10"])
+    assert resp.status_code == 409, resp.text
+    assert "já tem um turno aberto neste período" in resp.text
+
+
+def test_abrir_turno_mesma_pessoa_outro_periodo_ok(catalogo_escala):
+    ambiente = catalogo_escala
+    posto = _criar_posto(ambiente, "1156/10")
+    _como(ambiente, "FISCAL")
+    assert _abrir(ambiente, [posto], ["1156-10"], periodo="1").status_code == 201
+    assert _abrir(ambiente, [posto], ["1156-10"], periodo="2").status_code == 201

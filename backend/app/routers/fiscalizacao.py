@@ -28,7 +28,7 @@ from app.models.catalogos import Linha
 from app.models.escala_fiscais import EscalaFiscalPontoFinal, EscalaFiscalPosto, EscalaFiscalPostoLinha
 from app.models.fiscalizacao import (
     AcaoCoordenacao, Baita, EventoTurno, LinhaCoordenador, ObservacaoTurno, Parametro,
-    PartidaProgramada, Ponto, PontoLinha, RegistroPartida, Turno, TurnoLinha,
+    PartidaProgramada, Ponto, PontoLinha, RegistroPartida, Turno, TurnoLinha, TurnoPosto,
 )
 from app.models.portaria import RecolhidaAnormal
 from app.schemas.fiscalizacao import (
@@ -490,35 +490,78 @@ def atualizar_ponto(codigo: str, payload: PontoUpdate, usuario: EscritaFiscaliza
 # TURNO — ⛔ /turnos/ativo ANTES de /turnos/{turno_id}
 # ============================================================================
 
+def _422(mensagem: str) -> HTTPException:
+    return HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, detail=mensagem)
+
+
+def _exige_postos_juntaveis(postos: list[PostoFiscalizacaoRead]) -> None:
+    """R5 — 1 posto sempre pode. 2+ só se TODOS têm o mesmo ponto final
+    (não nulo) e o mesmo lado: D10, um fiscal por terminal no turno
+    (`turno.terminal` é um só). Posto sem ponto final nunca se junta."""
+    if len(postos) < 2:
+        return
+    if any(p.ponto_final_id is None for p in postos):
+        raise _422("Posto sem ponto final na Escala de Fiscais não se junta com outro — abra um turno para ele.")
+    if len({p.ponto_final_id for p in postos}) > 1:
+        raise _422("Só dá para juntar postos do mesmo ponto final.")
+    if len({p.lado for p in postos}) > 1:
+        raise _422("Postos do mesmo ponto final mas de pontas diferentes — abra um turno para cada ponta.")
+
+
 @router.post("/turnos", response_model=TurnoRead, status_code=status.HTTP_201_CREATED, summary="Abrir turno")
 def abrir_turno(payload: TurnoAbrirRequest, usuario: EscritaFiscalizacao, db: DbSession):
-    ponto = db.get(Ponto, payload.ponto_codigo)
-    if ponto is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Ponto não encontrado")
+    """Validações nesta ordem, cada uma com 422: posto inexistente/inativo;
+    R5 (mesmo ponto final e mesma ponta); linha que não é dos postos
+    escolhidos; linha fora do catálogo (R4). Depois R7 (409)."""
+    posto_ids = list(dict.fromkeys(payload.posto_ids))
+    if not posto_ids:
+        raise _422("Escolha ao menos um posto.")
+    postos = _postos_da_escala(db, posto_ids)
+    if len(postos) != len(posto_ids):
+        raise _422("Posto não encontrado ou inativo na Escala de Fiscais — atualize a lista de postos.")
+
+    _exige_postos_juntaveis(postos)
+
+    linhas = list(dict.fromkeys(
+        codigo for codigo in (codigo_escala_para_catalogo(txt) for txt in payload.linhas) if codigo
+    ))
+    if not linhas:
+        raise _422("Escolha ao menos uma linha.")
+    linhas_dos_postos = {item.codigo for posto in postos for item in posto.linhas}
+    for codigo in linhas:
+        if codigo not in linhas_dos_postos:
+            raise _422(f"A linha {codigo} não é do posto escolhido.")
+    _exige_linha_no_catalogo(db, linhas)
 
     data_referencia = datetime.now(FUSO_OPERACAO).date()
 
+    # R7 — um turno ABERTO por pessoa, período e dia, em qualquer posto.
     existente = db.execute(
-        select(Turno).where(
+        select(Turno.id).where(
             Turno.funcionario_id == usuario.id,
-            Turno.ponto_codigo == payload.ponto_codigo,
             Turno.periodo == payload.periodo,
             Turno.data_referencia == data_referencia,
             Turno.status == "ABERTO",
         )
-    ).scalar_one_or_none()
+    ).first()
     if existente is not None:
         raise HTTPException(
             status.HTTP_409_CONFLICT,
-            detail="Já existe um turno ABERTO para esta pessoa, ponto, período e data.",
+            detail="Você já tem um turno aberto neste período — feche antes de abrir outro.",
         )
+
+    # Rótulo gravado (snapshot): o ponto final ou, sem ele — só acontece com
+    # 1 posto (R5) —, as linhas do posto unidas por " / ".
+    ponto_final_nome = postos[0].ponto_final_nome
+    ponto_nome = ponto_final_nome or " / ".join(item.codigo for item in postos[0].linhas)
 
     agora = datetime.now(FUSO_OPERACAO)
     novo = Turno(
         funcionario_id=usuario.id,
         fiscal_re=usuario.re,
-        ponto_codigo=payload.ponto_codigo,
-        terminal=ponto.terminal,
+        ponto_codigo=None,
+        ponto_nome=ponto_nome[:160],
+        terminal=postos[0].lado,
         periodo=payload.periodo,
         data_referencia=data_referencia,
         tipo_dia=_tipo_dia(data_referencia),
@@ -527,7 +570,11 @@ def abrir_turno(payload: TurnoAbrirRequest, usuario: EscritaFiscalizacao, db: Db
     )
     db.add(novo)
     db.flush()
-    for linha_codigo in dict.fromkeys(payload.linhas):
+    for posto in postos:
+        db.add(TurnoPosto(
+            turno_id=novo.id, posto_id=posto.posto_id, lado=posto.lado, ponto_final_nome=posto.ponto_final_nome,
+        ))
+    for linha_codigo in linhas:
         db.add(TurnoLinha(turno_id=novo.id, linha_codigo=linha_codigo))
     db.commit()
     db.refresh(novo)
@@ -1173,6 +1220,7 @@ def painel_ao_vivo(
             tipo=(registro.motivo or "OUTRO") if perdida else "REALIZADA",
             custou_viagem=perdida,
             horario=registro.horario_programado,
+            ponto_nome=turno.ponto_nome,
             ponto_codigo=turno.ponto_codigo,
             fiscal_re=turno.fiscal_re,
             minutos_atras=max(0, int((agora - momento).total_seconds() // 60)),
@@ -1197,6 +1245,7 @@ def painel_ao_vivo(
             tipo=evento.tipo,
             custou_viagem=False,
             horario=evento.horario,
+            ponto_nome=turno.ponto_nome,
             ponto_codigo=turno.ponto_codigo,
             fiscal_re=turno.fiscal_re,
             minutos_atras=max(0, int((agora - momento).total_seconds() // 60)),
@@ -1227,6 +1276,7 @@ def painel_turnos_abertos(
             turno_id=turno.id,
             fiscal_nome=funcionario.nome if funcionario is not None else "—",
             fiscal_re=turno.fiscal_re,
+            ponto_nome=turno.ponto_nome,
             ponto_codigo=turno.ponto_codigo,
             terminal=turno.terminal,
             periodo=turno.periodo,
