@@ -46,14 +46,17 @@
     <div id="fis-erro" style="display:none;color:var(--accent);font-size:0.85rem;margin-bottom:10px"></div>
 
     <!-- ================================================================ -->
-    <!-- ABERTURA DE TURNO — três toques (D37/D8/D11)                       -->
+    <!-- ABERTURA DE TURNO — posto da Escala, período, linhas (D8/D11)    -->
     <!-- ================================================================ -->
     <section id="fis-abertura">
 
         <div id="fis-passo-ponto">
-            <h2 class="patio-section-title" style="margin-bottom:10px">Escolha o ponto</h2>
+            <h2 class="patio-section-title" style="margin-bottom:4px">Escolha o ponto</h2>
+            <p style="color:var(--muted);font-size:0.8rem;margin-bottom:10px">Postos da Escala de Fiscais. Toque num posto; postos do mesmo ponto final e da mesma ponta podem ser juntados.</p>
             <div id="fis-lista-pontos"><div class="patio-loading">Carregando…</div></div>
-            <button type="button" class="btn btn-ghost btn-full" id="fis-btn-novo-ponto">+ Cadastrar ponto</button>
+            <div class="fis-escolha-barra" id="fis-escolha-barra" style="display:none">
+                <button type="button" class="btn btn-primary btn-full" id="fis-btn-continuar-posto">Continuar</button>
+            </div>
         </div>
 
         <div id="fis-passo-periodo" style="display:none">
@@ -90,41 +93,6 @@
     </section>
 
 </main>
-
-<!-- ===================================================================== -->
-<!-- MODAL — cadastrar ponto (D37)                                          -->
-<!-- ===================================================================== -->
-<div class="modal-overlay" id="fis-modal-ponto">
-    <div class="modal">
-        <button type="button" class="modal-close" id="fis-modal-ponto-fechar" aria-label="Fechar">&times;</button>
-        <div class="modal-title">Cadastrar ponto</div>
-        <div class="form-group">
-            <label class="form-label" for="fis-ponto-codigo">Código</label>
-            <input type="text" class="form-input" id="fis-ponto-codigo" placeholder="ex.: PQ_TERMINAL">
-        </div>
-        <div class="form-group">
-            <label class="form-label" for="fis-ponto-nome">Nome</label>
-            <input type="text" class="form-input" id="fis-ponto-nome" placeholder="ex.: Terminal Sacomã">
-        </div>
-        <div class="form-group">
-            <label class="form-label">Terminal</label>
-            <div class="recolhida-chips" id="fis-ponto-terminal">
-                <button type="button" class="recolhida-chip active" data-terminal="TP">TP</button>
-                <button type="button" class="recolhida-chip" data-terminal="TS">TS</button>
-            </div>
-        </div>
-        <div class="form-group">
-            <label class="form-label" for="fis-ponto-linhas-busca">Linhas</label>
-            <input type="text" class="form-input" id="fis-ponto-linhas-busca" placeholder="Filtrar por código ou nome">
-            <div class="linhas-seletor-lista" id="fis-ponto-linhas-lista"></div>
-        </div>
-        <div id="fis-ponto-erro" style="display:none;color:var(--accent);font-size:0.85rem;margin-bottom:8px"></div>
-        <div class="btn-modal-stack">
-            <button type="button" class="btn btn-primary btn-full" id="fis-ponto-salvar">Cadastrar</button>
-            <button type="button" class="btn btn-ghost btn-full" id="fis-ponto-cancelar">Cancelar</button>
-        </div>
-    </div>
-</div>
 
 <!-- ===================================================================== -->
 <!-- MODAL — anormalidade (a tela mais usada do módulo)                     -->
