@@ -734,14 +734,34 @@ document.addEventListener('visibilitychange', () => {
 });
 
 // ─── Exportar CSV ───────────────────────────────────────────────────────
+// Sai exatamente o que a tabela mostra: aba + chip + sub-chip + busca; com
+// Dentro agora ativo, a lista de dentro. O nome do arquivo diz o assunto:
+// painel-portaria-entradas-terceiro-2026-09-26.csv
+function nomeArquivoCsv() {
+    const { modulo, grupo } = estado.filtros;
+    const partes = ['painel', modulo === 'PATIO' ? 'patio' : 'portaria'];
+    if (grupo === DENTRO) {
+        partes.push('dentro-agora', dataLocalISO());
+    } else {
+        if (grupo) partes.push(grupo.toLowerCase());
+        const sub = subChipAtivo();
+        if (sub) partes.push(sub.arquivo);
+        const { de, ate } = estado.periodo ?? periodoDoPreset();
+        partes.push(de === ate ? de : `${de}_a_${ate}`);
+    }
+    return `${partes.join('-')}.csv`;
+}
+
 // Link direto não leva o Bearer — fetch + blob.
 async function exportarCsv() {
     const btn = document.getElementById('pg-btn-csv');
     btn.disabled = true;
     try {
         const { modulo, grupo, categoria, busca } = estado.filtros;
-        const params = qs({ ...periodoDoPreset(), modulo, grupo, categoria, busca });
-        const resp = await fetch(`${API_BASE_URL}/painel-gerencial/exportar.csv?${params}`, {
+        const url = modoDentro()
+            ? `/painel-gerencial/dentro-agora.csv?${qs({ busca })}`
+            : `/painel-gerencial/exportar.csv?${qs({ ...periodoDoPreset(), modulo, grupo, categoria, busca })}`;
+        const resp = await fetch(`${API_BASE_URL}${url}`, {
             headers: { Authorization: `Bearer ${localStorage.getItem(TOKEN_KEY)}` },
         });
         if (resp.status === 401) {
@@ -751,16 +771,14 @@ async function exportarCsv() {
         }
         if (!resp.ok) throw new Error(`Falha ao exportar (HTTP ${resp.status}).`);
         const blob = await resp.blob();
-        const nome = /filename="([^"]+)"/.exec(resp.headers.get('content-disposition') || '')?.[1]
-            || 'painel-gerencial.csv';
-        const url = URL.createObjectURL(blob);
+        const link = URL.createObjectURL(blob);
         const a = document.createElement('a');
-        a.href = url;
-        a.download = nome;
+        a.href = link;
+        a.download = nomeArquivoCsv();
         document.body.appendChild(a);
         a.click();
         a.remove();
-        setTimeout(() => URL.revokeObjectURL(url), 1000);
+        setTimeout(() => URL.revokeObjectURL(link), 1000);
     } catch (err) {
         mostrarErro(err.message || 'Falha ao exportar.');
     } finally {
@@ -771,18 +789,27 @@ async function exportarCsv() {
 // ─── Imprimir ───────────────────────────────────────────────────────────
 // Mesmo mecanismo das outras impressões do V3: monta a folha em
 // #print-content (o @media print global do style.css esconde o resto).
-// Sai o cabeçalho (período, emissão, filtros), os contadores e a lista
-// filtrada — a que está carregada na tela.
+// Sai o cabeçalho (período, emissão, aba e filtro ativo), os chips DA ABA
+// com o ativo marcado (e os sub-chips, se abertos) e a lista filtrada — a
+// que está carregada na tela.
 function imprimir() {
     const filtros = textoFiltroAtivo();
     const emitido = new Date().toLocaleString('pt-BR', { timeZone: FUSO });
-    const qtd = estado.eventos.length;
-    const nota = estado.temMais
-        ? `${fmtNumero(qtd)} registros mais recentes (há mais no período — use Exportar CSV para a lista completa)`
-        : `${fmtNumero(qtd)} registros`;
+    let nota;
+    if (modoDentro()) {
+        nota = `${fmtNumero(estado.dentro.length)} veículos dentro agora`;
+    } else {
+        const qtd = estado.eventos.length;
+        nota = estado.temMais
+            ? `${fmtNumero(qtd)} registros mais recentes (há mais no período — use Exportar CSV para a lista completa)`
+            : `${fmtNumero(qtd)} registros`;
+    }
 
     const contadores = document.getElementById('pg-contadores').cloneNode(true);
     contadores.removeAttribute('id');
+    const subChips = document.getElementById('pg-subchips');
+    const subChipsCopia = subChips.hidden ? null : subChips.cloneNode(true);
+    subChipsCopia?.removeAttribute('id');
     const tabela = document.querySelector('.pg-tabela').cloneNode(true);
     tabela.querySelector('tbody').removeAttribute('id');
 
@@ -805,6 +832,7 @@ function imprimir() {
         </div>`;
     const folha = area.querySelector('.pg-print-folha');
     folha.appendChild(contadores);
+    if (subChipsCopia) folha.appendChild(subChipsCopia);
     folha.appendChild(tabela);
     window.print();
 }

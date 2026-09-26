@@ -4837,3 +4837,15 @@ body.modal-open {
     .pg-print-folha .pg-c-detalhe { min-width: 0; }
     .pg-print-folha * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
 }
+
+/* Impressão dos chips (26/09): só os da aba, o ativo marcado em preto. */
+@media print {
+    .pg-print-folha .pg-contadores { grid-template-columns: repeat(auto-fit, minmax(80px, 1fr)); }
+    .pg-print-folha .pg-chip { min-height: 0; }
+    .pg-print-folha .pg-chip.active { border: 2px solid #000; background: #eee; }
+    .pg-print-folha .pg-chip.active .pg-contador-rot { color: #000; }
+    .pg-print-folha .pg-subchips { margin: 0 0 10px; gap: 4px; }
+    .pg-print-folha .pg-subchip { min-height: 0; background: #fff; color: #444; border-color: #999; padding: 2px 8px; font-size: 8px; }
+    .pg-print-folha .pg-subchip.active { border: 2px solid #000; background: #eee; color: #000; }
+    .pg-print-folha .pg-subchip-num { font-size: 10px; color: #000; }
+}
