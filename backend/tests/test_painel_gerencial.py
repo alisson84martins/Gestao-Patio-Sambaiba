@@ -15,10 +15,17 @@ O que se prova:
      em hoje; "inicio" usa o primeiro registro.
   4. CSV: BOM + ';' + data/hora em SP; retirada sem autor sai como
      "Limpeza geral do pátio".
+  5. Chips (26/09): grupo vira tipo IN (...) com bind; categoria só com
+     ENTRADAS/SAIDAS; grupo de outro módulo → 422.
+  6. Regra de ouro: número do chip = linhas do filtro — o SQL de verdade
+     rodando num SQLite com uma tabela no lugar da view.
+  7. Dentro agora: len() da lista = contador, com a regra D18 de verdade.
 
 ⛔ REs e nomes fictícios (repositório público).
 """
-from datetime import date, datetime, timezone
+import sqlite3
+import uuid as _uuid_mod
+from datetime import date, datetime, timedelta, timezone
 from uuid import uuid4
 
 import pytest
@@ -31,7 +38,14 @@ from app.main import app
 from app.models.cadastro import Funcionario
 from app.routers import painel_gerencial as pg
 
-_ROTAS = ("/painel-gerencial/eventos", "/painel-gerencial/resumo", "/painel-gerencial/exportar.csv")
+# Mesmo ajuste de test_portaria.py: o sqlite3 puro não serializa uuid.UUID
+# (seções 6 e 7 rodam o SQL de verdade em SQLite).
+sqlite3.register_adapter(_uuid_mod.UUID, lambda u: u.hex)
+
+_ROTAS = (
+    "/painel-gerencial/eventos", "/painel-gerencial/resumo", "/painel-gerencial/exportar.csv",
+    "/painel-gerencial/dentro-agora", "/painel-gerencial/dentro-agora.csv",
+)
 
 
 class _DBFalso:
@@ -82,19 +96,33 @@ _EVENTO = {
     "autor_re": None, "autor_nome": None,
 }
 
+_DENTRO = {
+    "id": uuid4(),
+    "entrou_em": datetime(2026, 9, 26, 11, 0, tzinfo=timezone.utc),  # 08h00 de SP
+    "identificacao": "TST1A23", "categoria": "TERCEIRO",
+    "pessoa_re": None, "pessoa_nome": "Prestador Teste", "detalhe": "Empresa Ficticia",
+}
+
 
 @pytest.fixture
 def painel_sem_banco(monkeypatch):
     """Troca as consultas SQL do painel por respostas fixas."""
     monkeypatch.setattr(pg, "_consultar_eventos", lambda *a, **k: [dict(_EVENTO)])
-    monkeypatch.setattr(pg, "_consultar_contagens", lambda *a, **k: {
-        "ENTRADA": 12, "SAIDA": 10, "RECOLHIDA": 3, "MOVIMENTACAO": 40,
-    })
+    monkeypatch.setattr(pg, "_consultar_contagens", lambda *a, **k: [
+        {"tipo": "ENTRADA", "categoria": "FUNCIONARIO", "n": 9},
+        {"tipo": "ENTRADA", "categoria": "TERCEIRO", "n": 3},
+        {"tipo": "SAIDA", "categoria": "FUNCIONARIO", "n": 10},
+        {"tipo": "RECOLHIDA", "categoria": None, "n": 3},
+        {"tipo": "RECOLHIDA_AVALIADA", "categoria": None, "n": 2},
+        {"tipo": "AVARIA_ENCERRADA", "categoria": None, "n": 1},
+        {"tipo": "MOVIMENTACAO", "categoria": None, "n": 40},
+    ])
     monkeypatch.setattr(pg, "_primeiro_registro", lambda db: {
         "portaria": datetime(2026, 8, 22, 20, 49, tzinfo=timezone.utc),
         "patio": datetime(2026, 6, 13, 15, 35, tzinfo=timezone.utc),
     })
     monkeypatch.setattr(pg, "_contar_dentro_agora", lambda db: 7)
+    monkeypatch.setattr(pg, "_listar_dentro_agora", lambda db: [dict(_DENTRO)])
 
 
 def _chamar(rota, recursos, params=None):
@@ -229,9 +257,10 @@ def test_resumo_so_devolve_contadores_simples(painel_sem_banco):
     """Visualização, não análise: número do período, sem "anterior", sem %,
     sem ranking nem agregação."""
     corpo = _chamar("/painel-gerencial/resumo", {"painel_gerencial"}).json()
-    assert set(corpo) == {"periodo", "contadores", "dentro_agora", "primeiro_registro"}
+    assert set(corpo) == {"periodo", "contadores", "categorias", "dentro_agora", "primeiro_registro"}
+    # RA e Avarias somam os tipos do grupo; a chave antiga "recolhidas" saiu.
     assert corpo["contadores"] == {
-        "entradas": 12, "saidas": 10, "recolhidas": 3, "avarias": 0,
+        "entradas": 12, "saidas": 10, "ra": 5, "avarias": 1,
         "alocacoes": 0, "movimentacoes": 40, "retiradas": 0,
     }
     assert corpo["periodo"]["inclui_hoje"] is True
@@ -258,3 +287,276 @@ def test_csv_tem_bom_ponto_e_virgula_e_hora_de_sp(painel_sem_banco):
     assert linha.startswith("25/09/2026 23:30;PATIO;RETIRADA;")
     assert linha.endswith(";Limpeza geral do pátio")
     assert "attachment" in resp.headers["content-disposition"]
+
+
+# ─── 5 · Chips: grupo e categoria (26/09) ────────────────────────────────────
+
+def test_grupo_ra_traz_os_tres_tipos_e_nada_mais():
+    where, params = pg._where_eventos("PORTARIA", None, None, None, None, None, "RA", None)
+    tipos = {v for k, v in params.items() if k.startswith("grupo_tipo")}
+    assert tipos == {"RECOLHIDA", "RECOLHIDA_AVALIADA", "RECOLHIDA_ENCERRADA"}
+    # Valor nunca entra no texto do SQL — só o nome do parâmetro.
+    assert "RECOLHIDA" not in where and "tipo IN (:grupo_tipo0" in where
+
+
+def test_categoria_vira_parametro():
+    where, params = pg._where_eventos("PORTARIA", None, None, None, None, None, "ENTRADAS", "TERCEIRO")
+    assert "categoria = :categoria" in where and params["categoria"] == "TERCEIRO"
+
+
+def test_todo_grupo_tem_modulo_e_todo_tipo_do_grupo_existe():
+    assert set(pg.GRUPOS) == set(pg.MODULO_DO_GRUPO)
+    tipos_validos = set(pg.Tipo.__args__)
+    for tipos in pg.GRUPOS.values():
+        assert set(tipos) <= tipos_validos
+    # VEICULO_SITUACAO fica sem chip, de propósito.
+    assert all("VEICULO_SITUACAO" not in t for t in pg.GRUPOS.values())
+
+
+@pytest.mark.parametrize("rota", ("/painel-gerencial/eventos", "/painel-gerencial/exportar.csv"))
+@pytest.mark.parametrize("params", [
+    {"modulo": "PORTARIA", "grupo": "RA", "categoria": "TERCEIRO"},       # categoria com grupo errado
+    {"modulo": "PORTARIA", "categoria": "TERCEIRO"},                      # categoria sem grupo
+    {"modulo": "PORTARIA", "grupo": "ALOCACOES"},                         # grupo de outro módulo
+    {"modulo": "PATIO", "grupo": "ENTRADAS"},                             # idem
+    {"modulo": "PORTARIA", "grupo": "ENTRADAS", "tipo": "ENTRADA"},       # grupo e tipo juntos
+    {"modulo": "PORTARIA", "grupo": "NADA"},                              # grupo desconhecido
+    {"modulo": "PORTARIA", "grupo": "ENTRADAS", "categoria": "VISITA"},   # categoria desconhecida
+])
+def test_combinacao_invalida_da_422(rota, params, painel_sem_banco):
+    resp = _chamar(rota, {"painel_gerencial"}, params)
+    assert resp.status_code == 422, resp.text
+
+
+def test_grupo_e_categoria_validos_passam(painel_sem_banco):
+    resp = _chamar("/painel-gerencial/eventos", {"painel_gerencial"},
+                   {"modulo": "PORTARIA", "grupo": "SAIDAS", "categoria": "FROTA_APOIO"})
+    assert resp.status_code == 200, resp.text
+
+
+def test_tipo_legado_continua_funcionando(painel_sem_banco):
+    resp = _chamar("/painel-gerencial/eventos", {"painel_gerencial"}, {"modulo": "PATIO", "tipo": "RETIRADA"})
+    assert resp.status_code == 200, resp.text
+
+
+def test_categorias_sempre_com_as_4_chaves(painel_sem_banco):
+    corpo = _chamar("/painel-gerencial/resumo", {"painel_gerencial"}).json()
+    assert corpo["categorias"] == {
+        "entradas": {"FUNCIONARIO": 9, "FROTA_APOIO": 0, "TERCEIRO": 3, "RESERVADO": 0},
+        "saidas": {"FUNCIONARIO": 10, "FROTA_APOIO": 0, "TERCEIRO": 0, "RESERVADO": 0},
+    }
+
+
+def test_categorias_sem_movimento_vem_tudo_zero():
+    assert pg.montar_categorias([]) == {
+        "entradas": dict.fromkeys(pg.CATEGORIAS, 0), "saidas": dict.fromkeys(pg.CATEGORIAS, 0),
+    }
+
+
+# ─── 6 · Regra de ouro: número do chip = linhas do filtro ────────────────────
+# O SQL de verdade (_consultar_contagens e _consultar_eventos) rodando contra
+# uma TABELA com as colunas da view, num SQLite com o schema `public`
+# anexado. Prova que contador e filtro leem o mesmo GRUPOS.
+
+_INI = datetime(2026, 9, 25, 3, 0, tzinfo=timezone.utc)
+_FIM = datetime(2026, 9, 26, 3, 0, tzinfo=timezone.utc)
+
+# (modulo, tipo, categoria, quantidade) — tem de tudo, inclusive
+# VEICULO_SITUACAO (sem chip) e um evento FORA do período.
+_SEMENTE = [
+    ("PORTARIA", "ENTRADA", "FUNCIONARIO", 4), ("PORTARIA", "ENTRADA", "TERCEIRO", 3),
+    ("PORTARIA", "ENTRADA", "FROTA_APOIO", 2), ("PORTARIA", "ENTRADA", "RESERVADO", 1),
+    ("PORTARIA", "SAIDA", "FUNCIONARIO", 2), ("PORTARIA", "SAIDA", "TERCEIRO", 5),
+    ("PORTARIA", "RECOLHIDA", "DEFEITO", 2), ("PORTARIA", "RECOLHIDA_AVALIADA", "DEFEITO", 1),
+    ("PORTARIA", "RECOLHIDA_ENCERRADA", "DEFEITO", 1),
+    ("PORTARIA", "AVARIA", "LEVE", 3), ("PORTARIA", "AVARIA_REVISTA", "LEVE", 2),
+    ("PORTARIA", "AVARIA_CONTESTADA", "LEVE", 1), ("PORTARIA", "AVARIA_ENCERRADA", "LEVE", 1),
+    ("PORTARIA", "VEICULO_SITUACAO", "AUTORIZADO", 2),
+    ("PATIO", "ALOCACAO", "Fila 1", 6), ("PATIO", "MOVIMENTACAO", "Fila 2", 8), ("PATIO", "RETIRADA", "Fila 3", 3),
+]
+
+
+@pytest.fixture
+def banco_view():
+    from sqlalchemy import create_engine, event, text
+    from sqlalchemy.orm import Session
+    from sqlalchemy.pool import StaticPool
+
+    engine = create_engine("sqlite:///:memory:", poolclass=StaticPool, connect_args={"check_same_thread": False})
+
+    @event.listens_for(engine, "connect")
+    def _attach(dbapi_conn, _):
+        dbapi_conn.execute("ATTACH DATABASE ':memory:' AS public")
+
+    with engine.begin() as conn:
+        conn.exec_driver_sql(
+            "CREATE TABLE public.vw_painel_evento (id TEXT, momento TIMESTAMP, modulo TEXT, tipo TEXT,"
+            " categoria TEXT, identificacao TEXT, detalhe TEXT, pessoa_re TEXT, pessoa_nome TEXT,"
+            " autor_re TEXT, autor_nome TEXT)"
+        )
+        ins = text("INSERT INTO public.vw_painel_evento (id, momento, modulo, tipo, categoria)"
+                   " VALUES (:id, :momento, :modulo, :tipo, :categoria)")
+        minuto = 0
+        for modulo, tipo, categoria, n in _SEMENTE:
+            for _ in range(n):
+                minuto += 1
+                conn.execute(ins, {"id": uuid4().hex, "momento": _INI + timedelta(minutes=minuto),
+                                   "modulo": modulo, "tipo": tipo, "categoria": categoria})
+        # Fora do período (dia 24): não pode contar nem aparecer.
+        conn.execute(ins, {"id": uuid4().hex, "momento": _INI - timedelta(hours=1),
+                           "modulo": "PORTARIA", "tipo": "ENTRADA", "categoria": "TERCEIRO"})
+    with Session(engine) as db:
+        yield db
+
+
+def _linhas(db, modulo, grupo, categoria=None, limit=10_000):
+    where, params = pg._where_eventos(modulo, None, None, None, None, None, grupo, categoria)
+    return pg._consultar_eventos(db, _INI, _FIM, where, params, limit)
+
+
+@pytest.mark.parametrize("chave,grupo", list(pg._CONTADORES.items()))
+def test_regra_de_ouro_contador_igual_linhas_do_filtro(banco_view, chave, grupo):
+    contagens = pg._consultar_contagens(banco_view, _INI, _FIM)
+    contadores = pg.montar_contadores(contagens)
+    linhas = _linhas(banco_view, pg.MODULO_DO_GRUPO[grupo], grupo)
+    assert contadores[chave] == len(linhas) > 0
+    assert {l["tipo"] for l in linhas} <= set(pg.GRUPOS[grupo])
+
+
+def test_regra_de_ouro_ra_e_avarias_trazem_todas_as_situacoes(banco_view):
+    assert {l["tipo"] for l in _linhas(banco_view, "PORTARIA", "RA")} == set(pg.GRUPOS["RA"])
+    assert {l["tipo"] for l in _linhas(banco_view, "PORTARIA", "AVARIAS")} == set(pg.GRUPOS["AVARIAS"])
+
+
+@pytest.mark.parametrize("chave,grupo", [("entradas", "ENTRADAS"), ("saidas", "SAIDAS")])
+@pytest.mark.parametrize("categoria", pg.CATEGORIAS)
+def test_regra_de_ouro_sub_chip_de_categoria(banco_view, chave, grupo, categoria):
+    categorias = pg.montar_categorias(pg._consultar_contagens(banco_view, _INI, _FIM))
+    linhas = _linhas(banco_view, "PORTARIA", grupo, categoria)
+    assert categorias[chave][categoria] == len(linhas)
+    assert all(l["categoria"] == categoria for l in linhas)
+
+
+def test_segunda_pagina_com_grupo_nao_mistura_assunto(banco_view):
+    """'Carregar mais' com o chip ativo: o cursor soma, não substitui, o grupo."""
+    primeira = _linhas(banco_view, "PORTARIA", "SAIDAS", limit=3)
+    ultimo = primeira[-1]
+    where, params = pg._where_eventos("PORTARIA", None, None, ultimo["momento"],
+                                      f"{ultimo['tipo']}:{ultimo['id']}", None, "SAIDAS", None)
+    segunda = pg._consultar_eventos(banco_view, _INI, _FIM, where, params, 100)
+    assert {l["tipo"] for l in primeira + segunda} == {"SAIDA"}
+    assert len(primeira) + len(segunda) == 7
+    assert not {l["id"] for l in primeira} & {l["id"] for l in segunda}
+
+
+def test_csv_com_grupo_e_categoria_passa_o_filtro_para_a_consulta(monkeypatch, painel_sem_banco):
+    visto = {}
+
+    def _consulta(db, ini, fim, where, params, limit):
+        visto.update(where=where, params=params)
+        return [dict(_EVENTO, modulo="PORTARIA", tipo="ENTRADA", categoria="TERCEIRO")]
+
+    monkeypatch.setattr(pg, "_consultar_eventos", _consulta)
+    resp = _chamar("/painel-gerencial/exportar.csv", {"painel_gerencial"},
+                   {"modulo": "PORTARIA", "grupo": "ENTRADAS", "categoria": "TERCEIRO"})
+    assert resp.status_code == 200, resp.text
+    assert visto["params"]["grupo_tipo0"] == "ENTRADA" and visto["params"]["categoria"] == "TERCEIRO"
+    assert ";PORTARIA;ENTRADA;TERCEIRO;" in resp.content.decode("utf-8-sig")
+
+
+# ─── 7 · Dentro agora (D2) ───────────────────────────────────────────────────
+
+def test_dentro_agora_devolve_lista_e_total(painel_sem_banco):
+    corpo = _chamar("/painel-gerencial/dentro-agora", {"painel_gerencial"}).json()
+    assert corpo["total"] == len(corpo["dentro"]) == 1
+    assert corpo["dentro"][0]["categoria"] == "TERCEIRO"
+
+
+def test_dentro_agora_busca(painel_sem_banco):
+    assert _chamar("/painel-gerencial/dentro-agora", {"painel_gerencial"}, {"busca": "tst1"}).json()["total"] == 1
+    assert _chamar("/painel-gerencial/dentro-agora", {"painel_gerencial"}, {"busca": "zzz"}).json()["total"] == 0
+
+
+def test_dentro_agora_csv(painel_sem_banco):
+    resp = _chamar("/painel-gerencial/dentro-agora.csv", {"painel_gerencial"})
+    assert resp.status_code == 200
+    assert resp.content.startswith(b"\xef\xbb\xbf")
+    cabecalho, linha = resp.content.decode("utf-8-sig").splitlines()[:2]
+    assert cabecalho == "Entrou em;Placa/Prefixo;Categoria;RE;Nome;Há quanto tempo;Detalhe"
+    assert linha.startswith("26/09/2026 08:00;TST1A23;TERCEIRO;;Prestador Teste;")
+
+
+@pytest.mark.parametrize("args,esperado", [
+    (("2140", None, None, None), "RESERVADO"),
+    ((None, "EMPRESA", "Fulano", None), "FROTA_APOIO"),
+    ((None, "TERCEIRO", None, None), "TERCEIRO"),
+    ((None, "PARTICULAR", None, "Empresa X"), "TERCEIRO"),
+    ((None, None, "Fulano", None), "TERCEIRO"),
+    ((None, "PARTICULAR", None, None), "FUNCIONARIO"),
+    ((None, None, None, None), "FUNCIONARIO"),
+])
+def test_categoria_do_dentro_segue_o_case_da_view_046(args, esperado):
+    assert pg.categoria_movimento(*args) == esperado
+
+
+def test_permanencia():
+    agora = datetime(2026, 9, 26, 12, 0, tzinfo=timezone.utc)
+    assert pg.formatar_permanencia(datetime(2026, 9, 26, 11, 35, tzinfo=timezone.utc), agora) == "25 min"
+    assert pg.formatar_permanencia(datetime(2026, 9, 26, 9, 5, tzinfo=timezone.utc), agora) == "2 h 55 min"
+
+
+def test_tamanho_da_lista_de_dentro_igual_ao_contador():
+    """🔴 Regra de ouro do D2, com a regra D18 de verdade (SQLite + ATTACH
+    portaria, como test_portaria.py): o len() da lista = dentro_agora."""
+    from sqlalchemy import create_engine, event
+    from sqlalchemy.orm import Session
+    from sqlalchemy.pool import StaticPool
+
+    from app.core.database import Base
+    from app.models.portaria import (
+        EmpresaTerceira, MovimentoPortaria, PortariaLocal, PortariaSetor, VeiculoPortaria,
+    )
+
+    engine = create_engine("sqlite:///:memory:", poolclass=StaticPool, connect_args={"check_same_thread": False})
+
+    @event.listens_for(engine, "connect")
+    def _attach(dbapi_conn, _):
+        dbapi_conn.execute("ATTACH DATABASE ':memory:' AS portaria")
+
+    Base.metadata.create_all(engine, tables=[
+        Funcionario.__table__, PortariaLocal.__table__, PortariaSetor.__table__, EmpresaTerceira.__table__,
+        VeiculoPortaria.__table__, MovimentoPortaria.__table__,
+    ])
+    autor = uuid4()
+    agora = datetime.now(timezone.utc)
+
+    def _mov(db, sentido, horas_atras, **campos):
+        db.add(MovimentoPortaria(
+            id=uuid4(), local_codigo="LEVES", sentido=sentido, momento=agora - timedelta(hours=horas_atras),
+            data_referencia=date.today(), cadastrado=False, origem="MANUAL", registrado_por=autor, **campos,
+        ))
+
+    with Session(engine) as db:
+        db.add(Funcionario(id=autor, re="70009", nome="Controlador Teste", status="ATIVO"))
+        db.add(PortariaLocal(codigo="LEVES", nome="Portaria de leves", ordem=1, ativo=True))
+        veiculo_terceiro = uuid4()
+        veiculo_empresa = uuid4()
+        db.add(VeiculoPortaria(id=veiculo_terceiro, propriedade="TERCEIRO", placa="TER1A11",
+                               tipo="CARRO", situacao="AUTORIZADO"))
+        db.add(VeiculoPortaria(id=veiculo_empresa, propriedade="EMPRESA", placa="EMP1A11",
+                               tipo="CARRO", situacao="AUTORIZADO"))
+        _mov(db, "ENTRADA", 1, placa_registrada="FUN1A11", re_registrado="70100", nome_registrado="Func Teste")
+        _mov(db, "ENTRADA", 2, placa_registrada="TER1A11", veiculo_id=veiculo_terceiro)
+        _mov(db, "ENTRADA", 3, placa_registrada="AVU1A11", terceiro_nome="Visita Teste")
+        _mov(db, "ENTRADA", 5, placa_registrada="SAI1A11")                       # entrou e saiu
+        _mov(db, "SAIDA", 4, placa_registrada="SAI1A11")
+        _mov(db, "ENTRADA", 40, placa_registrada="VEL1A11")                      # > 36 h: sem saída
+        _mov(db, "ENTRADA", 1, placa_registrada="EMP1A11", veiculo_id=veiculo_empresa)  # frota de apoio: fora (D18)
+        _mov(db, "ENTRADA", 1, prefixo="2140")                                   # reservado: fora (D18)
+        db.commit()
+
+        lista = pg._listar_dentro_agora(db)
+        assert len(lista) == pg._contar_dentro_agora(db) == 3
+        assert {l["identificacao"]: l["categoria"] for l in lista} == {
+            "FUN1A11": "FUNCIONARIO", "TER1A11": "TERCEIRO", "AVU1A11": "TERCEIRO",
+        }
