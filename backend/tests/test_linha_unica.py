@@ -196,6 +196,7 @@ from app.models.enums import PerfilUsuarioEnum
 from app.models.escala_fiscais import EscalaFiscalPosto, EscalaFiscalPostoLinha
 from app.models.pessoas import Usuario
 from app.routers import escala_fiscais as escala_router
+from app.routers import fiscalizacao as fiscalizacao_router
 
 
 def _usuario(perfil):
@@ -225,10 +226,13 @@ def api(engine):
 
     estado = {"perfil": PerfilUsuarioEnum.ADMIN}
     leitura_escala = _dep(escala_router.LeituraEscala)
+    leitura_painel = _dep(fiscalizacao_router.LeituraPainel)
+    pessoa = Funcionario(id=uuid4(), re="80009", nome="Pessoa Teste")
     overrides = {
         get_db: _get_db_teste,
         get_current_user: lambda: _usuario(estado["perfil"]),
-        leitura_escala: lambda: Funcionario(id=uuid4(), re="80009", nome="Pessoa Teste"),
+        leitura_escala: lambda: pessoa,
+        leitura_painel: lambda: pessoa,
     }
     app.dependency_overrides.update(overrides)
     yield {"http": TestClient(app), "engine": engine, "estado": estado}
@@ -274,8 +278,10 @@ def test_linha_criada_pela_escala_e_a_mesma_em_todo_modulo(api):
     criada = api["http"].post("/linhas", json={"numero": "271A", "sufixo": "51", "nome": "CANGAÍBA", "setor": "E2"}).json()
     no_patio = [l for l in api["http"].get("/linhas").json() if l["codigo"] == "271A-51"]
     na_escala = [l for l in api["http"].get("/escala-fiscais/linhas").json() if l["codigo"] == "271A-51"]
+    na_fiscalizacao = [l for l in api["http"].get("/fiscalizacao/linhas").json() if l["codigo"] == "271A-51"]
     assert [l["id"] for l in no_patio] == [criada["id"]]
     assert [(l["id"], l["nome"]) for l in na_escala] == [(criada["id"], "CANGAÍBA")]
+    assert [(l["id"], l["nome"]) for l in na_fiscalizacao] == [(criada["id"], "CANGAÍBA")]
     # A importação do Pátio com o texto cru da planilha acha a MESMA linha.
     erros, codigos, n = _importar(api["engine"], ["271A51"])
     assert erros == [] and codigos == ["271A-51"] and n == 1
