@@ -346,9 +346,10 @@ function _badgeStatusMotorista(status) {
 }
 
 function tabelaLinhas(dados) {
+    // Nome igual ao código = linha sem nome (cadastro único, 048).
     const linhas = dados.map(l => _tr(l.id, [
         `<strong style="font-family:monospace">${escapeHtml(l.codigo)}</strong>`,
-        escapeHtml(l.nome),
+        l.nome && l.nome !== l.codigo ? escapeHtml(l.nome) : '—',
         _badge(l.setor, l.setor === 'E2' ? 'azul' : 'verde'),
         l.ativa ? _badge('Ativa', 'verde') : _badge('Inativa', 'cinza'),
     ])).join('');
@@ -820,11 +821,16 @@ async function salvarMotorista() {
 // ─── MODAL LINHA ─────────────────────────────────────────────────
 function abrirModalLinha(l) {
     const editando = !!l;
-    document.getElementById('modal-linha-titulo').textContent = editando ? `Editar Linha` : 'Nova Linha';
+    document.getElementById('modal-linha-titulo').textContent = editando ? `Editar Linha ${l.codigo}` : 'Nova Linha';
     document.getElementById('linha-id').value     = l?.id || '';
-    document.getElementById('linha-codigo').value    = l?.codigo || '';
-    document.getElementById('linha-codigo').disabled  = false; // editável em criação e edição
-    document.getElementById('linha-nome').value      = l?.nome || '';
+    document.getElementById('linha-id').dataset.codigo = l?.codigo || '';
+    // Número + código é a identidade da linha: só na criação. Na edição
+    // muda nome e status (o código completo aparece no título).
+    document.getElementById('linha-numero').value    = l?.numero || '';
+    document.getElementById('linha-sufixo').value    = l ? (l.sufixo || '') : '10';
+    document.getElementById('linha-numero').disabled = editando;
+    document.getElementById('linha-sufixo').disabled = editando;
+    document.getElementById('linha-nome').value      = l && l.nome !== l.codigo ? l.nome : '';
     document.getElementById('linha-setor').value     = l?.setor || 'E2';
     document.getElementById('linha-setor').disabled  = editando; // setor não muda depois
     document.getElementById('linha-ativa').value     = String(l?.ativa ?? true);
@@ -833,7 +839,7 @@ function abrirModalLinha(l) {
 
     erroModal('modal-linha-erro', '');
     abrir('modal-linha');
-    document.getElementById(editando ? 'linha-nome' : 'linha-codigo').focus();
+    document.getElementById(editando ? 'linha-nome' : 'linha-numero').focus();
 }
 
 async function salvarLinha() {
@@ -841,8 +847,8 @@ async function salvarLinha() {
     const editando = !!id;
     erroModal('modal-linha-erro', '');
 
+    // Nome é opcional: vazio = a linha aparece só pelo código.
     const nome = document.getElementById('linha-nome').value.trim();
-    if (!nome) return erroModal('modal-linha-erro', 'Nome é obrigatório.');
 
     if (editando) {
         const ativa = document.getElementById('linha-ativa').value === 'true';
@@ -854,11 +860,12 @@ async function salvarLinha() {
             erroModal('modal-linha-erro', err.message);
         }
     } else {
-        const codigo = document.getElementById('linha-codigo').value.trim();
+        const numero = document.getElementById('linha-numero').value.trim().toUpperCase();
+        const sufixo = document.getElementById('linha-sufixo').value.trim();
         const setor  = document.getElementById('linha-setor').value;
-        if (!codigo) return erroModal('modal-linha-erro', 'Código é obrigatório.');
+        if (!numero || !sufixo) return erroModal('modal-linha-erro', 'Número e código são obrigatórios.');
         try {
-            await apiPost('/linhas', { codigo, nome, setor });
+            await apiPost('/linhas', { numero, sufixo, nome: nome || null, setor });
             fechar('modal-linha');
             carregarAba();
         } catch (err) {
@@ -869,7 +876,7 @@ async function salvarLinha() {
 
 async function excluirLinha() {
     const id     = document.getElementById('linha-id').value;
-    const codigo = document.getElementById('linha-codigo').value || 'esta linha';
+    const codigo = document.getElementById('linha-id').dataset.codigo || 'esta linha';
     if (!id) return;
     if (!confirm(`Excluir linha "${codigo}"?\n\nEsta ação é permanente. Se a linha estiver em uso na escala atual, a exclusão será bloqueada.`)) return;
     try {

@@ -43,9 +43,11 @@ from sqlalchemy.orm import Session
 from app.core.config import FUSO_OPERACAO, get_settings
 from app.core.database import get_db
 from app.core.deps import exige
+from app.core.linha import nome_real
 from app.core.registro import normalizar_re
 from app.core.uploads import ler_upload_limitado
 from app.models.cadastro import Funcionario
+from app.models.catalogos import Linha
 from app.models.escala_fiscais import (
     EscalaFiscalAlteracao,
     EscalaFiscalAusencia,
@@ -74,6 +76,7 @@ from app.schemas.escala_fiscais import (
     DiaPublicar,
     DiaSalvar,
     FiscalResumo,
+    LinhaCadastroRead,
     ModeloCreate,
     ModeloDetalhe,
     ModeloPostoCreate,
@@ -85,6 +88,7 @@ from app.schemas.escala_fiscais import (
     PontoFinalRead,
     PontoFinalUpdate,
     PostoCreate,
+    PostoLinhaRead,
     PostoRead,
     PostoUpdate,
     QuadroCreate,
@@ -222,6 +226,7 @@ def _analisar(db: Session, dados) -> importacao.Analise:
         dados, lambda res: nomes_por_re(db, res), padroes_periodo(),
         modelos_existentes=importacao.modelos_com_postos(db),
         postos_existentes=importacao.chaves_postos_existentes(db),
+        linhas_cadastradas=set(importacao.linhas_do_cadastro(db)),
     )
 
 
@@ -376,12 +381,57 @@ def criar_ponto_final(payload: PontoFinalCreate, _: EscritaEscala, db: DbSession
 
 # ─── POSTOS ──────────────────────────────────────────────────────────────────
 
-def _posto_read(p: EscalaFiscalPosto, nomes_ponto: dict[UUID, str]) -> PostoRead:
+def _linhas_por_id(db: Session, ids) -> dict[UUID, Linha]:
+    ids = {i for i in ids if i is not None}
+    if not ids:
+        return {}
+    return {l.id: l for l in db.execute(select(Linha).where(Linha.id.in_(ids))).scalars()}
+
+
+def _posto_read(p: EscalaFiscalPosto, nomes_ponto: dict[UUID, str], cadastro: dict[UUID, Linha]) -> PostoRead:
+    itens = []
+    for pl in p.linhas:
+        linha = cadastro.get(pl.linha_id) if pl.linha_id else None
+        itens.append(PostoLinhaRead(
+            linha_id=pl.linha_id,
+            codigo=linha.codigo if linha else pl.linha,
+            nome=nome_real(linha.codigo, linha.nome) if linha else None,
+        ))
     return PostoRead(
         id=p.id, lado=p.lado, cod_jb=p.cod_jb, lote=p.lote, ponto_final_id=p.ponto_final_id,
         ponto_final_nome=nomes_ponto.get(p.ponto_final_id) if p.ponto_final_id else None,
-        linhas=[pl.linha for pl in p.linhas], ativo=p.ativo,
+        linhas=[pl.linha for pl in p.linhas], itens_linha=itens, ativo=p.ativo,
     )
+
+
+def _posto_read_um(db: Session, p: EscalaFiscalPosto) -> PostoRead:
+    return _posto_read(p, _nomes_pontos(db), _linhas_por_id(db, (pl.linha_id for pl in p.linhas)))
+
+
+def _linhas_escolhidas(db: Session, linha_ids: list[UUID]) -> list[Linha]:
+    """Linhas do cadastro único, na ordem escolhida. Id inexistente, linha
+    desativada ou fora do formato número + código (manobra) → 422."""
+    cadastro = _linhas_por_id(db, linha_ids)
+    escolhidas = []
+    for linha_id in linha_ids:
+        linha = cadastro.get(linha_id)
+        if linha is None:
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_CONTENT, detail=f"Linha {linha_id} não está cadastrada."
+            )
+        if not linha.ativa or linha.numero is None:
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail=f"Linha {linha.codigo} está desativada — reative em Linhas ou escolha outra.",
+            )
+        escolhidas.append(linha)
+    return escolhidas
+
+
+def _itens_do_posto(linhas: list[Linha]) -> list[EscalaFiscalPostoLinha]:
+    # `linha` (texto) = código canônico: regras, montagem e impressão leem a
+    # lista de textos; quem manda é linha_id.
+    return [EscalaFiscalPostoLinha(linha=l.codigo, linha_id=l.id, ordem=i + 1) for i, l in enumerate(linhas)]
 
 
 def _nomes_pontos(db: Session) -> dict[UUID, str]:
@@ -410,22 +460,42 @@ def listar_postos(_: LeituraEscala, db: DbSession, ponto_final_id: Optional[UUID
         consulta = consulta.where(EscalaFiscalPosto.ponto_final_id == ponto_final_id)
     postos = db.execute(consulta).scalars().all()
     nomes = _nomes_pontos(db)
-    itens = [_posto_read(p, nomes) for p in postos]
+    cadastro = _linhas_por_id(db, (pl.linha_id for p in postos for pl in p.linhas))
+    itens = [_posto_read(p, nomes, cadastro) for p in postos]
     return sorted(itens, key=lambda i: (i.lado, i.linhas))
+
+
+@router.get("/linhas", response_model=list[LinhaCadastroRead], summary="Linhas ativas do cadastro único (leitura; gravar é em /linhas, ADMIN)")
+def listar_linhas_cadastro(_: LeituraEscala, db: DbSession, incluir_inativas: bool = False):
+    """Mesma tabela do Pátio e da Fiscalização (public.linha). Porta própria
+    porque quem monta a escala tem o recurso escala_fiscal, não o de
+    cadastros — mesmo raciocínio de GET /fiscalizacao/linhas. Manobra
+    (MAN-*) e linha fundida (numero nulo) não aparecem. `incluir_inativas`:
+    sub-aba Linhas, para reativar."""
+    consulta = select(Linha).where(Linha.numero.is_not(None))
+    if not incluir_inativas:
+        consulta = consulta.where(Linha.ativa.is_(True))
+    linhas = db.execute(consulta.order_by(Linha.numero, Linha.sufixo)).scalars().all()
+    return [
+        LinhaCadastroRead(id=l.id, codigo=l.codigo, numero=l.numero, sufixo=l.sufixo,
+                          nome=nome_real(l.codigo, l.nome), setor=l.setor.value, ativa=l.ativa)
+        for l in linhas
+    ]
 
 
 @router.post("/postos", response_model=PostoRead, status_code=status.HTTP_201_CREATED, summary="Cadastra posto com as linhas")
 def criar_posto(payload: PostoCreate, _: EscritaEscala, db: DbSession):
     _checar_ponto_final(db, payload.ponto_final_id)
-    _checar_posto_duplicado(db, payload.lado, payload.linhas)
+    linhas = _linhas_escolhidas(db, payload.linha_ids)
+    _checar_posto_duplicado(db, payload.lado, [l.codigo for l in linhas])
     p = EscalaFiscalPosto(
         lado=payload.lado, cod_jb=payload.cod_jb or None, lote=payload.lote or None,
         ponto_final_id=payload.ponto_final_id, ativo=payload.ativo,
     )
-    p.linhas = [EscalaFiscalPostoLinha(linha=ln, ordem=i + 1) for i, ln in enumerate(payload.linhas)]
+    p.linhas = _itens_do_posto(linhas)
     db.add(p)
     db.commit()
-    return _posto_read(p, _nomes_pontos(db))
+    return _posto_read_um(db, p)
 
 
 # ─── MODELOS ─────────────────────────────────────────────────────────────────
@@ -787,10 +857,12 @@ def alterar_posto(posto_id: UUID, payload: PostoUpdate, _: EscritaEscala, db: Db
         _checar_ponto_final(db, dados["ponto_final_id"])
     if dados.get("lado") is None:
         dados.pop("lado", None)
-    novas_linhas = dados.pop("linhas", None)
+    novos_ids = dados.pop("linha_ids", None)
+    novas_linhas = _linhas_escolhidas(db, novos_ids) if novos_ids is not None else None
     lado = dados.get("lado", p.lado)
     if novas_linhas is not None or "lado" in dados:
-        _checar_posto_duplicado(db, lado, novas_linhas or [pl.linha for pl in p.linhas], ignorar=p.id)
+        codigos = [l.codigo for l in novas_linhas] if novas_linhas is not None else [pl.linha for pl in p.linhas]
+        _checar_posto_duplicado(db, lado, codigos, ignorar=p.id)
     for campo, valor in dados.items():
         setattr(p, campo, (valor or None) if campo in ("cod_jb", "lote") else valor)
     if novas_linhas is not None:
@@ -799,10 +871,10 @@ def alterar_posto(posto_id: UUID, payload: PostoUpdate, _: EscritaEscala, db: Db
         # colide na PK (posto_id, linha).
         p.linhas.clear()
         db.flush()
-        p.linhas.extend(EscalaFiscalPostoLinha(linha=ln, ordem=i + 1) for i, ln in enumerate(novas_linhas))
+        p.linhas.extend(_itens_do_posto(novas_linhas))
     db.commit()
     db.refresh(p)
-    return _posto_read(p, _nomes_pontos(db))
+    return _posto_read_um(db, p)
 
 
 def _modelo_posto_read(mp: EscalaFiscalModeloPosto, posto: EscalaFiscalPosto, nomes: dict[str, str]) -> ModeloPostoRead:

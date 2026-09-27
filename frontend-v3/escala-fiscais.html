@@ -51,6 +51,7 @@
         <button type="button" class="filtro-btn" data-aba="coordenadores" role="tab">Coordenadores</button>
         <button type="button" class="filtro-btn" data-aba="pontos" role="tab">Pontos finais</button>
         <button type="button" class="filtro-btn" data-aba="postos" role="tab">Postos</button>
+        <button type="button" class="filtro-btn" data-aba="linhas" role="tab">Linhas</button>
         <button type="button" class="filtro-btn" data-aba="modelos" role="tab">Modelos</button>
         <button type="button" class="filtro-btn" data-aba="ausencias" role="tab">Ausências</button>
         <button type="button" class="filtro-btn" data-aba="trocas" role="tab">Trocas</button>
@@ -217,9 +218,41 @@
                     <select class="form-select" id="posto-ponto"><option value="">— nenhum —</option></select>
                 </div>
             </div>
+            <!-- Linhas do cadastro único (public.linha) — toque para marcar. -->
             <div class="form-group">
-                <label class="form-label" for="posto-linhas">Linhas * (separe por vírgula ou espaço)</label>
-                <input type="text" class="form-input" id="posto-linhas" placeholder="ex.: 1767/10, 2161/10" required>
+                <label class="form-label" for="posto-linhas-busca">Linhas * (toque para marcar)</label>
+                <input type="search" class="form-input" id="posto-linhas-busca" placeholder="Buscar por número, código ou nome">
+                <div class="linhas-seletor-lista" id="posto-linhas-lista"></div>
+                <div class="ef-meta" id="posto-linhas-escolhidas">Nenhuma linha marcada.</div>
+                <button type="button" class="btn btn-ghost ef-btn-mini" id="btn-posto-nova-linha" data-so-admin hidden>+ nova linha</button>
+            </div>
+            <div class="ef-nova-linha" id="posto-nova-linha" hidden>
+                <div class="ef-grade">
+                    <div class="form-group">
+                        <label class="form-label" for="pnl-numero">Número *</label>
+                        <input type="text" class="form-input" id="pnl-numero" maxlength="4" placeholder="271A" autocapitalize="characters">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label" for="pnl-sufixo">Código *</label>
+                        <input type="text" class="form-input" id="pnl-sufixo" maxlength="3" inputmode="numeric" pattern="[0-9]{1,3}" value="10">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label" for="pnl-setor">Setor *</label>
+                        <select class="form-select" id="pnl-setor">
+                            <option value="">— escolha —</option>
+                            <option value="E2">E2</option>
+                            <option value="AR2">AR2</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label" for="pnl-nome">Nome (opcional)</label>
+                        <input type="text" class="form-input" id="pnl-nome" maxlength="120" placeholder="ex.: CANGAÍBA">
+                    </div>
+                </div>
+                <div class="ef-rodape">
+                    <button type="button" class="btn btn-primary btn-full" id="btn-pnl-salvar">Cadastrar e marcar no posto</button>
+                    <button type="button" class="btn btn-ghost btn-full" id="btn-pnl-cancelar">Cancelar</button>
+                </div>
             </div>
             <div class="ef-rodape">
                 <button type="submit" class="btn btn-primary btn-full" id="btn-posto-salvar">Cadastrar posto</button>
@@ -231,6 +264,45 @@
             <input type="search" class="form-input" id="posto-filtro">
         </div>
         <div id="lista-postos" class="ef-lista"></div>
+    </section>
+
+    <!-- ── Linhas (cadastro único — public.linha, migration 048) ─────── -->
+    <section class="ef-painel" data-painel="linhas" hidden>
+        <p class="ef-ajuda">Esta é a MESMA lista de linhas do Pátio, da Fiscalização e de Cadastros → Linhas: o que você grava aqui aparece em todos. Número + código formam linhas diferentes (271A-10 sai da Penha, 271A-51 do Cangaíba). Só administrador cadastra.</p>
+        <form class="ef-form" id="form-linha" autocomplete="off" data-so-admin hidden>
+            <input type="hidden" id="linha-id">
+            <div class="ef-grade">
+                <div class="form-group">
+                    <label class="form-label" for="linha-numero">Número *</label>
+                    <input type="text" class="form-input" id="linha-numero" maxlength="4" placeholder="271A" autocapitalize="characters" required>
+                </div>
+                <div class="form-group">
+                    <label class="form-label" for="linha-sufixo">Código *</label>
+                    <input type="text" class="form-input" id="linha-sufixo" maxlength="3" inputmode="numeric" pattern="[0-9]{1,3}" value="10" required>
+                </div>
+                <div class="form-group">
+                    <label class="form-label" for="linha-setor">Setor *</label>
+                    <select class="form-select" id="linha-setor" required>
+                        <option value="">— escolha —</option>
+                        <option value="E2">E2</option>
+                        <option value="AR2">AR2</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label class="form-label" for="linha-nome">Nome (opcional)</label>
+                    <input type="text" class="form-input" id="linha-nome" maxlength="120" placeholder="ex.: CANGAÍBA">
+                </div>
+            </div>
+            <div class="ef-rodape">
+                <button type="submit" class="btn btn-primary btn-full" id="btn-linha-salvar">+ nova linha</button>
+                <button type="button" class="btn btn-ghost btn-full ef-cancelar-edicao" id="btn-linha-cancelar" hidden>Cancelar edição</button>
+            </div>
+        </form>
+        <div class="form-group">
+            <label class="form-label" for="linha-filtro">Filtrar por número, código ou nome</label>
+            <input type="search" class="form-input" id="linha-filtro">
+        </div>
+        <div id="lista-linhas" class="ef-lista"></div>
     </section>
 
     <!-- ── Modelos ───────────────────────────────────────────────────── -->

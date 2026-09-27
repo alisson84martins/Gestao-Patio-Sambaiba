@@ -27,51 +27,47 @@ TipoEvento = Literal[
 ]
 TipoBaita = Literal["BAITA", "ANTI_BAITA"]
 EstadoPartida = Literal["REALIZADA", "PERDIDA", "ATRASADA", "AGUARDANDO"]
-Setor = Literal["E2", "AR2"]
 
 
 # ============================================================================
-# CATÁLOGO DE LINHAS — leitura do catálogo do Pátio (app/models/catalogos.py
-# ::Linha), servida pela própria Fiscalização (ver comentário do endpoint em
-# app/routers/fiscalizacao.py sobre por que não é GET /linhas direto).
+# LINHAS — leitura do cadastro único (public.linha, migration 048), servida
+# pela própria Fiscalização (GET /fiscalizacao/linhas).
 # ============================================================================
 
-class CatalogoLinhaItem(ORMBase):
+class LinhaCadastroItem(BaseModel):
+    id: UUID
     codigo: str
-    nome: str
-    setor: Setor
+    numero: str
+    sufixo: str
+    nome: Optional[str] = None
 
 
 # ============================================================================
-# PONTO / PONTO_LINHA (D9, D11) — catálogo
+# POSTOS — leitura dos postos da Escala de Fiscais (coordenadoria), servida
+# pela própria Fiscalização (ver GET /fiscalizacao/postos no router).
 # ============================================================================
 
-class PontoRead(ORMBase):
+class PostoLinhaItem(BaseModel):
+    """Uma linha do posto, lida do cadastro único por linha_id (048).
+    `aviso` preenchido ("linha sem cadastro" / "linha desativada no
+    cadastro") = a linha aparece, mas não pode ser marcada; sem cadastro,
+    `codigo` é o texto que a Escala guardou e linha_id/numero/sufixo vêm
+    nulos."""
+
+    linha_id: Optional[UUID] = None
     codigo: str
-    nome: str
-    terminal: Terminal
-    ativo: bool
-    linhas: list[str] = Field(default_factory=list)
+    numero: Optional[str] = None
+    sufixo: Optional[str] = None
+    nome: Optional[str] = None
+    aviso: Optional[str] = None
 
 
-class PontoCreate(BaseModel):
-    """POST /fiscalizacao/pontos — D37: o fiscal pode criar o ponto na
-    hora, se ele não existir, para destravar o primeiro turno."""
-
-    codigo: str = Field(..., min_length=1, max_length=20)
-    nome: str = Field(..., min_length=1, max_length=60)
-    terminal: Terminal
-    linhas: list[str] = Field(..., min_length=1)
-
-
-class PontoUpdate(BaseModel):
-    """PATCH /fiscalizacao/pontos/{codigo} — renomeia, ativa/desativa e
-    substitui o conjunto de linhas. Todos os campos opcionais (PATCH
-    parcial); `linhas`, quando informado, SUBSTITUI o conjunto inteiro."""
-
-    nome: Optional[str] = Field(None, min_length=1, max_length=60)
-    ativo: Optional[bool] = None
-    linhas: Optional[list[str]] = None
+class PostoFiscalizacaoRead(BaseModel):
+    posto_id: UUID
+    lado: Terminal
+    ponto_final_id: Optional[UUID] = None
+    ponto_final_nome: Optional[str] = None
+    linhas: list[PostoLinhaItem] = Field(default_factory=list)
 
 
 # ============================================================================
@@ -79,14 +75,16 @@ class PontoUpdate(BaseModel):
 # ============================================================================
 
 class TurnoAbrirRequest(BaseModel):
-    """POST /fiscalizacao/turnos — ponto, período, linhas confirmadas.
-    terminal, fiscal_re e data_referencia são derivados pelo backend, nunca
-    aceitos do cliente (terminal vem do ponto; fiscal_re e funcionario_id do
-    usuário logado; data_referencia de FUSO_OPERACAO)."""
+    """POST /fiscalizacao/turnos — postos da Escala de Fiscais, período e
+    linhas confirmadas. terminal, ponto_nome, fiscal_re e data_referencia são
+    derivados pelo backend, nunca aceitos do cliente (terminal = lado do
+    posto; fiscal_re e funcionario_id do usuário logado; data_referencia de
+    FUSO_OPERACAO). Lista vazia é recusada no router, com mensagem em
+    português, não aqui."""
 
-    ponto_codigo: str = Field(..., min_length=1, max_length=20)
+    posto_ids: list[UUID]
     periodo: Periodo
-    linhas: list[str] = Field(..., min_length=1)
+    linhas: list[str]
 
 
 class TurnoUpdateRequest(BaseModel):
@@ -103,7 +101,9 @@ class TurnoRead(ORMBase):
     id: UUID
     funcionario_id: UUID
     fiscal_re: str
-    ponto_codigo: str
+    # Só turno antigo (antes da 047) tem ponto_codigo; o rótulo é ponto_nome.
+    ponto_codigo: Optional[str] = None
+    ponto_nome: Optional[str] = None
     terminal: Terminal
     periodo: Periodo
     data_referencia: date
@@ -362,7 +362,8 @@ class PainelAoVivoItem(BaseModel):
     tipo: str
     custou_viagem: bool
     horario: Optional[time] = None
-    ponto_codigo: str
+    ponto_nome: Optional[str] = None
+    ponto_codigo: Optional[str] = None  # só turno antigo
     fiscal_re: str
     minutos_atras: int
 
@@ -387,7 +388,8 @@ class PainelTurnoAbertoItem(BaseModel):
     turno_id: UUID
     fiscal_nome: str
     fiscal_re: str
-    ponto_codigo: str
+    ponto_nome: Optional[str] = None
+    ponto_codigo: Optional[str] = None  # só turno antigo
     terminal: Terminal
     periodo: Periodo
     linhas: list[str] = Field(default_factory=list)

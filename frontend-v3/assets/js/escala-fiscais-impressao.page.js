@@ -62,6 +62,13 @@ function textoCelula(p) {
     return p.re ?? p.marcador ?? '';
 }
 
+// Impressão fiel ao Excel: o banco guarda o código canônico do cadastro único
+// de linhas (1156-10, migration 048); a folha mostra como a planilha escreve
+// (1156/10). Só formatação de saída.
+function linhaComoNoExcel(codigo) {
+    return String(codigo).replace(/^([0-9A-Z]{4})-(\d{1,3})$/, '$1/$2');
+}
+
 function periodo(p) {
     if (!p) {
         return ['<td rowspan="2"></td><td rowspan="2"></td><td class="efi-rot">Início</td><td></td>',
@@ -69,7 +76,7 @@ function periodo(p) {
     }
     const dobra = p.dobra ? ' efi-dobra' : '';
     return [
-        `<td rowspan="2" class="efi-linhas">${p.linhas.map(escapeHtml).join(' ')}</td>
+        `<td rowspan="2" class="efi-linhas">${p.linhas.map(l => escapeHtml(linhaComoNoExcel(l))).join(' ')}</td>
          <td rowspan="2" class="efi-re${dobra}">${escapeHtml(textoCelula(p))}</td>
          <td class="efi-rot">Início</td><td>${escapeHtml(p.hora_inicio || '')}</td>`,
         `<td class="efi-rot">Término</td><td>${escapeHtml(p.hora_termino || '')}</td>`,

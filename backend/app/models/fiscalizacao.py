@@ -9,6 +9,12 @@ sem prefixo de schema, mesmo padrão de app/models/portaria.py (Funcionario
 não declara __table_args__ com schema, então "funcionario.id" é a chave
 correta no MetaData; "public.funcionario.id" não bate com a tabela já
 registrada).
+
+Desde a 047 o lugar do turno vem dos postos da Escala de Fiscais
+(coordenadoria.escala_fiscal_posto), que a Fiscalização só LÊ por SELECT —
+nenhuma FK para o schema coordenadoria; turno_posto guarda posto_id solto e
+um snapshot de lado/ponto final. O cadastro próprio de ponto (ponto,
+ponto_linha, D37) foi apagado.
 """
 from datetime import date, datetime, time
 from typing import Optional
@@ -27,42 +33,10 @@ from app.core.database import Base
 SCHEMA = "fiscalizacao"
 
 
-class Ponto(Base):
-    """Ponto final de fiscalização. O turno é do PONTO, não da linha (D9)."""
-
-    __tablename__ = "ponto"
-    __table_args__ = {"schema": SCHEMA}
-
-    codigo: Mapped[str] = mapped_column(String(20), primary_key=True)
-    nome: Mapped[str] = mapped_column(String(60), nullable=False)
-    terminal: Mapped[str] = mapped_column(String(2), nullable=False)
-    ativo: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
-    criado_em: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, server_default=func.now()
-    )
-
-
-class PontoLinha(Base):
-    """Quais linhas saem de cada ponto — ponto com mais de uma linha é
-    comum na G3 (D9). Alimenta as abas do app do fiscal (D11)."""
-
-    __tablename__ = "ponto_linha"
-    __table_args__ = (
-        UniqueConstraint("ponto_codigo", "linha_codigo"),
-        {"schema": SCHEMA},
-    )
-
-    id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True, default=uuid4)
-    ponto_codigo: Mapped[str] = mapped_column(
-        String(20), ForeignKey(f"{SCHEMA}.ponto.codigo"), nullable=False
-    )
-    linha_codigo: Mapped[str] = mapped_column(String(20), nullable=False)
-    ativo: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
-
-
 class Turno(Base):
-    """Pessoa + ponto + período + data, cobrindo N linhas (D9). Fundação
-    diferente do turno_fiscal de julho, que amarrava a uma linha só."""
+    """Pessoa + período + data, cobrindo N linhas de 1+ postos da Escala de
+    Fiscais (turno_posto). Um turno ABERTO por pessoa, período e dia (047).
+    Fundação diferente do turno_fiscal de julho, que amarrava a uma linha só."""
 
     __tablename__ = "turno"
     __table_args__ = {"schema": SCHEMA}
@@ -74,9 +48,12 @@ class Turno(Base):
     )
     fiscal_re: Mapped[str] = mapped_column(String(20), nullable=False)
 
-    ponto_codigo: Mapped[str] = mapped_column(
-        String(20), ForeignKey(f"{SCHEMA}.ponto.codigo"), nullable=False
-    )
+    # Histórico (047): código do fiscalizacao.ponto apagado, só nos turnos
+    # antigos. Turno novo grava NULL — os postos estão em TurnoPosto.
+    ponto_codigo: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
+    # Snapshot do rótulo escolhido ao abrir: nome do ponto final ou, sem
+    # ponto final, as linhas do posto unidas por " / ".
+    ponto_nome: Mapped[Optional[str]] = mapped_column(String(160), nullable=True)
     terminal: Mapped[str] = mapped_column(String(2), nullable=False)
     periodo: Mapped[str] = mapped_column(String(1), nullable=False)
 
@@ -97,6 +74,27 @@ class Turno(Base):
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
     atualizado_em: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class TurnoPosto(Base):
+    """Postos da Escala de Fiscais que o turno cobre (047). ⛔ posto_id SEM
+    FK para coordenadoria.escala_fiscal_posto — regra de fronteira. lado e
+    ponto_final_nome são snapshot: o turno continua legível se o posto for
+    editado ou desativado na escala."""
+
+    __tablename__ = "turno_posto"
+    __table_args__ = (
+        UniqueConstraint("turno_id", "posto_id"),
+        {"schema": SCHEMA},
+    )
+
+    id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True, default=uuid4)
+    turno_id: Mapped[UUID] = mapped_column(
+        PG_UUID(as_uuid=True), ForeignKey(f"{SCHEMA}.turno.id", ondelete="CASCADE"), nullable=False
+    )
+    posto_id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), nullable=False)
+    lado: Mapped[str] = mapped_column(String(2), nullable=False)
+    ponto_final_nome: Mapped[Optional[str]] = mapped_column(String(80), nullable=True)
 
 
 class TurnoLinha(Base):

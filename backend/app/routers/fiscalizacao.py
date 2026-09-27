@@ -22,21 +22,23 @@ from sqlalchemy.orm import Session
 from app.core.config import FUSO_OPERACAO
 from app.core.database import get_db
 from app.core.deps import exige
+from app.core.linha import codigo_linha, nome_real, normalizar_linha
 from app.core.uploads import ler_upload_limitado
 from app.models.cadastro import Funcionario
 from app.models.catalogos import Linha
+from app.models.escala_fiscais import EscalaFiscalPontoFinal, EscalaFiscalPosto, EscalaFiscalPostoLinha
 from app.models.fiscalizacao import (
     AcaoCoordenacao, Baita, EventoTurno, LinhaCoordenador, ObservacaoTurno, Parametro,
-    PartidaProgramada, Ponto, PontoLinha, RegistroPartida, Turno, TurnoLinha,
+    PartidaProgramada, RegistroPartida, Turno, TurnoLinha, TurnoPosto,
 )
 from app.models.portaria import RecolhidaAnormal
 from app.schemas.fiscalizacao import (
-    AcaoCoordenacaoCreate, AcaoCoordenacaoRead, BaitaRead, BaitaUpsert, CascataItem, CatalogoLinhaItem,
+    AcaoCoordenacaoCreate, AcaoCoordenacaoRead, BaitaRead, BaitaUpsert, CascataItem, LinhaCadastroItem,
     EventoTurnoCreate, EventoTurnoRead, IcvCoordenadorDiaRead, IcvLinhaDiaRead, LinhaSemCoordenadorItem,
     MinhaLinhaCreate, MinhaLinhaItem, MotivoLivreItem, ObservacaoTurnoCreate, ObservacaoTurnoRead,
     PainelAoVivoItem, PainelLinhaResponse, PainelPartidaItem, PainelTurnoAbertoItem,
-    ParametrosRead, PartidaEstadoItem, PendenciaItem, Periodo, PlacarLinhaRead, PontoCreate, PontoRead,
-    PontoUpdate, PrioridadeLinhaItem, ProntidaoResponse, RegistroPartidaRead,
+    ParametrosRead, PartidaEstadoItem, PendenciaItem, Periodo, PlacarLinhaRead,
+    PostoFiscalizacaoRead, PostoLinhaItem, PrioridadeLinhaItem, ProntidaoResponse, RegistroPartidaRead,
     RegistroPartidaUpsert, TipoDia, TurnoAbrirRequest, TurnoLinhaContagemUpdate, TurnoLinhaRead,
     TurnoRead, TurnoUpdateRequest,
 )
@@ -115,38 +117,25 @@ def _eh_admin(db: Session, funcionario_id: UUID) -> bool:
     return row is not None
 
 
-def _normalizar_linhas(linhas: list[str]) -> list[str]:
-    """D37 — remove vazias e repetidas preservando a ordem; a lista vazia
-    resultante é responsabilidade de quem chama recusar com 422."""
-    vistas: list[str] = []
-    for linha in linhas:
-        codigo = (linha or "").strip()
-        if not codigo or codigo in vistas:
-            continue
-        vistas.append(codigo)
-    return vistas
-
-
-def _exige_linha_no_catalogo(db: Session, linhas: list[str]) -> None:
-    """A tela impede o erro (seletor em vez de texto livre); isto impede o
-    que passar por fora dela — a API não pode aceitar lixo. Recusa com 422
-    quando o código não existe no catálogo (app/models/catalogos.py::Linha)
-    ou existe mas está inativo — nunca corrige/completa o código sozinho:
-    adivinhar linha (ex.: "1726" → "1726-10") é pior que recusar. Origem:
-    R.A registrada com "1726" nunca apareceu pro coordenador de "1726-10" —
-    nenhum erro, nenhum log, só sumiu."""
-    for codigo in linhas:
-        linha = db.execute(select(Linha).where(Linha.codigo == codigo)).scalar_one_or_none()
-        if linha is None:
-            raise HTTPException(
-                status.HTTP_422_UNPROCESSABLE_CONTENT,
-                detail=f"A linha {codigo} não existe no catálogo. Confira o código completo (ex.: 1726-10).",
-            )
-        if not linha.ativa:
-            raise HTTPException(
-                status.HTTP_422_UNPROCESSABLE_CONTENT,
-                detail=f"A linha {codigo} está inativa no catálogo.",
-            )
+def _linha_do_cadastro(db: Session, texto: str) -> Linha:
+    """Substitui o antigo _exige_linha_no_catalogo (048). O texto passa pela
+    regra ÚNICA de app/core/linha.py (R2) — `1726` é a 1726-10, `1726/10` e
+    `1726-10` também — e a linha é achada por (numero, sufixo) no cadastro
+    único. Fora da regra, sem cadastro ou desativada → 422. Origem: R.A
+    registrada com "1726" nunca apareceu pro coordenador de "1726-10" —
+    agora os dois textos são a MESMA linha, gravada pelo código canônico."""
+    par = normalizar_linha(texto)
+    if par is None:
+        raise _422(f"A linha \"{texto}\" não é número + código de linha (ex.: 1726-10).")
+    linha = db.execute(
+        select(Linha).where(Linha.numero == par[0], Linha.sufixo == par[1])
+    ).scalar_one_or_none()
+    codigo = codigo_linha(texto)
+    if linha is None:
+        raise _422(f"A linha {codigo} não está cadastrada. Peça o cadastro na Escala de Fiscais → Linhas.")
+    if not linha.ativa:
+        raise _422(f"A linha {codigo} está desativada no cadastro.")
+    return linha
 
 
 def _aware_utc(dt: datetime) -> datetime:
@@ -296,147 +285,193 @@ def _sincronizar_evento_vinculado(db: Session, registro: RegistroPartida) -> Non
 
 
 # ============================================================================
-# CATÁLOGO DE LINHAS — leitura do catálogo do Pátio, servida por aqui
+# LINHAS — leitura do cadastro único (public.linha, migration 048)
 # ============================================================================
 
 @router.get(
-    "/catalogo/linhas", response_model=list[CatalogoLinhaItem],
-    summary="Linhas do catálogo (Pátio), servidas pela própria Fiscalização",
+    "/linhas", response_model=list[LinhaCadastroItem],
+    summary="Linhas ativas do cadastro único, para o painel (Minhas linhas)",
 )
-def catalogo_linhas(usuario: LeituraFiscalizacao, db: DbSession, incluir_inativas: bool = Query(False)):
-    """Existe aqui — e não em GET /linhas (app/routers/linhas.py) — porque
-    o fiscal não tem acesso ao módulo Pátio, e a Fiscalização não pode
-    depender do RBAC de outro módulo pra saber que linhas existem. Somente
-    leitura: quem cria/edita linha continua sendo o Pátio; nenhuma FK nova
-    é criada, esta consulta é só leitura do catálogo por código (regra de
-    fronteira do módulo, §5 do desenho)."""
-    query = select(Linha)
-    if not incluir_inativas:
-        query = query.where(Linha.ativa.is_(True))
-    return db.execute(query.order_by(Linha.codigo)).scalars().all()
+def listar_linhas(usuario: LeituraPainel, db: DbSession):
+    """Porta própria da Fiscalização para a MESMA tabela do Pátio e da
+    Escala (public.linha): o coordenador não tem o recurso do Pátio nem o de
+    cadastros. Só leitura — cadastrar é em /linhas (ADMIN), pela Escala de
+    Fiscais → Linhas ou Cadastros → Linhas."""
+    linhas = db.execute(
+        select(Linha).where(Linha.ativa.is_(True), Linha.numero.is_not(None))
+        .order_by(Linha.numero, Linha.sufixo)
+    ).scalars().all()
+    return [
+        LinhaCadastroItem(id=l.id, codigo=l.codigo, numero=l.numero, sufixo=l.sufixo,
+                          nome=nome_real(l.codigo, l.nome))
+        for l in linhas
+    ]
 
 
 # ============================================================================
-# CATÁLOGO DE PONTOS
+# POSTOS — leitura dos postos da Escala de Fiscais, servida por aqui
 # ============================================================================
 
-@router.get("/pontos", response_model=list[PontoRead], summary="Pontos com suas linhas — só ativos por padrão")
-def listar_pontos(usuario: LeituraFiscalizacao, db: DbSession, incluir_inativos: bool = Query(False)):
-    query = select(Ponto)
-    if not incluir_inativos:
-        query = query.where(Ponto.ativo.is_(True))
-    pontos = db.execute(query.order_by(Ponto.codigo)).scalars().all()
-    resultado = []
-    for p in pontos:
-        linhas = db.execute(
-            select(PontoLinha.linha_codigo)
-            .where(PontoLinha.ponto_codigo == p.codigo, PontoLinha.ativo.is_(True))
-            .order_by(PontoLinha.linha_codigo)
-        ).scalars().all()
-        resultado.append(PontoRead(codigo=p.codigo, nome=p.nome, terminal=p.terminal, ativo=p.ativo, linhas=list(linhas)))
+AVISO_SEM_CADASTRO = "linha sem cadastro"
+AVISO_DESATIVADA = "linha desativada no cadastro"
+
+
+def _postos_da_escala(db: Session, posto_ids: Optional[list[UUID]] = None) -> list[PostoFiscalizacaoRead]:
+    """Postos ATIVOS da Escala com linhas (na `ordem`), nome do ponto final
+    e cada linha lida do cadastro único por linha_id (048). Posto-linha sem
+    linha_id (ou com a linha desativada) aparece com `aviso` e não pode ser
+    marcada. Ordem: ponto final por nome (sem ponto final no fim), depois
+    lado, depois primeira linha."""
+    query = select(EscalaFiscalPosto).where(EscalaFiscalPosto.ativo.is_(True))
+    if posto_ids is not None:
+        query = query.where(EscalaFiscalPosto.id.in_(posto_ids))
+    postos = db.execute(query).scalars().all()
+    if not postos:
+        return []
+
+    pontos_finais = {
+        p.id: p.nome for p in db.execute(select(EscalaFiscalPontoFinal)).scalars().all()
+    }
+    linhas_por_posto: dict[UUID, list[EscalaFiscalPostoLinha]] = {}
+    for pl in db.execute(
+        select(EscalaFiscalPostoLinha)
+        .where(EscalaFiscalPostoLinha.posto_id.in_([p.id for p in postos]))
+        .order_by(EscalaFiscalPostoLinha.ordem, EscalaFiscalPostoLinha.linha)
+    ).scalars().all():
+        linhas_por_posto.setdefault(pl.posto_id, []).append(pl)
+
+    ids = {pl.linha_id for lista in linhas_por_posto.values() for pl in lista if pl.linha_id}
+    cadastro = {
+        linha.id: linha for linha in db.execute(select(Linha).where(Linha.id.in_(ids))).scalars().all()
+    } if ids else {}
+
+    resultado: list[PostoFiscalizacaoRead] = []
+    for posto in postos:
+        itens = []
+        for pl in linhas_por_posto.get(posto.id, []):
+            linha = cadastro.get(pl.linha_id) if pl.linha_id else None
+            if linha is None:
+                itens.append(PostoLinhaItem(codigo=pl.linha, aviso=AVISO_SEM_CADASTRO))
+                continue
+            itens.append(PostoLinhaItem(
+                linha_id=linha.id,
+                codigo=linha.codigo,
+                numero=linha.numero,
+                sufixo=linha.sufixo,
+                nome=nome_real(linha.codigo, linha.nome),
+                aviso=None if linha.ativa else AVISO_DESATIVADA,
+            ))
+        resultado.append(PostoFiscalizacaoRead(
+            posto_id=posto.id,
+            lado=posto.lado,
+            ponto_final_id=posto.ponto_final_id,
+            ponto_final_nome=pontos_finais.get(posto.ponto_final_id) if posto.ponto_final_id else None,
+            linhas=itens,
+        ))
+
+    resultado.sort(key=lambda p: (
+        p.ponto_final_nome is None,
+        (p.ponto_final_nome or "").casefold(),
+        p.lado,
+        p.linhas[0].codigo if p.linhas else "",
+    ))
     return resultado
 
 
-@router.post(
-    "/pontos", response_model=PontoRead, status_code=status.HTTP_201_CREATED,
-    summary="Cadastra ponto (D37) — o fiscal cria na hora, se não existir",
+@router.get(
+    "/postos", response_model=list[PostoFiscalizacaoRead],
+    summary="Postos ativos da Escala de Fiscais, com código e nome de cada linha",
 )
-def criar_ponto(payload: PontoCreate, usuario: EscritaFiscalizacao, db: DbSession):
-    codigo = payload.codigo.strip().upper()
-    if not codigo:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Código do ponto não pode ser vazio.")
-    if db.get(Ponto, codigo) is not None:
-        raise HTTPException(status.HTTP_409_CONFLICT, detail=f"Já existe um ponto com o código '{codigo}'.")
-
-    linhas = _normalizar_linhas(payload.linhas)
-    if not linhas:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Informe ao menos uma linha.")
-    _exige_linha_no_catalogo(db, linhas)
-
-    ponto = Ponto(codigo=codigo, nome=payload.nome.strip(), terminal=payload.terminal, ativo=True)
-    db.add(ponto)
-    db.flush()
-    for linha_codigo in linhas:
-        db.add(PontoLinha(ponto_codigo=codigo, linha_codigo=linha_codigo))
-    db.commit()
-    return PontoRead(codigo=ponto.codigo, nome=ponto.nome, terminal=ponto.terminal, ativo=ponto.ativo, linhas=linhas)
-
-
-@router.patch(
-    "/pontos/{codigo}", response_model=PontoRead,
-    summary="Renomeia, ativa/desativa e substitui as linhas do ponto (D37) — nunca DELETE",
-)
-def atualizar_ponto(codigo: str, payload: PontoUpdate, usuario: EscritaFiscalizacao, db: DbSession):
-    ponto = db.get(Ponto, codigo)
-    if ponto is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Ponto não encontrado")
-
-    dados = payload.model_dump(exclude_unset=True)
-    if "nome" in dados:
-        ponto.nome = dados["nome"].strip()
-    if "ativo" in dados:
-        ponto.ativo = dados["ativo"]
-    if "linhas" in dados:
-        linhas = _normalizar_linhas(dados["linhas"] or [])
-        if not linhas:
-            raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Informe ao menos uma linha.")
-        _exige_linha_no_catalogo(db, linhas)
-        existentes = {
-            pl.linha_codigo: pl
-            for pl in db.execute(select(PontoLinha).where(PontoLinha.ponto_codigo == codigo)).scalars().all()
-        }
-        for linha_codigo in linhas:
-            if linha_codigo in existentes:
-                existentes[linha_codigo].ativo = True
-            else:
-                db.add(PontoLinha(ponto_codigo=codigo, linha_codigo=linha_codigo))
-        for linha_codigo, pl in existentes.items():
-            if linha_codigo not in linhas:
-                pl.ativo = False
-
-    db.commit()
-    db.refresh(ponto)
-    linhas_atuais = db.execute(
-        select(PontoLinha.linha_codigo)
-        .where(PontoLinha.ponto_codigo == codigo, PontoLinha.ativo.is_(True))
-        .order_by(PontoLinha.linha_codigo)
-    ).scalars().all()
-    return PontoRead(codigo=ponto.codigo, nome=ponto.nome, terminal=ponto.terminal, ativo=ponto.ativo, linhas=list(linhas_atuais))
+def listar_postos(usuario: LeituraFiscalizacao, db: DbSession):
+    """O fiscal não tem o recurso `escala_fiscal`, então não pode depender
+    das rotas /escala-fiscais/*. Só leitura — quem cadastra posto e linha é
+    a aba Escala de Fiscais; nenhuma FK nova (regra de fronteira)."""
+    return _postos_da_escala(db)
 
 
 # ============================================================================
 # TURNO — ⛔ /turnos/ativo ANTES de /turnos/{turno_id}
 # ============================================================================
 
+def _422(mensagem: str) -> HTTPException:
+    return HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, detail=mensagem)
+
+
+def _exige_postos_juntaveis(postos: list[PostoFiscalizacaoRead]) -> None:
+    """R5 — 1 posto sempre pode. 2+ só se TODOS têm o mesmo ponto final
+    (não nulo) e o mesmo lado: D10, um fiscal por terminal no turno
+    (`turno.terminal` é um só). Posto sem ponto final nunca se junta."""
+    if len(postos) < 2:
+        return
+    if any(p.ponto_final_id is None for p in postos):
+        raise _422("Posto sem ponto final na Escala de Fiscais não se junta com outro — abra um turno para ele.")
+    if len({p.ponto_final_id for p in postos}) > 1:
+        raise _422("Só dá para juntar postos do mesmo ponto final.")
+    if len({p.lado for p in postos}) > 1:
+        raise _422("Postos do mesmo ponto final mas de pontas diferentes — abra um turno para cada ponta.")
+
+
 @router.post("/turnos", response_model=TurnoRead, status_code=status.HTTP_201_CREATED, summary="Abrir turno")
 def abrir_turno(payload: TurnoAbrirRequest, usuario: EscritaFiscalizacao, db: DbSession):
-    ponto = db.get(Ponto, payload.ponto_codigo)
-    if ponto is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Ponto não encontrado")
+    """Validações nesta ordem, cada uma com 422: posto inexistente/inativo;
+    R5 (mesmo ponto final e mesma ponta); linha que não é dos postos
+    escolhidos; linha do posto sem cadastro ou desativada. Depois R7 (409).
+    O texto da linha passa pela regra única (R2) — turno_linha grava o
+    código canônico do cadastro (2023-41 ≠ 2023-42)."""
+    posto_ids = list(dict.fromkeys(payload.posto_ids))
+    if not posto_ids:
+        raise _422("Escolha ao menos um posto.")
+    postos = _postos_da_escala(db, posto_ids)
+    if len(postos) != len(posto_ids):
+        raise _422("Posto não encontrado ou inativo na Escala de Fiscais — atualize a lista de postos.")
+
+    _exige_postos_juntaveis(postos)
+
+    textos = [txt.strip() for txt in payload.linhas if txt and txt.strip()]
+    if not textos:
+        raise _422("Escolha ao menos uma linha.")
+    linhas_dos_postos = {item.codigo: item for posto in postos for item in posto.linhas}
+    linhas: list[str] = []
+    for txt in textos:
+        codigo = codigo_linha(txt) or txt.upper()
+        item = linhas_dos_postos.get(codigo)
+        if item is None:
+            raise _422(f"A linha {codigo} não é do posto escolhido.")
+        if item.aviso is not None:
+            raise _422(f"A linha {codigo} está sem cadastro ou desativada — avise o coordenador "
+                       f"para cadastrar em Escala de Fiscais → Linhas.")
+        if codigo not in linhas:
+            linhas.append(codigo)
 
     data_referencia = datetime.now(FUSO_OPERACAO).date()
 
+    # R7 — um turno ABERTO por pessoa, período e dia, em qualquer posto.
     existente = db.execute(
-        select(Turno).where(
+        select(Turno.id).where(
             Turno.funcionario_id == usuario.id,
-            Turno.ponto_codigo == payload.ponto_codigo,
             Turno.periodo == payload.periodo,
             Turno.data_referencia == data_referencia,
             Turno.status == "ABERTO",
         )
-    ).scalar_one_or_none()
+    ).first()
     if existente is not None:
         raise HTTPException(
             status.HTTP_409_CONFLICT,
-            detail="Já existe um turno ABERTO para esta pessoa, ponto, período e data.",
+            detail="Você já tem um turno aberto neste período — feche antes de abrir outro.",
         )
+
+    # Rótulo gravado (snapshot): o ponto final ou, sem ele — só acontece com
+    # 1 posto (R5) —, as linhas do posto unidas por " / ".
+    ponto_final_nome = postos[0].ponto_final_nome
+    ponto_nome = ponto_final_nome or " / ".join(item.codigo for item in postos[0].linhas)
 
     agora = datetime.now(FUSO_OPERACAO)
     novo = Turno(
         funcionario_id=usuario.id,
         fiscal_re=usuario.re,
-        ponto_codigo=payload.ponto_codigo,
-        terminal=ponto.terminal,
+        ponto_codigo=None,
+        ponto_nome=ponto_nome[:160],
+        terminal=postos[0].lado,
         periodo=payload.periodo,
         data_referencia=data_referencia,
         tipo_dia=_tipo_dia(data_referencia),
@@ -445,7 +480,11 @@ def abrir_turno(payload: TurnoAbrirRequest, usuario: EscritaFiscalizacao, db: Db
     )
     db.add(novo)
     db.flush()
-    for linha_codigo in dict.fromkeys(payload.linhas):
+    for posto in postos:
+        db.add(TurnoPosto(
+            turno_id=novo.id, posto_id=posto.posto_id, lado=posto.lado, ponto_final_nome=posto.ponto_final_nome,
+        ))
+    for linha_codigo in linhas:
         db.add(TurnoLinha(turno_id=novo.id, linha_codigo=linha_codigo))
     db.commit()
     db.refresh(novo)
@@ -849,8 +888,7 @@ def atribuir_minha_linha(payload: MinhaLinhaCreate, usuario: EscritaPainel, db: 
             raise HTTPException(status.HTTP_403_FORBIDDEN, detail="Só ADMIN pode atribuir linha a outro funcionário.")
         alvo_id = payload.funcionario_id
 
-    linha_codigo = payload.linha_codigo.strip()
-    _exige_linha_no_catalogo(db, [linha_codigo])
+    linha_codigo = _linha_do_cadastro(db, payload.linha_codigo.strip()).codigo
     existente = db.execute(
         select(LinhaCoordenador).where(
             LinhaCoordenador.linha_codigo == linha_codigo, LinhaCoordenador.periodo == payload.periodo,
@@ -1091,6 +1129,7 @@ def painel_ao_vivo(
             tipo=(registro.motivo or "OUTRO") if perdida else "REALIZADA",
             custou_viagem=perdida,
             horario=registro.horario_programado,
+            ponto_nome=turno.ponto_nome,
             ponto_codigo=turno.ponto_codigo,
             fiscal_re=turno.fiscal_re,
             minutos_atras=max(0, int((agora - momento).total_seconds() // 60)),
@@ -1115,6 +1154,7 @@ def painel_ao_vivo(
             tipo=evento.tipo,
             custou_viagem=False,
             horario=evento.horario,
+            ponto_nome=turno.ponto_nome,
             ponto_codigo=turno.ponto_codigo,
             fiscal_re=turno.fiscal_re,
             minutos_atras=max(0, int((agora - momento).total_seconds() // 60)),
@@ -1145,6 +1185,7 @@ def painel_turnos_abertos(
             turno_id=turno.id,
             fiscal_nome=funcionario.nome if funcionario is not None else "—",
             fiscal_re=turno.fiscal_re,
+            ponto_nome=turno.ponto_nome,
             ponto_codigo=turno.ponto_codigo,
             terminal=turno.terminal,
             periodo=turno.periodo,

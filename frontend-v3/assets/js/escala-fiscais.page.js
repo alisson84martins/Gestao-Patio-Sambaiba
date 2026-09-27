@@ -22,11 +22,12 @@
  */
 import { requireAuth, getCurrentUser, logout } from './auth.js';
 import { apiGet, apiPost, apiPatch, apiDelete, apiUpload, ApiError } from './api.js';
-import { podeEscrever } from './sessao.js';
+import { podeEscrever, temFuncao } from './sessao.js';
 import { escapeHtml } from './escape.js';
 import { aplicarMascara } from './mascaras.js';
 import { dataLocalISO } from './data.util.js';
 import { iniciarMontagem, carregarMontagem } from './escala-fiscais.montagem.js';
+import { criarSeletorLinhas } from './linhas.seletor.js';
 
 if (!requireAuth()) {
     throw new Error('Sessao nao autenticada');
@@ -34,6 +35,8 @@ if (!requireAuth()) {
 
 const API = '/escala-fiscais';
 const escreve = podeEscrever('escala_fiscal');
+// Cadastro de linha é só ADMIN (rotas de /linhas); o backend é a trava real.
+const ehAdmin = temFuncao('ADMIN');
 
 const ROTULO_SITUACAO = {
     escalado: 'Escalado', outra_garagem: 'Outra garagem', descoberto: 'Descoberto', direto: 'Direto',
@@ -49,10 +52,12 @@ document.addEventListener('DOMContentLoaded', () => {
     if (!escreve) {
         document.querySelectorAll('.ef-form, .ef-rodape').forEach(el => { el.hidden = true; });
     }
+    document.querySelectorAll('[data-so-admin]').forEach(el => { el.hidden = !(ehAdmin && escreve); });
     setupQuadro();
     setupCoordenadores();
     setupPontos();
     setupPostos();
+    setupLinhas();
     setupModelos();
     setupAusencias();
     setupTrocas();
@@ -78,7 +83,8 @@ const CARREGAR_ABA = {
     quadro: () => carregarQuadro(),
     coordenadores: () => { carregarCoordPeriodo(); carregarCoordHorario(); },
     pontos: () => carregarPontos(),
-    postos: () => { carregarPontos(); carregarPostos(); },
+    postos: () => { carregarPontos(); carregarPostos(); if (!valor('posto-id')) seletorLinhasPosto?.carregar(); },
+    linhas: () => carregarLinhas(),
     modelos: () => carregarModelos(),
     ausencias: () => carregarAusencias(),
     trocas: () => carregarTrocas(),
@@ -441,21 +447,43 @@ async function carregarPontos() {
 // ─── Postos ──────────────────────────────────────────────────────────────
 
 let postosCache = [];
+// Linhas do posto vêm do cadastro único (public.linha, migration 048), pelo
+// id — ⛔ nada de texto digitado (R0). Leitura por GET /escala-fiscais/linhas.
+let seletorLinhasPosto = null;
+// Ordem em que as linhas foram marcadas (o Set do seletor não guarda ordem de toque).
+let ordemLinhasPosto = [];
 
-function lerLinhas(texto) {
-    return texto.split(/[\s,;]+/).map(s => s.trim().toUpperCase()).filter(Boolean);
+function atualizarLinhasEscolhidas(selecao) {
+    ordemLinhasPosto = ordemLinhasPosto.filter(id => selecao.has(id));
+    selecao.forEach(id => { if (!ordemLinhasPosto.includes(id)) ordemLinhasPosto.push(id); });
+    const porId = new Map((seletorLinhasPosto?.getCatalogo() || []).map(l => [l.id, l]));
+    const codigos = ordemLinhasPosto.map(id => porId.get(id)?.codigo).filter(Boolean);
+    document.getElementById('posto-linhas-escolhidas').textContent = codigos.length
+        ? `Marcadas: ${codigos.join(' / ')}` : 'Nenhuma linha marcada.';
 }
 
 function setupPostos() {
+    seletorLinhasPosto = criarSeletorLinhas({
+        containerLista: document.getElementById('posto-linhas-lista'),
+        campoBusca: document.getElementById('posto-linhas-busca'),
+        multiplo: true,
+        url: `${API}/linhas`,
+        chave: 'id',
+        onMudar: atualizarLinhasEscolhidas,
+    });
     document.getElementById('form-posto').addEventListener('submit', async (e) => {
         e.preventDefault();
         const id = valor('posto-id');
+        if (!ordemLinhasPosto.length) {
+            mostrarMensagem('Marque ao menos uma linha do posto.', 'erro');
+            return;
+        }
         const corpo = {
             lado: valor('posto-lado'),
             cod_jb: valor('posto-codjb') || null,
             lote: valor('posto-lote') || null,
             ponto_final_id: valor('posto-ponto') || null,
-            linhas: lerLinhas(valor('posto-linhas')),
+            linha_ids: ordemLinhasPosto.slice(),
         };
         try {
             if (id) await apiPatch(`${API}/postos/${id}`, corpo);
@@ -467,11 +495,37 @@ function setupPostos() {
     });
     document.getElementById('btn-posto-cancelar').addEventListener('click', sairEdicaoPosto);
     document.getElementById('posto-filtro').addEventListener('input', renderPostos);
+
+    // Atalho "+ nova linha" (ADMIN): grava pela MESMA rota de /linhas e já
+    // deixa a linha marcada no posto.
+    const caixa = document.getElementById('posto-nova-linha');
+    document.getElementById('btn-posto-nova-linha').addEventListener('click', () => {
+        caixa.hidden = false;
+        document.getElementById('pnl-numero').focus();
+    });
+    document.getElementById('btn-pnl-cancelar').addEventListener('click', () => { caixa.hidden = true; });
+    document.getElementById('btn-pnl-salvar').addEventListener('click', async () => {
+        try {
+            const nova = await cadastrarLinha({
+                numero: valor('pnl-numero'), sufixo: valor('pnl-sufixo'),
+                setor: valor('pnl-setor'), nome: valor('pnl-nome'),
+            });
+            if (!nova) return;
+            await seletorLinhasPosto.recarregar();
+            seletorLinhasPosto.marcar(nova.id);
+            ['pnl-numero', 'pnl-nome', 'pnl-setor'].forEach(id => { document.getElementById(id).value = ''; });
+            document.getElementById('pnl-sufixo').value = '10';
+            caixa.hidden = true;
+            mostrarMensagem(`Linha ${nova.codigo} cadastrada e marcada no posto.`);
+        } catch (err) { erro(err); }
+    });
 }
 
 function sairEdicaoPosto() {
     document.getElementById('form-posto').reset();
     document.getElementById('posto-id').value = '';
+    ordemLinhasPosto = [];
+    seletorLinhasPosto.carregar().then(() => atualizarLinhasEscolhidas(new Set()));
     document.getElementById('btn-posto-cancelar').hidden = true;
     document.getElementById('btn-posto-salvar').textContent = 'Cadastrar posto';
 }
@@ -485,6 +539,11 @@ async function carregarPostos() {
 
 function descreverPosto(p) {
     return `${p.lado} · ${p.linhas.join(' / ')}`;
+}
+
+// Linha do posto sem cadastro (linha_id nulo): o fiscal não consegue marcá-la.
+function linhasSemCadastro(p) {
+    return (p.itens_linha || []).filter(i => !i.linha_id).map(i => i.codigo);
 }
 
 function renderPostos() {
@@ -501,6 +560,7 @@ function renderPostos() {
                 <span class="remanejo-badge">${escapeHtml(p.lote || 'sem lote')}</span>
             </div>
             <div class="ef-meta">Cód. JB ${escapeHtml(p.cod_jb || '—')} · Ponto final: ${escapeHtml(p.ponto_final_nome || 'não ligado')}</div>
+            ${linhasSemCadastro(p).length ? `<div class="ef-meta"><span class="ef-tag ef-tag-alerta">linha sem cadastro</span> ${escapeHtml(linhasSemCadastro(p).join(' / '))} — cadastre na aba Linhas</div>` : ''}
             ${botoesAcao([
                 { acao: 'editar', id: p.id, texto: 'Editar' },
                 { acao: 'ativo', id: p.id, texto: p.ativo ? 'Desativar' : 'Reativar' },
@@ -514,14 +574,140 @@ function renderPostos() {
             document.getElementById('posto-codjb').value = p.cod_jb || '';
             document.getElementById('posto-lote').value = p.lote || '';
             document.getElementById('posto-ponto').value = p.ponto_final_id || '';
-            document.getElementById('posto-linhas').value = p.linhas.join(', ');
+            ordemLinhasPosto = (p.itens_linha || []).filter(i => i.linha_id).map(i => i.linha_id);
+            seletorLinhasPosto.carregar(ordemLinhasPosto)
+                .then(() => atualizarLinhasEscolhidas(new Set(ordemLinhasPosto)));
             document.getElementById('btn-posto-cancelar').hidden = false;
             document.getElementById('btn-posto-salvar').textContent = 'Salvar posto';
             document.getElementById('form-posto').scrollIntoView({ behavior: 'smooth' });
+            const sem = linhasSemCadastro(p);
+            if (sem.length) {
+                mostrarMensagem(`Linha ${sem.join(', ')} sem cadastro: cadastre na aba Linhas antes de salvar, senão ela sai do posto.`, 'erro');
+            }
         },
         ativo: async (id) => {
             const p = postosCache.find(x => x.id === id);
             try { await apiPatch(`${API}/postos/${id}`, { ativo: !p.ativo }); carregarPostos(); } catch (err) { erro(err); }
+        },
+    });
+}
+
+// ─── Linhas (cadastro único — public.linha, migration 048) ───────────────
+// Um cadastro só (R0): grava pelas rotas de /linhas (as mesmas de Cadastros
+// → Linhas); lê por GET /escala-fiscais/linhas. Número + código formam
+// linhas diferentes (271A-10 ≠ 271A-51) — o backend monta o código.
+
+let linhasCache = [];
+
+/** POST /linhas. Devolve a linha criada, ou null se faltou campo. */
+async function cadastrarLinha({ numero, sufixo, setor, nome }) {
+    if (!numero || !sufixo) { mostrarMensagem('Informe número e código da linha.', 'erro'); return null; }
+    if (!setor) { mostrarMensagem('Escolha o setor da linha (E2 ou AR2).', 'erro'); return null; }
+    return apiPost('/linhas', { numero: numero.toUpperCase(), sufixo, setor, nome: nome || null });
+}
+
+function setupLinhas() {
+    const form = document.getElementById('form-linha');
+    form.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const id = valor('linha-id');
+        try {
+            if (id) {
+                const l = await apiPatch(`/linhas/${id}`, { nome: valor('linha-nome') });
+                mostrarMensagem(`Linha ${l.codigo} alterada.`);
+            } else {
+                const l = await cadastrarLinha({
+                    numero: valor('linha-numero'), sufixo: valor('linha-sufixo'),
+                    setor: valor('linha-setor'), nome: valor('linha-nome'),
+                });
+                if (!l) return;
+                mostrarMensagem(`Linha ${l.codigo} cadastrada.`);
+            }
+            sairEdicaoLinha();
+            carregarLinhas();
+        } catch (err) { erro(err); }
+    });
+    document.getElementById('btn-linha-cancelar').addEventListener('click', sairEdicaoLinha);
+    document.getElementById('linha-filtro').addEventListener('input', renderLinhas);
+}
+
+function sairEdicaoLinha() {
+    document.getElementById('form-linha').reset();
+    document.getElementById('linha-id').value = '';
+    document.getElementById('linha-sufixo').value = '10';
+    ['linha-numero', 'linha-sufixo', 'linha-setor'].forEach(id => { document.getElementById(id).disabled = false; });
+    document.getElementById('btn-linha-cancelar').hidden = true;
+    document.getElementById('btn-linha-salvar').textContent = '+ nova linha';
+}
+
+async function carregarLinhas() {
+    try {
+        linhasCache = await apiGet(`${API}/linhas?incluir_inativas=true`);
+        renderLinhas();
+    } catch (err) { erro(err); }
+}
+
+function botoesAdmin(botoes) {
+    if (!(ehAdmin && escreve)) return '';
+    return `<div class="ef-acoes">${botoes.map(b =>
+        `<button type="button" class="btn btn-ghost ef-btn-mini" data-acao="${b.acao}" data-id="${escapeHtml(b.id)}">${escapeHtml(b.texto)}</button>`
+    ).join('')}</div>`;
+}
+
+function renderLinhas() {
+    const container = document.getElementById('lista-linhas');
+    const filtro = valor('linha-filtro').toUpperCase();
+    const itens = linhasCache.filter(l => !filtro
+        || l.codigo.includes(filtro) || (l.nome || '').toUpperCase().includes(filtro));
+    const porNumero = new Map();
+    itens.forEach(l => {
+        if (!porNumero.has(l.numero)) porNumero.set(l.numero, []);
+        porNumero.get(l.numero).push(l);
+    });
+    container.innerHTML = porNumero.size ? [...porNumero].map(([numero, codigos]) => `
+        <div class="remanejo-card ef-card">
+            <div class="ef-card-linha">
+                <span><strong>${escapeHtml(numero)}</strong></span>
+                ${botoesAdmin([{ acao: 'codigo', id: numero, texto: '+ código' }])}
+            </div>
+            ${codigos.map(l => `
+                <div class="ef-linha-codigo${l.ativa ? '' : ' ef-inativo'}">
+                    <span><strong>-${escapeHtml(l.sufixo)}</strong>${l.nome ? ` · ${escapeHtml(l.nome)}` : ''}
+                        <span class="remanejo-badge">${escapeHtml(l.setor)}</span>
+                        ${l.ativa ? '' : '<span class="ef-tag">desativada</span>'}</span>
+                    ${botoesAdmin([
+                        { acao: 'editar', id: l.id, texto: 'Editar nome' },
+                        { acao: 'ativo', id: l.id, texto: l.ativa ? 'Desativar' : 'Reativar' },
+                    ])}
+                </div>`).join('')}
+        </div>`).join('') : vazio(linhasCache.length ? 'Nenhuma linha com esse filtro.' : 'Nenhuma linha cadastrada.');
+    ligarAcoes(container, {
+        codigo: (numero) => {
+            sairEdicaoLinha();
+            document.getElementById('linha-numero').value = numero;
+            document.getElementById('linha-sufixo').value = '';
+            const setor = linhasCache.find(l => l.numero === numero)?.setor || '';
+            document.getElementById('linha-setor').value = setor;
+            document.getElementById('form-linha').scrollIntoView({ behavior: 'smooth' });
+            document.getElementById('linha-sufixo').focus();
+        },
+        editar: (id) => {
+            const l = linhasCache.find(x => x.id === id);
+            document.getElementById('linha-id').value = l.id;
+            document.getElementById('linha-numero').value = l.numero;
+            document.getElementById('linha-sufixo').value = l.sufixo;
+            document.getElementById('linha-setor').value = l.setor;
+            document.getElementById('linha-nome').value = l.nome || '';
+            // Só o nome muda aqui: número + código é a identidade da linha.
+            ['linha-numero', 'linha-sufixo', 'linha-setor'].forEach(x => { document.getElementById(x).disabled = true; });
+            document.getElementById('btn-linha-cancelar').hidden = false;
+            document.getElementById('btn-linha-salvar').textContent = `Salvar ${l.codigo}`;
+            document.getElementById('form-linha').scrollIntoView({ behavior: 'smooth' });
+            document.getElementById('linha-nome').focus();
+        },
+        ativo: async (id) => {
+            const l = linhasCache.find(x => x.id === id);
+            try { await apiPatch(`/linhas/${id}`, { ativa: !l.ativa }); carregarLinhas(); } catch (err) { erro(err); }
         },
     });
 }
@@ -774,6 +960,7 @@ const ROTULO_PROBLEMA = {
     ajustado_padrao: 'AJUSTADO PARA O PADRÃO',
     ponta_anotada: 'TS/TP anotado no campo de linhas',
     posto_no_rodape: 'Posto que ficou no rodapé',
+    linha_sem_cadastro: 'Linha sem cadastro',
     posto_divergente: 'Mesmo posto com cód. JB/lote diferente',
     lado_divergente: 'Coluna L diferente do bloco',
     campo_ausente: 'Campo ausente no arquivo',

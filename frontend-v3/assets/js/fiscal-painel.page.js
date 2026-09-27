@@ -119,7 +119,7 @@ async function carregarAoVivo() {
             <div class="portaria-item" style="cursor:default">
                 <div>
                     <div class="portaria-item-placa">${escapeHtml(i.linha_codigo)}${i.numero_tabela ? ` · Tabela ${i.numero_tabela}` : ''}</div>
-                    <div class="portaria-item-sub">${escapeHtml(TIPO_LABEL[i.tipo] || i.tipo)}${i.custou_viagem ? ' · viagem perdida' : ''} · ${escapeHtml(i.ponto_codigo)} · RE ${escapeHtml(i.fiscal_re)}</div>
+                    <div class="portaria-item-sub">${escapeHtml(TIPO_LABEL[i.tipo] || i.tipo)}${i.custou_viagem ? ' · viagem perdida' : ''} · ${escapeHtml(nomeDoPonto(i))} · RE ${escapeHtml(i.fiscal_re)}</div>
                 </div>
                 <div class="portaria-item-hora">${i.minutos_atras <= 0 ? 'agora' : `há ${i.minutos_atras} min`}</div>
             </div>
@@ -128,6 +128,12 @@ async function carregarAoVivo() {
         if (ignoravel(err)) return;
         exibirErro('Erro ao carregar o ao vivo: ' + err.message);
     }
+}
+
+// Turno aberto depois da 047 tem ponto_nome (posto da Escala de Fiscais);
+// turno antigo, sem nome gravado, cai no ponto_codigo.
+function nomeDoPonto(item) {
+    return item.ponto_nome || item.ponto_codigo || '—';
 }
 
 // ─── 2. Turnos abertos (D39) ─────────────────────────────────────────────
@@ -143,7 +149,7 @@ async function carregarTurnosAbertos() {
         corpo.innerHTML = itens.map(t => `
             <tr>
                 <td>${escapeHtml(t.fiscal_nome)} <span style="color:var(--muted)">RE ${escapeHtml(t.fiscal_re)}</span></td>
-                <td>${escapeHtml(t.ponto_codigo)}</td>
+                <td>${escapeHtml(nomeDoPonto(t))}</td>
                 <td>${escapeHtml(t.terminal)}</td>
                 <td>${escapeHtml(t.periodo)}º</td>
                 <td>${escapeHtml((t.linhas || []).join(', ') || '—')}</td>
@@ -581,6 +587,7 @@ async function iniciar() {
         containerLista: document.getElementById('fp-nova-linha-lista'),
         campoBusca: document.getElementById('fp-nova-linha-busca'),
         multiplo: false,
+        url: '/fiscalizacao/linhas',  // cadastro único (048), porta do painel
     });
 
     document.getElementById('fp-btn-nova-acao').addEventListener('click', abrirModalAcao);

@@ -24,7 +24,6 @@
 import { requireAuth, getCurrentUser, logout } from './auth.js';
 import { apiGet, apiPatch, apiPost, apiPut, ApiError } from './api.js';
 import { escapeHtml } from './escape.js';
-import { criarSeletorLinhas } from './linhas.seletor.js';
 
 if (!requireAuth()) {
     throw new Error('Sessão não autenticada — interrompendo carga da página');
@@ -32,8 +31,8 @@ if (!requireAuth()) {
 
 // ─── Estado ───────────────────────────────────────────────────────────────
 let turnoAtual = null;           // TurnoRead ou null
-let pontosCache = [];
-let pontoEscolhido = null;
+let postosCache = [];            // GET /fiscalizacao/postos
+let postosEscolhidos = [];       // posto_id[] — 1, ou vários do mesmo ponto final e ponta (R5)
 let periodoEscolhido = null;
 let linhasEscolhidas = new Set();
 let abaAtiva = null;             // linha_codigo da aba visível
@@ -41,13 +40,7 @@ let partidasPorLinha = {};       // { linha_codigo: PartidaEstadoItem[] }
 let contextoRegistro = null;     // não-nulo = "Não saiu" veio de um card de grade
 let motivoSelecionado = null;
 let viagemEscolhida = null;      // 'sim' | 'nao' | null
-let terminalNovoPonto = 'TP';
 let mensagensGeradas = [];
-
-// D37 §3 — seletor de linhas do catálogo (linhas.seletor.js), compartilhado
-// com fiscal-painel.js. Aqui em modo múltiplo: o ponto pode ter mais de
-// uma linha (D9).
-let seletorPontoLinhas = null;
 
 const TIPO_LABEL = {
     FALTA_OPERADORES: 'Falta de operadores', RA: 'R.A', SOS: 'S.O.S',
@@ -122,8 +115,22 @@ async function atualizarProntidao() {
 }
 
 // ============================================================================
-// ABERTURA DE TURNO (D37, D8, D11)
+// ABERTURA DE TURNO — postos da Escala de Fiscais (047), período, linhas
 // ============================================================================
+// Fonte única: GET /fiscalizacao/postos (o fiscal não cria nem edita posto —
+// quem cadastra é o coordenador na aba Escala de Fiscais → Postos).
+// R5 — o fiscal vê TODOS os postos, mas entra em UM; só junta postos do
+// MESMO ponto final e da MESMA ponta (D10: um fiscal por terminal). O backend
+// recusa o resto com 422 — aqui é só para a tela não oferecer o que não pode.
+
+// Cadastro único de linhas (048): a linha do posto vem de public.linha por
+// linha_id. `aviso` preenchido (linha sem cadastro / desativada) = aparece,
+// mas não pode ser marcada — o backend recusa com 422 do mesmo jeito.
+const AVISO_COMPLEMENTO = 'avise o coordenador para cadastrar em Escala de Fiscais → Linhas';
+
+function avisoLinha(l) {
+    return `${l.aviso} — ${AVISO_COMPLEMENTO}`;
+}
 
 async function iniciarAbertura() {
     document.getElementById('fis-abertura').style.display = '';
@@ -131,49 +138,134 @@ async function iniciarAbertura() {
     document.getElementById('fis-prontidao').style.display = 'none';
     document.getElementById('fis-passo-periodo').style.display = 'none';
     document.getElementById('fis-passo-linhas').style.display = 'none';
-    pontoEscolhido = null;
+    document.querySelectorAll('#fis-passo-periodo .fis-btn-grande').forEach(b => b.classList.remove('active'));
+    postosEscolhidos = [];
     periodoEscolhido = null;
     linhasEscolhidas = new Set();
     await carregarPontos();
 }
 
+function postoPorId(id) {
+    return postosCache.find(p => p.posto_id === id) || null;
+}
+
+// Pode somar ao que já foi escolhido? Mesmo ponto final (não nulo) e mesma ponta.
+function podeJuntar(posto) {
+    if (postosEscolhidos.length === 0) return true;
+    const base = postoPorId(postosEscolhidos[0]);
+    return Boolean(base && base.ponto_final_id)
+        && posto.ponto_final_id === base.ponto_final_id
+        && posto.lado === base.lado;
+}
+
+function htmlPosto(p) {
+    const escolhido = postosEscolhidos.includes(p.posto_id);
+    const juntavel = !escolhido && postosEscolhidos.length > 0 && podeJuntar(p);
+    const apagado = !escolhido && !juntavel && postosEscolhidos.length > 0;
+    const classe = escolhido ? 'fis-posto-escolhido' : (apagado ? 'fis-posto-apagado' : '');
+    const marca = escolhido ? '✓' : (juntavel ? '+ juntar' : '');
+    const linhas = (p.linhas || []).map(l => `
+        <div class="fis-posto-linha${l.aviso ? ' fis-posto-linha-fora' : ''}">
+            <span class="fis-posto-codigo">${escapeHtml(l.codigo)}</span>${l.nome ? ` · ${escapeHtml(l.nome)}` : ''}
+            ${l.aviso ? `<div class="fis-posto-aviso">${escapeHtml(avisoLinha(l))}</div>` : ''}
+        </div>
+    `).join('') || '<div class="fis-posto-linha fis-posto-linha-fora">Posto sem linha cadastrada</div>';
+    const sub = p.lado + (p.ponto_final_nome ? ` · ${p.ponto_final_nome}` : '');
+    return `
+        <div class="fis-posto-card ${classe}" role="button" tabindex="0"
+             aria-pressed="${escolhido}" aria-disabled="${apagado}" data-posto="${escapeHtml(p.posto_id)}">
+            <div class="fis-posto-corpo">
+                ${linhas}
+                <div class="fis-posto-sub">${escapeHtml(sub)}</div>
+            </div>
+            <span class="fis-posto-marca">${marca}</span>
+        </div>
+    `;
+}
+
+function renderPostos() {
+    const lista = document.getElementById('fis-lista-pontos');
+    let grupoAtual;
+    let html = '';
+    // A ordem vem do backend: ponto final (nome), sem ponto final no fim.
+    postosCache.forEach(p => {
+        const grupo = p.ponto_final_nome || 'Sem ponto final';
+        if (grupo !== grupoAtual) {
+            html += `<div class="fis-posto-grupo">${escapeHtml(grupo)}</div>`;
+            grupoAtual = grupo;
+        }
+        html += htmlPosto(p);
+    });
+    lista.innerHTML = html;
+    lista.querySelectorAll('[data-posto]').forEach(el => {
+        el.addEventListener('click', () => tocarPosto(el.dataset.posto));
+        el.addEventListener('keydown', (ev) => {
+            if (ev.key === 'Enter' || ev.key === ' ') {
+                ev.preventDefault();
+                tocarPosto(el.dataset.posto);
+            }
+        });
+    });
+
+    const barra = document.getElementById('fis-escolha-barra');
+    barra.style.display = postosEscolhidos.length > 0 ? '' : 'none';
+    const n = postosEscolhidos.length;
+    document.getElementById('fis-btn-continuar-posto').textContent =
+        n > 1 ? `Continuar com ${n} postos` : 'Continuar';
+}
+
 async function carregarPontos() {
     const lista = document.getElementById('fis-lista-pontos');
     try {
-        pontosCache = await apiGet('/fiscalizacao/pontos');
-        if (pontosCache.length === 0) {
-            lista.innerHTML = '<div class="oc-vazio">Nenhum ponto cadastrado ainda — cadastre um abaixo.</div>';
+        postosCache = await apiGet('/fiscalizacao/postos');
+        if (postosCache.length === 0) {
+            lista.innerHTML = '<div class="oc-vazio">Nenhum posto cadastrado na Escala de Fiscais — fale com o coordenador.</div>';
+            document.getElementById('fis-escolha-barra').style.display = 'none';
             return;
         }
-        lista.innerHTML = pontosCache.map(p => `
-            <div class="fis-ponto-item" data-ponto="${escapeHtml(p.codigo)}">
-                <div>
-                    <div class="fis-ponto-nome">${escapeHtml(p.nome)}</div>
-                    <div class="fis-ponto-sub">${escapeHtml(p.codigo)} · ${escapeHtml(p.terminal)} · ${(p.linhas || []).length} linha(s)</div>
-                </div>
-                <span style="color:var(--muted)">›</span>
-            </div>
-        `).join('');
-        lista.querySelectorAll('[data-ponto]').forEach(el => {
-            el.addEventListener('click', () => escolherPonto(el.dataset.ponto));
-        });
+        renderPostos();
     } catch (err) {
         if (ignoravel(err)) return;
         lista.innerHTML = `<div class="oc-vazio" style="color:var(--accent)">Erro: ${escapeHtml(err.message)}</div>`;
     }
 }
 
-function escolherPonto(codigo) {
-    pontoEscolhido = pontosCache.find(p => p.codigo === codigo);
-    if (!pontoEscolhido) return;
-    periodoEscolhido = null;
-    document.querySelectorAll('#fis-passo-periodo .fis-btn-grande').forEach(b => b.classList.remove('active'));
+function tocarPosto(id) {
+    const posto = postoPorId(id);
+    if (!posto) return;
+    if (postosEscolhidos.includes(id)) {
+        postosEscolhidos = postosEscolhidos.filter(x => x !== id);
+    } else if (podeJuntar(posto)) {
+        postosEscolhidos = [...postosEscolhidos, id];
+    } else {
+        return;  // apagado — só volta a valer depois de desmarcar
+    }
+    renderPostos();
+    atualizarPassosSeguintes();
+}
+
+// Mudou a escolha de postos: esconde o que dependia dela; se o período já
+// foi escolhido, refaz a lista de linhas com os postos novos.
+function atualizarPassosSeguintes() {
+    if (postosEscolhidos.length === 0) {
+        periodoEscolhido = null;
+        document.querySelectorAll('#fis-passo-periodo .fis-btn-grande').forEach(b => b.classList.remove('active'));
+        document.getElementById('fis-passo-periodo').style.display = 'none';
+        document.getElementById('fis-passo-linhas').style.display = 'none';
+        return;
+    }
     document.getElementById('fis-passo-periodo').style.display = '';
-    document.getElementById('fis-passo-linhas').style.display = 'none';
+    if (periodoEscolhido) renderPassoLinhas({ rolar: false });
+}
+
+function continuarDoPosto() {
+    if (postosEscolhidos.length === 0) return;
+    document.getElementById('fis-passo-periodo').style.display = '';
     document.getElementById('fis-passo-periodo').scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
 function initPassoPeriodo() {
+    document.getElementById('fis-btn-continuar-posto').addEventListener('click', continuarDoPosto);
     document.querySelectorAll('#fis-passo-periodo .fis-btn-grande').forEach(btn => {
         btn.addEventListener('click', () => {
             periodoEscolhido = btn.dataset.periodo;
@@ -184,12 +276,29 @@ function initPassoPeriodo() {
     });
 }
 
-function renderPassoLinhas() {
+// Linhas dos postos escolhidos, sem repetir, na ordem da Escala. As do
+// catálogo começam marcadas (R6); as de fora aparecem, mas não marcam (R4).
+function linhasDosPostosEscolhidos() {
+    const vistas = new Map();
+    postosEscolhidos.forEach(id => {
+        (postoPorId(id)?.linhas || []).forEach(l => {
+            if (!vistas.has(l.codigo)) vistas.set(l.codigo, l);
+        });
+    });
+    return Array.from(vistas.values());
+}
+
+function renderPassoLinhas({ rolar = true } = {}) {
     const el = document.getElementById('fis-linhas-checklist');
-    linhasEscolhidas = new Set(pontoEscolhido.linhas);
-    el.innerHTML = pontoEscolhido.linhas.map(l =>
-        `<button type="button" class="recolhida-chip active" data-linha="${escapeHtml(l)}">${escapeHtml(l)}</button>`
-    ).join('');
+    const linhas = linhasDosPostosEscolhidos();
+    linhasEscolhidas = new Set(linhas.filter(l => !l.aviso).map(l => l.codigo));
+    el.innerHTML = linhas.map(l => {
+        const rotulo = `${escapeHtml(l.codigo)}${l.nome ? ` · ${escapeHtml(l.nome)}` : ''}`;
+        if (l.aviso) {
+            return `<button type="button" class="recolhida-chip fis-linha-chip fis-linha-chip-fora" disabled>${rotulo}<span class="fis-posto-aviso">${escapeHtml(avisoLinha(l))}</span></button>`;
+        }
+        return `<button type="button" class="recolhida-chip fis-linha-chip active" data-linha="${escapeHtml(l.codigo)}">${rotulo}</button>`;
+    }).join('');
     el.querySelectorAll('[data-linha]').forEach(btn => {
         btn.addEventListener('click', () => {
             const l = btn.dataset.linha;
@@ -203,11 +312,15 @@ function renderPassoLinhas() {
         });
     });
     document.getElementById('fis-passo-linhas').style.display = '';
-    document.getElementById('fis-passo-linhas').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    if (rolar) document.getElementById('fis-passo-linhas').scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
 async function abrirTurno() {
     document.getElementById('fis-erro').style.display = 'none';
+    if (postosEscolhidos.length === 0) {
+        exibirErro('Escolha o posto.');
+        return;
+    }
     if (linhasEscolhidas.size === 0) {
         exibirErro('Escolha ao menos uma linha.');
         return;
@@ -216,13 +329,14 @@ async function abrirTurno() {
     btn.disabled = true;
     try {
         turnoAtual = await apiPost('/fiscalizacao/turnos', {
-            ponto_codigo: pontoEscolhido.codigo,
+            posto_ids: postosEscolhidos,
             periodo: periodoEscolhido,
             linhas: Array.from(linhasEscolhidas),
         });
         await entrarNoTurno();
     } catch (err) {
         exibirErro(err.message);
+        document.getElementById('fis-erro').scrollIntoView({ behavior: 'smooth', block: 'center' });
     } finally {
         btn.disabled = false;
     }
@@ -361,68 +475,6 @@ async function marcarSaiu(contexto) {
         await atualizarProntidao();
     } catch (err) {
         exibirErro('Erro ao marcar: ' + err.message);
-    }
-}
-
-// ============================================================================
-// MODAL — cadastrar ponto (D37)
-// ============================================================================
-
-function initModalPonto() {
-    document.getElementById('fis-btn-novo-ponto').addEventListener('click', abrirModalPonto);
-    document.getElementById('fis-modal-ponto-fechar').addEventListener('click', fecharModalPonto);
-    document.getElementById('fis-ponto-cancelar').addEventListener('click', fecharModalPonto);
-    document.getElementById('fis-ponto-salvar').addEventListener('click', salvarPonto);
-    document.querySelectorAll('#fis-ponto-terminal .recolhida-chip').forEach(btn => {
-        btn.addEventListener('click', () => {
-            terminalNovoPonto = btn.dataset.terminal;
-            document.querySelectorAll('#fis-ponto-terminal .recolhida-chip').forEach(b => b.classList.remove('active'));
-            btn.classList.add('active');
-        });
-    });
-    seletorPontoLinhas = criarSeletorLinhas({
-        containerLista: document.getElementById('fis-ponto-linhas-lista'),
-        campoBusca: document.getElementById('fis-ponto-linhas-busca'),
-        multiplo: true,
-    });
-}
-
-async function abrirModalPonto() {
-    document.getElementById('fis-ponto-codigo').value = '';
-    document.getElementById('fis-ponto-nome').value = '';
-    document.getElementById('fis-ponto-erro').style.display = 'none';
-    terminalNovoPonto = 'TP';
-    document.querySelectorAll('#fis-ponto-terminal .recolhida-chip').forEach((b, i) => b.classList.toggle('active', i === 0));
-    document.getElementById('fis-modal-ponto').classList.add('open');
-    await seletorPontoLinhas.carregar();
-}
-
-function fecharModalPonto() {
-    document.getElementById('fis-modal-ponto').classList.remove('open');
-}
-
-async function salvarPonto() {
-    const erro = document.getElementById('fis-ponto-erro');
-    erro.style.display = 'none';
-    const codigo = document.getElementById('fis-ponto-codigo').value.trim();
-    const nome = document.getElementById('fis-ponto-nome').value.trim();
-    const linhas = Array.from(seletorPontoLinhas.getSelecao());
-    if (!codigo || !nome || linhas.length === 0) {
-        erro.textContent = 'Preencha código, nome e ao menos uma linha.';
-        erro.style.display = 'block';
-        return;
-    }
-    const btn = document.getElementById('fis-ponto-salvar');
-    btn.disabled = true;
-    try {
-        await apiPost('/fiscalizacao/pontos', { codigo, nome, terminal: terminalNovoPonto, linhas });
-        fecharModalPonto();
-        await carregarPontos();
-    } catch (err) {
-        erro.textContent = err.message;
-        erro.style.display = 'block';
-    } finally {
-        btn.disabled = false;
     }
 }
 
@@ -864,7 +916,6 @@ async function concluirFechamento() {
 async function iniciar() {
     initHeader();
     initPassoPeriodo();
-    initModalPonto();
     initModalAnormalidade();
     initModalObservacao();
     initModalFechar();

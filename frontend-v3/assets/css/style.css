@@ -3835,22 +3835,93 @@ body.modal-open {
     color: var(--text);
 }
 
-.fis-ponto-item {
+/* Postos da Escala de Fiscais (047) — celular primeiro: card inteiro é a
+   área de toque, nome da linha quebra linha, nada de rolagem horizontal. */
+.fis-posto-grupo {
+    margin: 14px 0 6px;
+    color: var(--muted);
+    font-family: var(--display);
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+}
+
+.fis-posto-card {
     display: flex;
     align-items: center;
-    justify-content: space-between;
-    min-height: 56px;
-    padding: 12px 16px;
+    gap: 12px;
+    min-height: 64px;
+    padding: 12px 14px;
     margin-bottom: 8px;
     background: var(--surface);
     border: 1px solid var(--border);
     border-radius: 10px;
     cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
 }
 
-.fis-ponto-item:active { background: var(--surface2); }
-.fis-ponto-nome { font-weight: 700; }
-.fis-ponto-sub { color: var(--muted); font-size: 12px; font-family: var(--mono); }
+.fis-posto-card:active { background: var(--surface2); }
+
+.fis-posto-card.fis-posto-escolhido {
+    border-color: var(--accent3);
+    box-shadow: inset 0 0 0 1px var(--accent3);
+}
+
+.fis-posto-card.fis-posto-apagado {
+    opacity: 0.35;
+    cursor: default;
+}
+
+.fis-posto-corpo { flex: 1; min-width: 0; }
+
+.fis-posto-linha {
+    font-weight: 700;
+    line-height: 1.3;
+    overflow-wrap: anywhere;
+}
+
+.fis-posto-linha + .fis-posto-linha { margin-top: 4px; }
+.fis-posto-codigo { font-family: var(--mono); }
+.fis-posto-linha-fora { color: var(--muted); font-weight: 400; }
+
+.fis-posto-aviso {
+    display: block;
+    margin-top: 2px;
+    color: var(--muted);
+    font-size: 11px;
+    font-weight: 400;
+    font-family: inherit;
+}
+
+.fis-posto-sub {
+    margin-top: 6px;
+    color: var(--muted);
+    font-size: 12px;
+    font-family: var(--mono);
+}
+
+.fis-posto-marca {
+    flex-shrink: 0;
+    color: var(--accent3);
+    font-family: var(--display);
+    font-weight: 800;
+    font-size: 15px;
+    white-space: nowrap;
+}
+
+/* Mesmo padrão sticky de .fis-rodape-fixo: o botão fica à mão enquanto a
+   lista de postos rola. */
+.fis-escolha-barra {
+    position: sticky;
+    bottom: 0;
+    padding: 10px 0 4px;
+    margin-top: 8px;
+    background: linear-gradient(to top, var(--bg) 65%, transparent);
+    z-index: 6;
+}
+
+.fis-escolha-barra .btn { min-height: 56px; font-size: 16px; margin-top: 0; }
 
 .fis-btn-grande-row {
     display: flex;
@@ -3882,6 +3953,21 @@ body.modal-open {
     min-height: 44px;
     display: inline-flex;
     align-items: center;
+}
+
+/* Chip de linha com nome: pode quebrar em duas linhas no celular. */
+.fis-linhas-checklist .fis-linha-chip {
+    flex-direction: column;
+    align-items: flex-start;
+    max-width: 100%;
+    white-space: normal;
+    text-align: left;
+    border-radius: 12px;
+}
+
+.fis-linhas-checklist .fis-linha-chip-fora {
+    opacity: 0.55;
+    cursor: not-allowed;
 }
 
 .fis-tab-badge {
@@ -4237,6 +4323,32 @@ body.modal-open {
 }
 
 .ef-inativo { opacity: 0.55; }
+
+/* Escala de Fiscais → atalho "+ nova linha" dentro do posto (cadastro único) */
+.ef-nova-linha {
+    border: 1px dashed var(--border);
+    border-radius: 8px;
+    padding: 10px 10px 0;
+    margin-bottom: 12px;
+}
+
+.ef-nova-linha .ef-rodape {
+    position: static;
+    margin: 8px 0 0;
+    padding: 8px 0 10px;
+    background: none;
+}
+
+/* Sub-aba Linhas: um número por card, os códigos embaixo */
+.ef-linha-codigo {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    flex-wrap: wrap;
+    padding: 6px 0;
+    border-top: 1px solid var(--border);
+}
 
 .ef-acoes {
     display: flex;

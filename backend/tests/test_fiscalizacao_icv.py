@@ -41,7 +41,7 @@ from app.main import app
 from app.models.cadastro import Funcionario
 from app.models.fiscalizacao import (
     AcaoCoordenacao, EventoTurno, IcvApurado, LinhaCoordenador, Parametro,
-    PartidaProgramada, Ponto, RegistroPartida, Turno,
+    PartidaProgramada, RegistroPartida, Turno,
 )
 from app.routers import fiscalizacao as fiscalizacao_router_mod
 from app.services.icv import (
@@ -54,7 +54,7 @@ sqlite3.register_adapter(_uuid_mod.UUID, lambda u: u.hex)
 _TABELAS = [
     Funcionario.__table__, LinhaCoordenador.__table__, Parametro.__table__,
     IcvApurado.__table__, AcaoCoordenacao.__table__,
-    Ponto.__table__, Turno.__table__, PartidaProgramada.__table__,
+    Turno.__table__, PartidaProgramada.__table__,
     RegistroPartida.__table__, EventoTurno.__table__,
 ]
 
@@ -649,8 +649,7 @@ def test_d20_duas_fontes_lado_a_lado_sem_coluna_combinada(db):
     hoje = date(2026, 8, 19)
     tipo_dia = _tipo_dia(hoje)
     func = Funcionario(id=uuid4(), re="70030", nome="Fiscal Campo Teste", status="ATIVO")
-    ponto = Ponto(codigo="P1", nome="Ponto Teste", terminal="TP", ativo=True)
-    db.add_all([func, ponto])
+    db.add(func)
     db.commit()
 
     db.add(IcvApurado(
@@ -663,7 +662,7 @@ def test_d20_duas_fontes_lado_a_lado_sem_coluna_combinada(db):
             sequencia=i + 1, terminal="TP", horario=time(8, 0), vigencia=hoje,
         ))
     turno = Turno(
-        id=uuid4(), funcionario_id=func.id, fiscal_re=func.re, ponto_codigo="P1",
+        id=uuid4(), funcionario_id=func.id, fiscal_re=func.re, ponto_nome="Ponto Teste",
         terminal="TP", periodo="1", data_referencia=hoje, tipo_dia=tipo_dia, status="ABERTO",
     )
     db.add(turno)
@@ -704,14 +703,11 @@ def test_d30_icv_acima_de_100_por_cento_sem_teto(db):
 # de ICV e ações da coordenação (D26)
 # ============================================================================
 
-def _abrir_turno_e_perder(db, *, func_id, re, ponto_codigo, linha_codigo, data_referencia, tipo_dia, horarios):
-    """Helper só destes testes — cria ponto/turno e marca cada horário da
+def _abrir_turno_e_perder(db, *, func_id, re, ponto_nome, linha_codigo, data_referencia, tipo_dia, horarios):
+    """Helper só destes testes — cria o turno e marca cada horário da
     lista como PERDIDA (motivo OUTRO, sem exigir prefixo/RE)."""
-    if db.get(Ponto, ponto_codigo) is None:
-        db.add(Ponto(codigo=ponto_codigo, nome="Ponto Teste", terminal="TP", ativo=True))
-        db.commit()
     turno = Turno(
-        id=uuid4(), funcionario_id=func_id, fiscal_re=re, ponto_codigo=ponto_codigo,
+        id=uuid4(), funcionario_id=func_id, fiscal_re=re, ponto_nome=ponto_nome,
         terminal="TP", periodo="1", data_referencia=data_referencia, tipo_dia=tipo_dia, status="ABERTO",
     )
     db.add(turno)
@@ -732,7 +728,7 @@ def test_d24_cascata_duas_perdas_mesma_faixa_acende(db):
     db.add(func)
     db.commit()
     _abrir_turno_e_perder(
-        db, func_id=func.id, re=func.re, ponto_codigo="P1", linha_codigo="1726-10",
+        db, func_id=func.id, re=func.re, ponto_nome="Ponto Teste", linha_codigo="1726-10",
         data_referencia=hoje, tipo_dia="UTIL", horarios=[time(18, 10), time(18, 40)],
     )
 
@@ -750,7 +746,7 @@ def test_d24_cascata_faixas_diferentes_nao_acende(db):
     db.add(func)
     db.commit()
     _abrir_turno_e_perder(
-        db, func_id=func.id, re=func.re, ponto_codigo="P1", linha_codigo="1726-10",
+        db, func_id=func.id, re=func.re, ponto_nome="Ponto Teste", linha_codigo="1726-10",
         data_referencia=hoje, tipo_dia="UTIL", horarios=[time(18, 50), time(19, 5)],
     )
 

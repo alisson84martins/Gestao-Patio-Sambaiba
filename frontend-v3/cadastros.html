@@ -236,14 +236,22 @@
 
         <input type="hidden" id="linha-id">
 
+        <!-- Cadastro único (migration 048): número + código formam a linha
+             (271A-10 ≠ 271A-51); o sistema monta o código completo. É a
+             mesma lista da Escala de Fiscais → Linhas. -->
         <div class="form-group">
-            <label class="form-label" for="linha-codigo">Código <span style="color:var(--accent)">*</span></label>
-            <input type="text" class="form-input" id="linha-codigo" placeholder="Ex: 8500-10" maxlength="20">
+            <label class="form-label" for="linha-numero">Número <span style="color:var(--accent)">*</span></label>
+            <input type="text" class="form-input" id="linha-numero" placeholder="Ex: 271A" maxlength="4" autocapitalize="characters">
         </div>
 
         <div class="form-group">
-            <label class="form-label" for="linha-nome">Nome <span style="color:var(--accent)">*</span></label>
-            <input type="text" class="form-input" id="linha-nome" placeholder="Ex: Metrô Penha" maxlength="100">
+            <label class="form-label" for="linha-sufixo">Código <span style="color:var(--accent)">*</span></label>
+            <input type="text" class="form-input" id="linha-sufixo" placeholder="Ex: 10" maxlength="3" inputmode="numeric" pattern="[0-9]{1,3}">
+        </div>
+
+        <div class="form-group">
+            <label class="form-label" for="linha-nome">Nome (opcional)</label>
+            <input type="text" class="form-input" id="linha-nome" placeholder="Ex: Metrô Penha" maxlength="120">
         </div>
 
         <div class="form-group">

@@ -15,6 +15,13 @@ Suporta dois formatos automaticamente:
 
 Auto-detecta o formato pelo nome/cabeçalho das abas.
 Auto-cria Ônibus e Linha caso não existam no banco.
+
+Linha (migration 048 — cadastro único): o texto da planilha passa por
+app/core/linha.py::normalizar_linha — `271A` é a linha 271A-10, `271A51` /
+`271A.51` a 271A-51 (linhas DIFERENTES). A busca é por (numero, sufixo), então
+a planilha acha a linha cadastrada pela Escala de Fiscais ou por Cadastros.
+Texto que não normaliza (`falta`) vai para a lista de erros — ⛔ nunca vira
+linha. Placeholder de manobra `MAN-<setor>` continua como era.
 """
 from __future__ import annotations
 
@@ -40,6 +47,7 @@ from app.models import (
     TipoAlertaEnum,
     TipoEscalaEnum,
 )
+from app.core.linha import codigo_canonico, normalizar_linha
 from app.models.enums import SetorEnum
 
 
@@ -83,6 +91,16 @@ def _parse_tipo(valor) -> TipoEscalaEnum | None:
         return TipoEscalaEnum(str(valor).strip().upper())
     except ValueError:
         return None
+
+
+def _texto_linha(valor) -> str | None:
+    """Célula de linha → texto. Número inteiro vindo como float (202341.0)
+    perde o '.0' — senão viraria um sufixo que não existe."""
+    if valor is None:
+        return None
+    if isinstance(valor, float) and valor.is_integer():
+        valor = int(valor)
+    return str(valor).strip() or None
 
 
 def _val_carro(valor) -> int | None:
@@ -195,8 +213,8 @@ def _parsear_formato_sambaiba(wb) -> list[LinhaParseada]:
                     continue  # hora não reconhecida — pula silenciosamente
 
                 linha_codigo: str | None = None
-                if li is not None and row_list[li] is not None:
-                    linha_codigo = str(row_list[li]).strip() or None
+                if li is not None:
+                    linha_codigo = _texto_linha(row_list[li])
 
                 idx += 1
                 l = LinhaParseada(
@@ -229,7 +247,7 @@ def _parsear_formato_simples(wb) -> list[LinhaParseada]:
         try:
             cells = list(row) + [None] * 5
             l.numero_frota = int(cells[0]) if cells[0] is not None else None
-            l.linha_codigo = str(cells[1]).strip() if cells[1] is not None else None
+            l.linha_codigo = _texto_linha(cells[1])
             l.horario_saida = _parse_horario(cells[2])
             l.re_motorista = str(cells[3]).strip() if cells[3] is not None else None
             l.tipo = _parse_tipo(cells[4])
@@ -279,18 +297,35 @@ def _get_or_create_onibus(db: Session, numero_frota: int) -> Onibus:
     return onibus
 
 
-def _get_or_create_linha(db: Session, codigo: str, setor: SetorEnum) -> Linha:
-    """Busca ou cria linha pelo código. Se criar, usa código como nome e setor inferido."""
+def _get_or_create_linha(db: Session, numero: str, sufixo: str, setor: SetorEnum) -> Linha:
+    """Busca a linha por (numero, sufixo) no cadastro único; se não existe,
+    cria com o código canônico como nome e o setor inferido da frota."""
     linha = db.execute(
-        select(Linha).where(Linha.codigo == codigo)
+        select(Linha).where(Linha.numero == numero, Linha.sufixo == sufixo)
     ).scalar_one_or_none()
     if linha is None:
+        codigo = codigo_canonico(numero, sufixo)
         linha = Linha(
             codigo=codigo,
+            numero=numero,
+            sufixo=sufixo,
             nome=codigo,   # nome provisório = código; pode ser atualizado depois
             setor=setor,
             ativa=True,
         )
+        db.add(linha)
+        db.flush()
+    return linha
+
+
+def _get_or_create_manobra(db: Session, codigo: str, setor: SetorEnum) -> Linha:
+    """Placeholder de manobra `MAN-<setor>` — não é linha operacional, fica
+    fora do formato número + código (numero/sufixo NULL)."""
+    linha = db.execute(
+        select(Linha).where(Linha.codigo == codigo)
+    ).scalar_one_or_none()
+    if linha is None:
+        linha = Linha(codigo=codigo, nome=codigo, setor=setor, ativa=True)
         db.add(linha)
         db.flush()
     return linha
@@ -406,8 +441,21 @@ def importar_escala(
                 continue
 
         # ── Linha (auto-cria; MANOBRA sem linha usa placeholder "MAN-<setor>") ─
-        linha_codigo = l.linha_codigo
-        if not linha_codigo:
+        par = None
+        if l.linha_codigo:
+            par = normalizar_linha(l.linha_codigo)
+            if par is None:
+                erros.append({
+                    "linha": l.linha_planilha,
+                    "motivo": (
+                        f"Linha '{l.linha_codigo}' não reconhecida — esperado número "
+                        "+ código (ex.: 271A, 271A51, 2023.41)"
+                    ),
+                    "valor_recebido": l.linha_codigo,
+                })
+                continue
+            linha_codigo = codigo_canonico(*par)
+        else:
             # Manobra sem código: usa placeholder por setor
             setor_frota = _setor_por_frota(l.numero_frota)
             linha_codigo = f"MAN-{setor_frota.value}"
@@ -418,7 +466,10 @@ def importar_escala(
                 # Setor sempre pelo número de frota — evita CheckViolation do trigger
                 # (ônibus 2xxx pode aparecer em aba E2 por escala cruzada)
                 setor = _setor_por_frota(l.numero_frota)
-                linha = _get_or_create_linha(db, linha_codigo, setor)
+                if par:
+                    linha = _get_or_create_linha(db, par[0], par[1], setor)
+                else:
+                    linha = _get_or_create_manobra(db, linha_codigo, setor)
                 linha_cache[linha_codigo] = linha
             except Exception as exc:
                 erros.append({
