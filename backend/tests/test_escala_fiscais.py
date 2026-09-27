@@ -19,7 +19,7 @@ import json
 import re as _re
 import typing
 from datetime import time
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 from fastapi.testclient import TestClient
@@ -31,6 +31,8 @@ from app.core.database import Base, get_db
 from app.core.security import create_access_token
 from app.main import app
 from app.models.cadastro import Funcionario
+from app.models.catalogos import Linha
+from app.models.enums import SetorEnum
 from app.models.escala_fiscais import (
     EscalaFiscalAlocacao,
     EscalaFiscalAlteracao,
@@ -66,6 +68,10 @@ _FISCAL_ZERO = Funcionario(id=uuid4(), re="0905", nome="Fiscal Teste Zero")
 _FISCAL_LETRA = Funcionario(id=uuid4(), re="9A06", nome="Fiscal Teste Letra")
 _PESSOAS = (_COORD, _FISCAL_A, _FISCAL_ZERO, _FISCAL_LETRA)
 
+# Cadastro único de linhas (public.linha, migration 048) — FICTÍCIAS. 9004 a
+# 9008 ficam SEM cadastro de propósito (aviso "linha sem cadastro").
+_LINHAS_CADASTRADAS = ("9001-10", "9002-10", "9003-10")
+
 
 def _dependency_de(annotated_type):
     for arg in typing.get_args(annotated_type)[1:]:
@@ -85,10 +91,18 @@ def ambiente():
     def _attach(dbapi_conn, _):
         dbapi_conn.execute("ATTACH DATABASE ':memory:' AS coordenadoria")
 
-    Base.metadata.create_all(engine, tables=[Funcionario.__table__] + [t.__table__ for t in _TABELAS_ESCALA])
+    Base.metadata.create_all(
+        engine, tables=[Funcionario.__table__, Linha.__table__] + [t.__table__ for t in _TABELAS_ESCALA]
+    )
+    linhas = {}
     with Session(engine) as setup:
         for f in _PESSOAS:
             setup.add(Funcionario(id=f.id, re=f.re, nome=f.nome))
+        for codigo in _LINHAS_CADASTRADAS:
+            linhas[codigo] = uuid4()
+            numero, sufixo = codigo.split("-")
+            setup.add(Linha(id=linhas[codigo], codigo=codigo, numero=numero, sufixo=sufixo,
+                            nome=codigo, setor=SetorEnum.E2, ativa=True))
         setup.commit()
 
     def _get_db_teste():
@@ -104,7 +118,7 @@ def ambiente():
     app.dependency_overrides[leitura_dep] = lambda: _COORD
     app.dependency_overrides[escrita_dep] = lambda: _COORD
 
-    yield {"engine": engine, "http": TestClient(app)}
+    yield {"engine": engine, "http": TestClient(app), "linhas": {k: str(v) for k, v in linhas.items()}}
 
     for dep in (get_db, leitura_dep, escrita_dep):
         app.dependency_overrides.pop(dep, None)
@@ -409,7 +423,8 @@ def test_horario_de_coordenador_com_inicio_igual_ao_fim_e_recusado(ambiente):
 
 
 def _modelo_e_posto(http, lado="TS"):
-    posto = http.post("/escala-fiscais/postos", json={"lado": lado, "linhas": ["9001/10"]}).json()
+    linha_id = next(l["id"] for l in http.get("/escala-fiscais/linhas").json() if l["codigo"] == "9001-10")
+    posto = http.post("/escala-fiscais/postos", json={"lado": lado, "linha_ids": [linha_id]}).json()
     modelo = http.post("/escala-fiscais/modelos", json={"tipo_dia": "sabado", "paridade": "impar", "nome": "Sábado ímpar"}).json()
     return posto, f"/escala-fiscais/modelos/{modelo['id']}/postos"
 
@@ -457,12 +472,47 @@ def test_troca_exige_sabado_e_dois_res_diferentes(ambiente):
 
 
 def test_posto_com_as_mesmas_linhas_na_mesma_ponta_nao_duplica(ambiente):
-    http = ambiente["http"]
+    http, ids = ambiente["http"], ambiente["linhas"]
+    a, b = ids["9001-10"], ids["9002-10"]
     pf = http.post("/escala-fiscais/pontos-finais", json={"nome": "Terminal Fictício"}).json()
-    assert http.post("/escala-fiscais/postos", json={"lado": "TP", "linhas": ["9001/10", "9002/10"], "ponto_final_id": pf["id"]}).status_code == 201
-    assert http.post("/escala-fiscais/postos", json={"lado": "TP", "linhas": ["9002/10", "9001/10"]}).status_code == 409
-    assert http.post("/escala-fiscais/postos", json={"lado": "TS", "linhas": ["9001/10", "9002/10"]}).status_code == 201
+    assert http.post("/escala-fiscais/postos", json={"lado": "TP", "linha_ids": [a, b], "ponto_final_id": pf["id"]}).status_code == 201
+    assert http.post("/escala-fiscais/postos", json={"lado": "TP", "linha_ids": [b, a]}).status_code == 409
+    assert http.post("/escala-fiscais/postos", json={"lado": "TS", "linha_ids": [a, b]}).status_code == 201
     assert http.get("/escala-fiscais/pontos-finais").json()[0]["qtd_postos"] == 1
+
+
+# ─── Posto aponta para o cadastro único de linhas (048) ──────────────────────
+
+def test_posto_grava_linha_id_e_codigo_canonico(ambiente):
+    http, ids = ambiente["http"], ambiente["linhas"]
+    resp = http.post("/escala-fiscais/postos", json={"lado": "TP", "linha_ids": [ids["9002-10"], ids["9001-10"]]})
+    assert resp.status_code == 201, resp.text
+    corpo = resp.json()
+    assert corpo["linhas"] == ["9002-10", "9001-10"]
+    assert [i["linha_id"] for i in corpo["itens_linha"]] == [ids["9002-10"], ids["9001-10"]]
+    # Trocar as linhas substitui a lista inteira, pelo id.
+    alterado = http.patch(f"/escala-fiscais/postos/{corpo['id']}", json={"linha_ids": [ids["9003-10"]]})
+    assert alterado.status_code == 200, alterado.text
+    assert alterado.json()["linhas"] == ["9003-10"]
+
+
+def test_posto_com_linha_inexistente_ou_desativada_da_422(ambiente):
+    http, ids = ambiente["http"], ambiente["linhas"]
+    assert http.post("/escala-fiscais/postos", json={"lado": "TP", "linha_ids": [str(uuid4())]}).status_code == 422
+    with Session(ambiente["engine"]) as db:
+        db.get(Linha, UUID(ids["9003-10"])).ativa = False
+        db.commit()
+    resp = http.post("/escala-fiscais/postos", json={"lado": "TP", "linha_ids": [ids["9003-10"]]})
+    assert resp.status_code == 422 and "desativada" in resp.text
+    # Texto solto não é aceito (R0): sem linha_ids o posto não entra.
+    assert http.post("/escala-fiscais/postos", json={"lado": "TP", "linhas": ["9001/10"]}).status_code == 422
+
+
+def test_escala_le_as_linhas_ativas_do_cadastro_unico(ambiente):
+    corpo = ambiente["http"].get("/escala-fiscais/linhas").json()
+    assert [(l["codigo"], l["numero"], l["sufixo"], l["nome"]) for l in corpo] == [
+        ("9001-10", "9001", "10", None), ("9002-10", "9002", "10", None), ("9003-10", "9003", "10", None),
+    ]
 
 
 # ─── Importação: SIMULAR não grava nada ───────────────────────────────────────
@@ -611,8 +661,12 @@ def test_confirmar_grava_re_sem_cadastro_marcador_e_padrao(ambiente):
         # D-D: lote A2 gravado como AR2; D-F: a linha 9006/10 ficou no posto.
         lotes = {p.lote for p in db.execute(select(EscalaFiscalPosto)).scalars()}
         assert "A2" not in lotes and "Ar2" not in lotes and "AR2" in lotes
-        linhas = {pl.linha for pl in db.execute(select(EscalaFiscalPostoLinha)).scalars()}
-        assert "9006/10" in linhas
+        # 048: gravado no código canônico; linha com cadastro ganha linha_id,
+        # linha sem cadastro fica sem (o posto entra mesmo assim).
+        pls = db.execute(select(EscalaFiscalPostoLinha)).scalars().all()
+        linhas = {pl.linha for pl in pls}
+        assert "9006-10" in linhas and not any("/" in ln for ln in linhas)
+        assert all((pl.linha_id is not None) == (pl.linha in _LINHAS_CADASTRADAS) for pl in pls)
         assert contagem["escala_fiscal_posto"] == len({i.posto_id for i in itens})
 
     # Nome aparece na leitura do modelo quando o RE tem cadastro.
@@ -624,6 +678,24 @@ def test_confirmar_grava_re_sem_cadastro_marcador_e_padrao(ambiente):
     # Segunda confirmação do mesmo arquivo: não sobrescreve.
     de_novo = _enviar(http, "/escala-fiscais/importacao/simular", _json_corrigido()).json()
     assert {p["tipo"] for p in de_novo["problemas"] if p["bloqueia"]} == {"modelo_ja_importado"}
+
+
+def test_importacao_barra_e_hifen_sao_a_mesma_linha_e_sem_cadastro_so_avisa(ambiente):
+    d = _json_corrigido()
+    # 9001/10 e 9001-10 no mesmo campo: a mesma linha, uma vez só.
+    d["SABADO IMPAR"]["postos"][1]["linhas_1p"] = "9003/10 / 9003-10"
+    rel = _enviar(ambiente["http"], "/escala-fiscais/importacao/simular", d).json()
+    assert rel["pode_confirmar"] is True
+    sem_cadastro = sorted(p["valor"] for p in _tipos(rel, "linha_sem_cadastro"))
+    assert sem_cadastro == ["9004-10", "9005-10", "9006-10", "9008-10"]
+    assert all(not p["bloqueia"] for p in _tipos(rel, "linha_sem_cadastro"))
+    resp = _enviar(ambiente["http"], "/escala-fiscais/importacao/confirmar", d)
+    assert resp.status_code == 200, resp.text
+    with Session(ambiente["engine"]) as db:
+        linhas_9003 = db.execute(
+            select(EscalaFiscalPostoLinha).where(EscalaFiscalPostoLinha.linha == "9003-10")
+        ).scalars().all()
+    assert linhas_9003 and {str(pl.linha_id) for pl in linhas_9003} == {ambiente["linhas"]["9003-10"]}
 
 
 def test_importacao_nao_tem_dado_real_no_codigo():

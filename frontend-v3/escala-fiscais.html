@@ -217,9 +217,12 @@
                     <select class="form-select" id="posto-ponto"><option value="">— nenhum —</option></select>
                 </div>
             </div>
+            <!-- Linhas do cadastro único (public.linha) — toque para marcar. -->
             <div class="form-group">
-                <label class="form-label" for="posto-linhas">Linhas * (separe por vírgula ou espaço)</label>
-                <input type="text" class="form-input" id="posto-linhas" placeholder="ex.: 1767/10, 2161/10" required>
+                <label class="form-label" for="posto-linhas-busca">Linhas * (toque para marcar)</label>
+                <input type="search" class="form-input" id="posto-linhas-busca" placeholder="Buscar por número, código ou nome">
+                <div class="linhas-seletor-lista" id="posto-linhas-lista"></div>
+                <div class="ef-meta" id="posto-linhas-escolhidas">Nenhuma linha marcada.</div>
             </div>
             <div class="ef-rodape">
                 <button type="submit" class="btn btn-primary btn-full" id="btn-posto-salvar">Cadastrar posto</button>

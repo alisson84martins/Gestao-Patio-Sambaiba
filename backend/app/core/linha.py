@@ -66,3 +66,15 @@ def formatar_como_escala(codigo: Optional[str]) -> Optional[str]:
     """
     par = normalizar_linha(codigo)
     return f"{par[0]}/{par[1]}" if par else codigo
+
+
+def nome_real(codigo: Optional[str], nome: Optional[str]) -> Optional[str]:
+    """Nome "de verdade" da linha, ou None. `public.linha.nome` é NOT NULL e
+    nasce igual ao código (importação do Pátio) — isso não é nome (R5: sem
+    nome, a tela mostra só `271A-51`)."""
+    if not nome or not nome.strip():
+        return None
+    nome = nome.strip()
+    if nome.upper() == (codigo or "").upper() or codigo_linha(nome) == codigo:
+        return None
+    return nome

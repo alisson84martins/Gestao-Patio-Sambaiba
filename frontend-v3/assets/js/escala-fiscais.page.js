@@ -27,6 +27,7 @@ import { escapeHtml } from './escape.js';
 import { aplicarMascara } from './mascaras.js';
 import { dataLocalISO } from './data.util.js';
 import { iniciarMontagem, carregarMontagem } from './escala-fiscais.montagem.js';
+import { criarSeletorLinhas } from './linhas.seletor.js';
 
 if (!requireAuth()) {
     throw new Error('Sessao nao autenticada');
@@ -78,7 +79,7 @@ const CARREGAR_ABA = {
     quadro: () => carregarQuadro(),
     coordenadores: () => { carregarCoordPeriodo(); carregarCoordHorario(); },
     pontos: () => carregarPontos(),
-    postos: () => { carregarPontos(); carregarPostos(); },
+    postos: () => { carregarPontos(); carregarPostos(); if (!valor('posto-id')) seletorLinhasPosto?.carregar(); },
     modelos: () => carregarModelos(),
     ausencias: () => carregarAusencias(),
     trocas: () => carregarTrocas(),
@@ -441,21 +442,43 @@ async function carregarPontos() {
 // ─── Postos ──────────────────────────────────────────────────────────────
 
 let postosCache = [];
+// Linhas do posto vêm do cadastro único (public.linha, migration 048), pelo
+// id — ⛔ nada de texto digitado (R0). Leitura por GET /escala-fiscais/linhas.
+let seletorLinhasPosto = null;
+// Ordem em que as linhas foram marcadas (o Set do seletor não guarda ordem de toque).
+let ordemLinhasPosto = [];
 
-function lerLinhas(texto) {
-    return texto.split(/[\s,;]+/).map(s => s.trim().toUpperCase()).filter(Boolean);
+function atualizarLinhasEscolhidas(selecao) {
+    ordemLinhasPosto = ordemLinhasPosto.filter(id => selecao.has(id));
+    selecao.forEach(id => { if (!ordemLinhasPosto.includes(id)) ordemLinhasPosto.push(id); });
+    const porId = new Map((seletorLinhasPosto?.getCatalogo() || []).map(l => [l.id, l]));
+    const codigos = ordemLinhasPosto.map(id => porId.get(id)?.codigo).filter(Boolean);
+    document.getElementById('posto-linhas-escolhidas').textContent = codigos.length
+        ? `Marcadas: ${codigos.join(' / ')}` : 'Nenhuma linha marcada.';
 }
 
 function setupPostos() {
+    seletorLinhasPosto = criarSeletorLinhas({
+        containerLista: document.getElementById('posto-linhas-lista'),
+        campoBusca: document.getElementById('posto-linhas-busca'),
+        multiplo: true,
+        url: `${API}/linhas`,
+        chave: 'id',
+        onMudar: atualizarLinhasEscolhidas,
+    });
     document.getElementById('form-posto').addEventListener('submit', async (e) => {
         e.preventDefault();
         const id = valor('posto-id');
+        if (!ordemLinhasPosto.length) {
+            mostrarMensagem('Marque ao menos uma linha do posto.', 'erro');
+            return;
+        }
         const corpo = {
             lado: valor('posto-lado'),
             cod_jb: valor('posto-codjb') || null,
             lote: valor('posto-lote') || null,
             ponto_final_id: valor('posto-ponto') || null,
-            linhas: lerLinhas(valor('posto-linhas')),
+            linha_ids: ordemLinhasPosto.slice(),
         };
         try {
             if (id) await apiPatch(`${API}/postos/${id}`, corpo);
@@ -472,6 +495,8 @@ function setupPostos() {
 function sairEdicaoPosto() {
     document.getElementById('form-posto').reset();
     document.getElementById('posto-id').value = '';
+    ordemLinhasPosto = [];
+    seletorLinhasPosto.carregar().then(() => atualizarLinhasEscolhidas(new Set()));
     document.getElementById('btn-posto-cancelar').hidden = true;
     document.getElementById('btn-posto-salvar').textContent = 'Cadastrar posto';
 }
@@ -485,6 +510,11 @@ async function carregarPostos() {
 
 function descreverPosto(p) {
     return `${p.lado} · ${p.linhas.join(' / ')}`;
+}
+
+// Linha do posto sem cadastro (linha_id nulo): o fiscal não consegue marcá-la.
+function linhasSemCadastro(p) {
+    return (p.itens_linha || []).filter(i => !i.linha_id).map(i => i.codigo);
 }
 
 function renderPostos() {
@@ -501,6 +531,7 @@ function renderPostos() {
                 <span class="remanejo-badge">${escapeHtml(p.lote || 'sem lote')}</span>
             </div>
             <div class="ef-meta">Cód. JB ${escapeHtml(p.cod_jb || '—')} · Ponto final: ${escapeHtml(p.ponto_final_nome || 'não ligado')}</div>
+            ${linhasSemCadastro(p).length ? `<div class="ef-meta"><span class="ef-tag ef-tag-alerta">linha sem cadastro</span> ${escapeHtml(linhasSemCadastro(p).join(' / '))} — cadastre na aba Linhas</div>` : ''}
             ${botoesAcao([
                 { acao: 'editar', id: p.id, texto: 'Editar' },
                 { acao: 'ativo', id: p.id, texto: p.ativo ? 'Desativar' : 'Reativar' },
@@ -514,10 +545,16 @@ function renderPostos() {
             document.getElementById('posto-codjb').value = p.cod_jb || '';
             document.getElementById('posto-lote').value = p.lote || '';
             document.getElementById('posto-ponto').value = p.ponto_final_id || '';
-            document.getElementById('posto-linhas').value = p.linhas.join(', ');
+            ordemLinhasPosto = (p.itens_linha || []).filter(i => i.linha_id).map(i => i.linha_id);
+            seletorLinhasPosto.carregar(ordemLinhasPosto)
+                .then(() => atualizarLinhasEscolhidas(new Set(ordemLinhasPosto)));
             document.getElementById('btn-posto-cancelar').hidden = false;
             document.getElementById('btn-posto-salvar').textContent = 'Salvar posto';
             document.getElementById('form-posto').scrollIntoView({ behavior: 'smooth' });
+            const sem = linhasSemCadastro(p);
+            if (sem.length) {
+                mostrarMensagem(`Linha ${sem.join(', ')} sem cadastro: cadastre na aba Linhas antes de salvar, senão ela sai do posto.`, 'erro');
+            }
         },
         ativo: async (id) => {
             const p = postosCache.find(x => x.id === id);
@@ -774,6 +811,7 @@ const ROTULO_PROBLEMA = {
     ajustado_padrao: 'AJUSTADO PARA O PADRÃO',
     ponta_anotada: 'TS/TP anotado no campo de linhas',
     posto_no_rodape: 'Posto que ficou no rodapé',
+    linha_sem_cadastro: 'Linha sem cadastro',
     posto_divergente: 'Mesmo posto com cód. JB/lote diferente',
     lado_divergente: 'Coluna L diferente do bloco',
     campo_ausente: 'Campo ausente no arquivo',

@@ -57,6 +57,8 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core import registro
+from app.core.linha import codigo_linha
+from app.models.catalogos import Linha
 from app.models.escala_fiscais import (
     EscalaFiscalModelo,
     EscalaFiscalModeloPosto,
@@ -75,8 +77,10 @@ _ABAS = [
 ]
 
 # Código de linha como a planilha escreve: 4 caracteres + "/" + 2 dígitos
-# (ex.: 9001/10, 900A/21). Guardado exatamente assim em posto_linha.linha.
-_RE_LINHA = re.compile(r"[0-9A-Z]{4}/\d{2}")
+# (ex.: 9001/10, 900A/21) — ou com hífen (9001-10), a mesma linha. Gravado
+# no código canônico do cadastro único (9001-10, app/core/linha.py); a
+# impressão volta a mostrar a barra, fiel ao Excel.
+_RE_LINHA = re.compile(r"[0-9A-Z]{4}[/-]\d{2}")
 _RE_HORA = re.compile(r"^(\d{1,2}):(\d{2})(?::\d{2})?$")
 _RE_GARAGEM = re.compile(r"^G\d+$")
 _RE_DESCOBERTO = re.compile(r"^(\*+|X+)$")
@@ -240,11 +244,14 @@ def analisar(
     padroes: dict[int, Horario],
     modelos_existentes: Optional[dict[str, int]] = None,
     postos_existentes: Optional[set] = None,
+    linhas_cadastradas: Optional[set[str]] = None,
 ) -> Analise:
     """Lê o JSON e devolve relatório + plano. ⛔ Não toca no banco — quem
     chama passa `resolver_nomes`, o horário padrão de cada período e o que
     já existe, para o relatório dizer o que seria criado e o que seria
-    reaproveitado.
+    reaproveitado. `linhas_cadastradas` (códigos canônicos do cadastro
+    único) faz o relatório listar as linhas da planilha que ainda não têm
+    cadastro.
     """
     modelos_existentes = modelos_existentes or {}
     postos_existentes = postos_existentes or set()
@@ -341,7 +348,8 @@ def analisar(
                 sufixo = f"_{periodo}p"
                 campo_linhas = "linhas" + sufixo
                 texto_linhas = _texto(linha.get(campo_linhas)).upper()
-                linhas = _RE_LINHA.findall(texto_linhas)
+                # 9001/10 e 9001-10 são a mesma linha: uma vez só, na ordem.
+                linhas = list(dict.fromkeys(codigo_linha(t) for t in _RE_LINHA.findall(texto_linhas)))
                 sobra = _RE_LINHA.sub(" ", texto_linhas).replace("/", " ").split()
                 re_bruto = linha.get("re" + sufixo)
                 ini_bruto = linha.get("inicio" + sufixo)
@@ -409,12 +417,37 @@ def analisar(
                      f"Modelos depois, ou corrija o arquivo.",
                      modelo=nome_aba, linha_planilha=achado["linha_planilha"], valor=achado["resumo"])
 
+    if linhas_cadastradas is not None:
+        _avisar_linhas_sem_cadastro(coberturas, linhas_cadastradas, problema)
+
     dados_postos, completados = _resolver_dados_postos(coberturas, problemas)
     analise = _fechar(problemas, coberturas, modelos, res_vistos, abas_ignoradas,
                       descartadas, rodapes, resolver_nomes, modelos_existentes, postos_existentes)
     analise.dados_postos = dados_postos
     analise.relatorio["resumo"]["postos_completados_por_outro_modelo"] = completados
     return analise
+
+
+def _avisar_linhas_sem_cadastro(coberturas: list[Cobertura], cadastradas: set[str], problema) -> None:
+    """Linha da planilha sem cadastro em public.linha NÃO é criada aqui: o
+    cadastro pede o setor (E2/AR2) e o lote do posto não diz o setor com
+    segurança. O posto é gravado com a linha em texto e sem linha_id; ao
+    cadastrar a linha (Escala de Fiscais → Linhas) o posto é ligado sozinho.
+    Aviso, não bloqueia."""
+    onde: dict[str, list[str]] = {}
+    for c in coberturas:
+        for ln in c.linhas:
+            if ln not in cadastradas:
+                onde.setdefault(ln, [])
+                rotulo = f"{c.aba} {c.lado}"
+                if rotulo not in onde[ln]:
+                    onde[ln].append(rotulo)
+    for ln in sorted(onde):
+        problema("linha_sem_cadastro", False,
+                 f"Linha {ln} não está cadastrada. O posto entra, mas a linha fica \"sem cadastro\" "
+                 f"(o fiscal não consegue marcá-la) até alguém cadastrar em Escala de Fiscais → Linhas "
+                 f"— aí o posto é ligado sozinho.",
+                 valor=ln, modelo=", ".join(onde[ln]))
 
 
 def _horario_ou_padrao(periodo, ini_bruto, fim_bruto, padroes, problema, loc):
@@ -720,13 +753,17 @@ def gravar(db: Session, analise: Analise) -> dict:
         raise ValueError("Análise com problema bloqueante — não grava.")
 
     postos_por_chave = _postos_por_chave(db)
+    cadastro = linhas_do_cadastro(db)
     criados = 0
     for c in analise.coberturas:
         if c.chave_posto in postos_por_chave:
             continue
         cod_jb, lote = analise.dados_postos.get(c.chave_posto, (c.cod_jb, c.lote))
         posto = EscalaFiscalPosto(lado=c.lado, cod_jb=cod_jb, lote=lote, ativo=True)
-        posto.linhas = [EscalaFiscalPostoLinha(linha=ln, ordem=i + 1) for i, ln in enumerate(c.linhas)]
+        posto.linhas = [
+            EscalaFiscalPostoLinha(linha=ln, linha_id=cadastro.get(ln), ordem=i + 1)
+            for i, ln in enumerate(c.linhas)
+        ]
         db.add(posto)
         db.flush()
         postos_por_chave[c.chave_posto] = posto.id
@@ -764,6 +801,16 @@ def _postos_por_chave(db: Session) -> dict[tuple, UUID]:
     return {
         posto_chave(p.lado, [pl.linha for pl in p.linhas]): p.id
         for p in db.execute(select(EscalaFiscalPosto)).scalars().all()
+    }
+
+
+def linhas_do_cadastro(db: Session) -> dict[str, UUID]:
+    """Código canônico → id, das linhas do cadastro único (public.linha)."""
+    return {
+        codigo: linha_id
+        for codigo, linha_id in db.execute(
+            select(Linha.codigo, Linha.id).where(Linha.numero.is_not(None))
+        ).all()
     }
 
 

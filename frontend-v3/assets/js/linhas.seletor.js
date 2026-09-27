@@ -1,14 +1,14 @@
 /*
  * linhas.seletor.js — Seletor de linhas do catálogo (Bloco D §3)
  * -------------------------------------------------------------------------------
- * Escrito uma vez só, compartilhado por fiscal.html (várias linhas, no
- * cadastro de ponto) e fiscal-painel.html (uma linha, em "Minhas linhas").
+ * Escrito uma vez só, compartilhado por fiscal-painel.html (uma linha, em
+ * "Minhas linhas") e escala-fiscais.html (várias linhas, no posto).
  *
  * Origem: uma R.A registrada pelo fiscal não apareceu no painel do
  * coordenador porque o ponto foi cadastrado com a linha "1726" e as linhas
- * do coordenador são "1726-10" — nenhum erro, o registro só sumiu. Se o
- * fiscal escolhe a linha de uma lista (GET /fiscalizacao/catalogo/linhas),
- * não existe o que digitar errado.
+ * do coordenador são "1726-10" — nenhum erro, o registro só sumiu. Se a
+ * pessoa escolhe a linha de uma lista do cadastro único (public.linha,
+ * migration 048), não existe o que digitar errado.
  *
  * ⛔ Nunca cai de volta para digitação livre: catálogo vazio ou chamada que
  * falhou mostram a mesma mensagem clara, nunca um campo em branco.
@@ -24,16 +24,19 @@ import { escapeHtml } from './escape.js';
  * @param {boolean} [args.multiplo=false] — true: toque alterna (várias linhas);
  *   false: toque escolhe uma só e desmarca as demais
  * @param {string} [args.url='/fiscalizacao/catalogo/linhas'] — de onde ler o
- *   catálogo. Migration 042/P3 (avaria da portaria): CONTROLADOR_ACESSO não
- *   tem (e não deveria ganhar, menor privilégio) o recurso `fiscalizacao` —
- *   por isso existe GET /portaria/catalogo/linhas, mesma tabela, porta
- *   própria. Default mantém fiscal.html/fiscal-painel.html funcionando sem
- *   mudar nada nelas.
+ *   catálogo. Cada módulo lê a MESMA tabela pela própria porta (menor
+ *   privilégio): /fiscalizacao/linhas, /escala-fiscais/linhas,
+ *   /portaria/catalogo/linhas.
+ * @param {'codigo'|'id'} [args.chave='codigo'] — campo que identifica a linha
+ *   na seleção (o posto da Escala grava pelo id).
  * @param {(selecao: Set<string>) => void} [args.onMudar]
- * @returns {{ carregar: (selecionadasIniciais?: Iterable<string>) => Promise<void>, getSelecao: () => Set<string> }}
+ * @returns {{ carregar: (selecionadasIniciais?: Iterable<string>) => Promise<void>,
+ *             recarregar: () => Promise<void>, marcar: (valor: string) => void,
+ *             getSelecao: () => Set<string>, getCatalogo: () => object[] }}
  */
 export function criarSeletorLinhas({
-    containerLista, campoBusca, multiplo = false, url = '/fiscalizacao/catalogo/linhas', onMudar,
+    containerLista, campoBusca, multiplo = false, url = '/fiscalizacao/catalogo/linhas',
+    chave = 'codigo', onMudar,
 }) {
     let catalogo = [];
     let catalogoOk = true;
@@ -44,7 +47,7 @@ export function criarSeletorLinhas({
         const termo = termoBusca.trim().toLowerCase();
         if (!termo) return catalogo;
         return catalogo.filter(l =>
-            l.codigo.toLowerCase().includes(termo) || l.nome.toLowerCase().includes(termo)
+            l.codigo.toLowerCase().includes(termo) || (l.nome || '').toLowerCase().includes(termo)
         );
     }
 
@@ -60,24 +63,34 @@ export function criarSeletorLinhas({
             return;
         }
         containerLista.innerHTML = filtradas.map(l => `
-            <button type="button" class="linhas-seletor-item ${selecao.has(l.codigo) ? 'active' : ''}" data-linha="${escapeHtml(l.codigo)}">
+            <button type="button" class="linhas-seletor-item ${selecao.has(String(l[chave])) ? 'active' : ''}" data-linha="${escapeHtml(String(l[chave]))}">
                 <span class="linhas-seletor-codigo">${escapeHtml(l.codigo)}</span>
-                <span class="linhas-seletor-nome">${escapeHtml(l.nome)}</span>
+                ${l.nome ? `<span class="linhas-seletor-nome">${escapeHtml(l.nome)}</span>` : ''}
             </button>
         `).join('');
         containerLista.querySelectorAll('[data-linha]').forEach(btn => {
             btn.addEventListener('click', () => {
-                const codigo = btn.dataset.linha;
+                const valor = btn.dataset.linha;
                 if (multiplo) {
-                    if (selecao.has(codigo)) selecao.delete(codigo);
-                    else selecao.add(codigo);
+                    if (selecao.has(valor)) selecao.delete(valor);
+                    else selecao.add(valor);
                 } else {
-                    selecao = new Set([codigo]);
+                    selecao = new Set([valor]);
                 }
                 render();
                 if (onMudar) onMudar(new Set(selecao));
             });
         });
+    }
+
+    async function lerCatalogo() {
+        try {
+            catalogo = await apiGet(url);
+            catalogoOk = true;
+        } catch {
+            catalogo = [];
+            catalogoOk = false;
+        }
     }
 
     if (campoBusca) {
@@ -89,19 +102,25 @@ export function criarSeletorLinhas({
 
     return {
         async carregar(selecionadasIniciais) {
-            selecao = new Set(selecionadasIniciais || []);
+            selecao = new Set([...(selecionadasIniciais || [])].map(String));
             termoBusca = '';
             if (campoBusca) campoBusca.value = '';
             containerLista.innerHTML = '<div class="patio-loading">Carregando…</div>';
-            try {
-                catalogo = await apiGet(url);
-                catalogoOk = true;
-            } catch {
-                catalogo = [];
-                catalogoOk = false;
-            }
+            await lerCatalogo();
             render();
         },
+        // Relê o catálogo sem perder a seleção nem a busca (linha recém-cadastrada).
+        async recarregar() {
+            await lerCatalogo();
+            render();
+        },
+        marcar(valor) {
+            if (multiplo) selecao.add(String(valor));
+            else selecao = new Set([String(valor)]);
+            render();
+            if (onMudar) onMudar(new Set(selecao));
+        },
         getSelecao: () => new Set(selecao),
+        getCatalogo: () => catalogo.slice(),
     };
 }

@@ -126,33 +126,28 @@ class PontoFinalRead(BaseModel):
 
 # ─── Postos ──────────────────────────────────────────────────────────────────
 
-def _normalizar_linhas(valor: Optional[list[str]]) -> Optional[list[str]]:
-    """Maiúsculas, sem vazio e sem repetição, na ordem digitada."""
+def _sem_repetir(valor: Optional[list[UUID]]) -> Optional[list[UUID]]:
+    """Sem repetição, na ordem escolhida."""
     if valor is None:
         return None
-    limpas: list[str] = []
-    for linha in valor:
-        txt = (linha or "").strip().upper()
-        if not txt:
-            continue
-        if len(txt) > 10:
-            raise ValueError(f"Linha \"{txt}\" tem mais de 10 caracteres")
-        if txt not in limpas:
-            limpas.append(txt)
-    if not limpas:
-        raise ValueError("Informe ao menos uma linha")
-    return limpas
+    unicos = list(dict.fromkeys(valor))
+    if not unicos:
+        raise ValueError("Escolha ao menos uma linha")
+    return unicos
 
 
+# Posto aponta para o cadastro ÚNICO de linhas (public.linha, migration 048)
+# pelo id — ⛔ nada de texto solto. A linha se cadastra em Escala de Fiscais →
+# Linhas (ou Cadastros → Linhas), pelas rotas de app/routers/linhas.py.
 class PostoCreate(BaseModel):
     lado: Lado
     cod_jb: Optional[str] = Field(None, max_length=40)
     lote: Optional[str] = Field(None, max_length=20)
     ponto_final_id: Optional[UUID] = None
-    linhas: list[str] = Field(..., min_length=1)
+    linha_ids: list[UUID] = Field(..., min_length=1)
     ativo: bool = True
 
-    _linhas = field_validator("linhas")(_normalizar_linhas)
+    _linha_ids = field_validator("linha_ids")(_sem_repetir)
 
 
 class PostoUpdate(BaseModel):
@@ -160,10 +155,17 @@ class PostoUpdate(BaseModel):
     cod_jb: Optional[str] = Field(None, max_length=40)
     lote: Optional[str] = Field(None, max_length=20)
     ponto_final_id: Optional[UUID] = None
-    linhas: Optional[list[str]] = None
+    linha_ids: Optional[list[UUID]] = None
     ativo: Optional[bool] = None
 
-    _linhas = field_validator("linhas")(_normalizar_linhas)
+    _linha_ids = field_validator("linha_ids")(_sem_repetir)
+
+
+class PostoLinhaRead(BaseModel):
+    """Linha do posto. linha_id nulo = linha da escala ainda sem cadastro."""
+    linha_id: Optional[UUID] = None
+    codigo: str
+    nome: Optional[str] = None
 
 
 class PostoRead(BaseModel):
@@ -174,7 +176,18 @@ class PostoRead(BaseModel):
     ponto_final_id: Optional[UUID] = None
     ponto_final_nome: Optional[str] = None
     linhas: list[str]
+    itens_linha: list[PostoLinhaRead] = []
     ativo: bool
+
+
+class LinhaCadastroRead(BaseModel):
+    """Leitura do cadastro único de linhas para quem não é ADMIN (a gravação
+    é só pelas rotas de /linhas, ADMIN)."""
+    id: UUID
+    codigo: str
+    numero: str
+    sufixo: str
+    nome: Optional[str] = None
 
 
 # ─── Modelos ─────────────────────────────────────────────────────────────────
