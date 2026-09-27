@@ -9,6 +9,7 @@ from sqlalchemy import select, text
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
+from app.core.linha import normalizar_linha
 from app.core.deps import CurrentUser, OperadorOuAdmin
 from app.core.utils import PaginationParams, set_create_audit, set_update_audit
 from pydantic import BaseModel as _BaseModel
@@ -196,9 +197,14 @@ def atualizar_linha(aloc_id: UUID, payload: _LinhaPatch, user: OperadorOuAdmin,
     if not aloc or not aloc.ativa:
         raise HTTPException(404, "Alocação ativa não encontrada")
 
-    linha = db.execute(
-        select(Linha).where(Linha.codigo == payload.linha_codigo)
-    ).scalar_one_or_none()
+    # Cadastro único (048): '271A51', '271A-51' e '271A.51' são a mesma
+    # linha; '271A' é a 271A-10. Fora da regra (MAN-E2) busca pelo código.
+    par = normalizar_linha(payload.linha_codigo)
+    filtro = (
+        (Linha.numero == par[0], Linha.sufixo == par[1]) if par
+        else (Linha.codigo == payload.linha_codigo.strip(),)
+    )
+    linha = db.execute(select(Linha).where(*filtro)).scalar_one_or_none()
     if not linha:
         raise HTTPException(404, f"Linha '{payload.linha_codigo}' não encontrada")
 
