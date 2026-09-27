@@ -182,3 +182,115 @@ def test_patio_acha_a_linha_ja_cadastrada_sem_criar_outra(engine):
         db.commit()
     erros, codigos, n = _importar(engine, ["271A51"])
     assert erros == [] and codigos == ["271A-51"] and n == 1
+
+
+# ─── Cadastro (rotas de /linhas) e interconexão ──────────────────────────────
+
+from fastapi.testclient import TestClient
+
+from app.core.database import get_db
+from app.core.deps import get_current_user
+from app.main import app
+from app.models.cadastro import Funcionario
+from app.models.enums import PerfilUsuarioEnum
+from app.models.escala_fiscais import EscalaFiscalPosto, EscalaFiscalPostoLinha
+from app.models.pessoas import Usuario
+from app.routers import escala_fiscais as escala_router
+
+
+def _usuario(perfil):
+    return Usuario(id=uuid4(), re="80009", nome="Pessoa Teste", senha_hash="x", perfil=perfil, ativo=True)
+
+
+def _dep(annotated_type):
+    for arg in typing.get_args(annotated_type)[1:]:
+        dependency = getattr(arg, "dependency", None)
+        if dependency is not None:
+            return dependency
+    raise RuntimeError("Depends não encontrado no tipo anotado")
+
+
+@pytest.fixture
+def api(engine):
+    Base.metadata.create_all(
+        engine, tables=[Funcionario.__table__, EscalaFiscalPosto.__table__, EscalaFiscalPostoLinha.__table__],
+    )
+
+    def _get_db_teste():
+        db = Session(engine)
+        try:
+            yield db
+        finally:
+            db.close()
+
+    estado = {"perfil": PerfilUsuarioEnum.ADMIN}
+    leitura_escala = _dep(escala_router.LeituraEscala)
+    overrides = {
+        get_db: _get_db_teste,
+        get_current_user: lambda: _usuario(estado["perfil"]),
+        leitura_escala: lambda: Funcionario(id=uuid4(), re="80009", nome="Pessoa Teste"),
+    }
+    app.dependency_overrides.update(overrides)
+    yield {"http": TestClient(app), "engine": engine, "estado": estado}
+    for dep in overrides:
+        app.dependency_overrides.pop(dep, None)
+
+
+def test_cadastro_monta_o_codigo_e_nome_e_opcional(api):
+    resp = api["http"].post("/linhas", json={"numero": "271a", "sufixo": "51", "setor": "E2"})
+    assert resp.status_code == 201, resp.text
+    corpo = resp.json()
+    assert (corpo["codigo"], corpo["numero"], corpo["sufixo"], corpo["nome"]) == ("271A-51", "271A", "51", "271A-51")
+    com_nome = api["http"].post("/linhas", json={"numero": "271A", "sufixo": "10", "nome": "PENHA", "setor": "E2"})
+    assert com_nome.json()["codigo"] == "271A-10" and com_nome.json()["nome"] == "PENHA"
+
+
+def test_cadastro_nao_admin_leva_403(api):
+    api["estado"]["perfil"] = PerfilUsuarioEnum.OPERADOR_PATIO
+    assert api["http"].post("/linhas", json={"numero": "9001", "sufixo": "10", "setor": "E2"}).status_code == 403
+    # Ler continua liberado.
+    assert api["http"].get("/linhas").status_code == 200
+
+
+@pytest.mark.parametrize("corpo", [
+    {"numero": "9001", "sufixo": "1A", "setor": "E2"},   # código com letra
+    {"numero": "901", "sufixo": "10", "setor": "E2"},    # número com 3 caracteres
+    {"numero": "LIXO", "sufixo": "10", "setor": "E2"},   # número sem dígito
+])
+def test_cadastro_fora_do_formato_da_422(api, corpo):
+    assert api["http"].post("/linhas", json=corpo).status_code == 422
+
+
+def test_cadastro_repetido_da_409(api):
+    assert api["http"].post("/linhas", json={"numero": "2023", "sufixo": "41", "setor": "E2"}).status_code == 201
+    assert api["http"].post("/linhas", json={"numero": "2023", "sufixo": "41", "setor": "E2"}).status_code == 409
+    # 2023-42 é outra linha (R1).
+    assert api["http"].post("/linhas", json={"numero": "2023", "sufixo": "42", "setor": "E2"}).status_code == 201
+    outra = api["http"].post("/linhas", json={"numero": "2023", "sufixo": "43", "setor": "E2"}).json()
+    assert api["http"].patch(f"/linhas/{outra['id']}", json={"sufixo": "41"}).status_code == 409
+
+
+def test_linha_criada_pela_escala_e_a_mesma_em_todo_modulo(api):
+    criada = api["http"].post("/linhas", json={"numero": "271A", "sufixo": "51", "nome": "CANGAÍBA", "setor": "E2"}).json()
+    no_patio = [l for l in api["http"].get("/linhas").json() if l["codigo"] == "271A-51"]
+    na_escala = [l for l in api["http"].get("/escala-fiscais/linhas").json() if l["codigo"] == "271A-51"]
+    assert [l["id"] for l in no_patio] == [criada["id"]]
+    assert [(l["id"], l["nome"]) for l in na_escala] == [(criada["id"], "CANGAÍBA")]
+    # A importação do Pátio com o texto cru da planilha acha a MESMA linha.
+    erros, codigos, n = _importar(api["engine"], ["271A51"])
+    assert erros == [] and codigos == ["271A-51"] and n == 1
+    with Session(api["engine"]) as db:
+        escala = db.execute(select(Escala)).scalar_one()
+    assert str(escala.linha_id) == criada["id"]
+
+
+def test_cadastrar_a_linha_liga_o_posto_que_estava_sem_cadastro(api):
+    posto_id = uuid4()
+    with Session(api["engine"]) as db:
+        db.add(EscalaFiscalPosto(id=posto_id, lado="TP", ativo=True))
+        db.add(EscalaFiscalPostoLinha(posto_id=posto_id, linha="9005-10", ordem=1))
+        db.commit()
+    criada = api["http"].post("/linhas", json={"numero": "9005", "sufixo": "10", "setor": "AR2"}).json()
+    with Session(api["engine"]) as db:
+        pl = db.execute(select(EscalaFiscalPostoLinha)).scalar_one()
+    assert str(pl.linha_id) == criada["id"]

@@ -466,17 +466,19 @@ def listar_postos(_: LeituraEscala, db: DbSession, ponto_final_id: Optional[UUID
 
 
 @router.get("/linhas", response_model=list[LinhaCadastroRead], summary="Linhas ativas do cadastro único (leitura; gravar é em /linhas, ADMIN)")
-def listar_linhas_cadastro(_: LeituraEscala, db: DbSession):
+def listar_linhas_cadastro(_: LeituraEscala, db: DbSession, incluir_inativas: bool = False):
     """Mesma tabela do Pátio e da Fiscalização (public.linha). Porta própria
     porque quem monta a escala tem o recurso escala_fiscal, não o de
-    cadastros — mesmo raciocínio de GET /fiscalizacao/linhas."""
-    linhas = db.execute(
-        select(Linha).where(Linha.ativa.is_(True), Linha.numero.is_not(None))
-        .order_by(Linha.numero, Linha.sufixo)
-    ).scalars().all()
+    cadastros — mesmo raciocínio de GET /fiscalizacao/linhas. Manobra
+    (MAN-*) e linha fundida (numero nulo) não aparecem. `incluir_inativas`:
+    sub-aba Linhas, para reativar."""
+    consulta = select(Linha).where(Linha.numero.is_not(None))
+    if not incluir_inativas:
+        consulta = consulta.where(Linha.ativa.is_(True))
+    linhas = db.execute(consulta.order_by(Linha.numero, Linha.sufixo)).scalars().all()
     return [
         LinhaCadastroRead(id=l.id, codigo=l.codigo, numero=l.numero, sufixo=l.sufixo,
-                          nome=nome_real(l.codigo, l.nome))
+                          nome=nome_real(l.codigo, l.nome), setor=l.setor.value, ativa=l.ativa)
         for l in linhas
     ]
 

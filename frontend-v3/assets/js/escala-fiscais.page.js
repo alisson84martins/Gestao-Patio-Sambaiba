@@ -22,7 +22,7 @@
  */
 import { requireAuth, getCurrentUser, logout } from './auth.js';
 import { apiGet, apiPost, apiPatch, apiDelete, apiUpload, ApiError } from './api.js';
-import { podeEscrever } from './sessao.js';
+import { podeEscrever, temFuncao } from './sessao.js';
 import { escapeHtml } from './escape.js';
 import { aplicarMascara } from './mascaras.js';
 import { dataLocalISO } from './data.util.js';
@@ -35,6 +35,8 @@ if (!requireAuth()) {
 
 const API = '/escala-fiscais';
 const escreve = podeEscrever('escala_fiscal');
+// Cadastro de linha é só ADMIN (rotas de /linhas); o backend é a trava real.
+const ehAdmin = temFuncao('ADMIN');
 
 const ROTULO_SITUACAO = {
     escalado: 'Escalado', outra_garagem: 'Outra garagem', descoberto: 'Descoberto', direto: 'Direto',
@@ -50,10 +52,12 @@ document.addEventListener('DOMContentLoaded', () => {
     if (!escreve) {
         document.querySelectorAll('.ef-form, .ef-rodape').forEach(el => { el.hidden = true; });
     }
+    document.querySelectorAll('[data-so-admin]').forEach(el => { el.hidden = !(ehAdmin && escreve); });
     setupQuadro();
     setupCoordenadores();
     setupPontos();
     setupPostos();
+    setupLinhas();
     setupModelos();
     setupAusencias();
     setupTrocas();
@@ -80,6 +84,7 @@ const CARREGAR_ABA = {
     coordenadores: () => { carregarCoordPeriodo(); carregarCoordHorario(); },
     pontos: () => carregarPontos(),
     postos: () => { carregarPontos(); carregarPostos(); if (!valor('posto-id')) seletorLinhasPosto?.carregar(); },
+    linhas: () => carregarLinhas(),
     modelos: () => carregarModelos(),
     ausencias: () => carregarAusencias(),
     trocas: () => carregarTrocas(),
@@ -490,6 +495,30 @@ function setupPostos() {
     });
     document.getElementById('btn-posto-cancelar').addEventListener('click', sairEdicaoPosto);
     document.getElementById('posto-filtro').addEventListener('input', renderPostos);
+
+    // Atalho "+ nova linha" (ADMIN): grava pela MESMA rota de /linhas e já
+    // deixa a linha marcada no posto.
+    const caixa = document.getElementById('posto-nova-linha');
+    document.getElementById('btn-posto-nova-linha').addEventListener('click', () => {
+        caixa.hidden = false;
+        document.getElementById('pnl-numero').focus();
+    });
+    document.getElementById('btn-pnl-cancelar').addEventListener('click', () => { caixa.hidden = true; });
+    document.getElementById('btn-pnl-salvar').addEventListener('click', async () => {
+        try {
+            const nova = await cadastrarLinha({
+                numero: valor('pnl-numero'), sufixo: valor('pnl-sufixo'),
+                setor: valor('pnl-setor'), nome: valor('pnl-nome'),
+            });
+            if (!nova) return;
+            await seletorLinhasPosto.recarregar();
+            seletorLinhasPosto.marcar(nova.id);
+            ['pnl-numero', 'pnl-nome', 'pnl-setor'].forEach(id => { document.getElementById(id).value = ''; });
+            document.getElementById('pnl-sufixo').value = '10';
+            caixa.hidden = true;
+            mostrarMensagem(`Linha ${nova.codigo} cadastrada e marcada no posto.`);
+        } catch (err) { erro(err); }
+    });
 }
 
 function sairEdicaoPosto() {
@@ -559,6 +588,126 @@ function renderPostos() {
         ativo: async (id) => {
             const p = postosCache.find(x => x.id === id);
             try { await apiPatch(`${API}/postos/${id}`, { ativo: !p.ativo }); carregarPostos(); } catch (err) { erro(err); }
+        },
+    });
+}
+
+// ─── Linhas (cadastro único — public.linha, migration 048) ───────────────
+// Um cadastro só (R0): grava pelas rotas de /linhas (as mesmas de Cadastros
+// → Linhas); lê por GET /escala-fiscais/linhas. Número + código formam
+// linhas diferentes (271A-10 ≠ 271A-51) — o backend monta o código.
+
+let linhasCache = [];
+
+/** POST /linhas. Devolve a linha criada, ou null se faltou campo. */
+async function cadastrarLinha({ numero, sufixo, setor, nome }) {
+    if (!numero || !sufixo) { mostrarMensagem('Informe número e código da linha.', 'erro'); return null; }
+    if (!setor) { mostrarMensagem('Escolha o setor da linha (E2 ou AR2).', 'erro'); return null; }
+    return apiPost('/linhas', { numero: numero.toUpperCase(), sufixo, setor, nome: nome || null });
+}
+
+function setupLinhas() {
+    const form = document.getElementById('form-linha');
+    form.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const id = valor('linha-id');
+        try {
+            if (id) {
+                const l = await apiPatch(`/linhas/${id}`, { nome: valor('linha-nome') });
+                mostrarMensagem(`Linha ${l.codigo} alterada.`);
+            } else {
+                const l = await cadastrarLinha({
+                    numero: valor('linha-numero'), sufixo: valor('linha-sufixo'),
+                    setor: valor('linha-setor'), nome: valor('linha-nome'),
+                });
+                if (!l) return;
+                mostrarMensagem(`Linha ${l.codigo} cadastrada.`);
+            }
+            sairEdicaoLinha();
+            carregarLinhas();
+        } catch (err) { erro(err); }
+    });
+    document.getElementById('btn-linha-cancelar').addEventListener('click', sairEdicaoLinha);
+    document.getElementById('linha-filtro').addEventListener('input', renderLinhas);
+}
+
+function sairEdicaoLinha() {
+    document.getElementById('form-linha').reset();
+    document.getElementById('linha-id').value = '';
+    document.getElementById('linha-sufixo').value = '10';
+    ['linha-numero', 'linha-sufixo', 'linha-setor'].forEach(id => { document.getElementById(id).disabled = false; });
+    document.getElementById('btn-linha-cancelar').hidden = true;
+    document.getElementById('btn-linha-salvar').textContent = '+ nova linha';
+}
+
+async function carregarLinhas() {
+    try {
+        linhasCache = await apiGet(`${API}/linhas?incluir_inativas=true`);
+        renderLinhas();
+    } catch (err) { erro(err); }
+}
+
+function botoesAdmin(botoes) {
+    if (!(ehAdmin && escreve)) return '';
+    return `<div class="ef-acoes">${botoes.map(b =>
+        `<button type="button" class="btn btn-ghost ef-btn-mini" data-acao="${b.acao}" data-id="${escapeHtml(b.id)}">${escapeHtml(b.texto)}</button>`
+    ).join('')}</div>`;
+}
+
+function renderLinhas() {
+    const container = document.getElementById('lista-linhas');
+    const filtro = valor('linha-filtro').toUpperCase();
+    const itens = linhasCache.filter(l => !filtro
+        || l.codigo.includes(filtro) || (l.nome || '').toUpperCase().includes(filtro));
+    const porNumero = new Map();
+    itens.forEach(l => {
+        if (!porNumero.has(l.numero)) porNumero.set(l.numero, []);
+        porNumero.get(l.numero).push(l);
+    });
+    container.innerHTML = porNumero.size ? [...porNumero].map(([numero, codigos]) => `
+        <div class="remanejo-card ef-card">
+            <div class="ef-card-linha">
+                <span><strong>${escapeHtml(numero)}</strong></span>
+                ${botoesAdmin([{ acao: 'codigo', id: numero, texto: '+ código' }])}
+            </div>
+            ${codigos.map(l => `
+                <div class="ef-linha-codigo${l.ativa ? '' : ' ef-inativo'}">
+                    <span><strong>-${escapeHtml(l.sufixo)}</strong>${l.nome ? ` · ${escapeHtml(l.nome)}` : ''}
+                        <span class="remanejo-badge">${escapeHtml(l.setor)}</span>
+                        ${l.ativa ? '' : '<span class="ef-tag">desativada</span>'}</span>
+                    ${botoesAdmin([
+                        { acao: 'editar', id: l.id, texto: 'Editar nome' },
+                        { acao: 'ativo', id: l.id, texto: l.ativa ? 'Desativar' : 'Reativar' },
+                    ])}
+                </div>`).join('')}
+        </div>`).join('') : vazio(linhasCache.length ? 'Nenhuma linha com esse filtro.' : 'Nenhuma linha cadastrada.');
+    ligarAcoes(container, {
+        codigo: (numero) => {
+            sairEdicaoLinha();
+            document.getElementById('linha-numero').value = numero;
+            document.getElementById('linha-sufixo').value = '';
+            const setor = linhasCache.find(l => l.numero === numero)?.setor || '';
+            document.getElementById('linha-setor').value = setor;
+            document.getElementById('form-linha').scrollIntoView({ behavior: 'smooth' });
+            document.getElementById('linha-sufixo').focus();
+        },
+        editar: (id) => {
+            const l = linhasCache.find(x => x.id === id);
+            document.getElementById('linha-id').value = l.id;
+            document.getElementById('linha-numero').value = l.numero;
+            document.getElementById('linha-sufixo').value = l.sufixo;
+            document.getElementById('linha-setor').value = l.setor;
+            document.getElementById('linha-nome').value = l.nome || '';
+            // Só o nome muda aqui: número + código é a identidade da linha.
+            ['linha-numero', 'linha-sufixo', 'linha-setor'].forEach(x => { document.getElementById(x).disabled = true; });
+            document.getElementById('btn-linha-cancelar').hidden = false;
+            document.getElementById('btn-linha-salvar').textContent = `Salvar ${l.codigo}`;
+            document.getElementById('form-linha').scrollIntoView({ behavior: 'smooth' });
+            document.getElementById('linha-nome').focus();
+        },
+        ativo: async (id) => {
+            const l = linhasCache.find(x => x.id === id);
+            try { await apiPatch(`/linhas/${id}`, { ativa: !l.ativa }); carregarLinhas(); } catch (err) { erro(err); }
         },
     });
 }

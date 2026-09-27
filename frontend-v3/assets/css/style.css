@@ -4324,6 +4324,32 @@ body.modal-open {
 
 .ef-inativo { opacity: 0.55; }
 
+/* Escala de Fiscais → atalho "+ nova linha" dentro do posto (cadastro único) */
+.ef-nova-linha {
+    border: 1px dashed var(--border);
+    border-radius: 8px;
+    padding: 10px 10px 0;
+    margin-bottom: 12px;
+}
+
+.ef-nova-linha .ef-rodape {
+    position: static;
+    margin: 8px 0 0;
+    padding: 8px 0 10px;
+    background: none;
+}
+
+/* Sub-aba Linhas: um número por card, os códigos embaixo */
+.ef-linha-codigo {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    flex-wrap: wrap;
+    padding: 6px 0;
+    border-top: 1px solid var(--border);
+}
+
 .ef-acoes {
     display: flex;
     flex-wrap: wrap;

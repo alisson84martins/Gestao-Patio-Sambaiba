@@ -188,6 +188,8 @@ class LinhaCadastroRead(BaseModel):
     numero: str
     sufixo: str
     nome: Optional[str] = None
+    setor: str
+    ativa: bool
 
 
 # ─── Modelos ─────────────────────────────────────────────────────────────────
