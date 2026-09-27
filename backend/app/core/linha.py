@@ -12,6 +12,7 @@ temporária, só para o backfill.
 
 Regra (R2):
   - upper + trim; os 4 primeiros caracteres `[0-9A-Z]{4}` são o NÚMERO;
+  - o número tem ao menos um dígito (`LIXO` não é linha; `N101` seria);
   - o resto, depois de um separador opcional (`-`, `/`, `.`, espaço), tem
     que ser só dígitos (1–3) → SUFIXO (o "código" da linha na operação);
   - resto vazio → sufixo `10` (padrão);
@@ -41,6 +42,8 @@ def normalizar_linha(txt) -> Optional[tuple[str, str]]:
     if not m:
         return None
     numero, sufixo = m.group(1), m.group(2)
+    if not any(c.isdigit() for c in numero):
+        return None
     return numero, (sufixo or SUFIXO_PADRAO)
 
 

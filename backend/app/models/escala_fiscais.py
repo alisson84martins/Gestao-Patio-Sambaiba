@@ -10,8 +10,10 @@ D-A (24/09): o FISCAL é o RE em TEXTO, sem FK — a escala aceita RE ainda
 não cadastrado em Pessoas; o nome vem de funcionario por junção pelo RE na
 leitura. D-B: `marcador` guarda o texto original da planilha quando a célula
 não é RE (vazio, ****, xxx, G1, DIRETO, -).
-⛔ escala_fiscal_posto_linha.linha é texto, sem FK para o catálogo de linhas
-do Pátio; escala_fiscal_ponto_final é catálogo próprio, não fiscalizacao.ponto.
+escala_fiscal_posto_linha aponta para o cadastro ÚNICO de linhas
+(public.linha, migration 048) por linha_id; a coluna `linha` guarda o código
+canônico em texto (regras, montagem e impressão leem a lista de textos).
+escala_fiscal_ponto_final é catálogo próprio, não fiscalizacao.ponto.
 
 Os CHECKs (horário do fiscal término > início, 'escalado' ⇔ fiscal,
 outra_garagem ≠ G3, coordenador início ≠ fim) ficam no banco; o router
@@ -110,9 +112,15 @@ class EscalaFiscalPostoLinha(Base):
     posto_id: Mapped[UUID] = mapped_column(
         PG_UUID(as_uuid=True), ForeignKey(f"{SCHEMA}.escala_fiscal_posto.id"), primary_key=True
     )
-    # Texto, ⛔ sem FK para o catálogo de linhas do Pátio (fronteira).
+    # Código canônico da linha (271A-51) — cópia em texto do cadastro, lida
+    # por regras/montagem/impressão. Quem manda é linha_id (migration 048).
     linha: Mapped[str] = mapped_column(String(10), primary_key=True)
     ordem: Mapped[int] = mapped_column(SmallInteger, nullable=False, default=1)
+    # NULL = linha da escala ainda sem cadastro (Fiscalização: "linha sem
+    # cadastro", não marcável). Cadastrar a linha liga o posto sozinho.
+    linha_id: Mapped[Optional[UUID]] = mapped_column(
+        PG_UUID(as_uuid=True), ForeignKey("linha.id", ondelete="RESTRICT"), nullable=True
+    )
 
 
 # ─── 2 · MODELOS ──────────────────────────────────────────────────────────────

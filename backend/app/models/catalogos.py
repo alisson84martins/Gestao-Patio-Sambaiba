@@ -16,10 +16,20 @@ setor_pg = SQLEnum(SetorEnum, name="setor_enum", create_type=False, native_enum=
 
 
 class Linha(Base):
+    """Cadastro ÚNICO de linhas (migration 048) — Pátio, Escala de Fiscais e
+    Fiscalização apontam/leem daqui.
+
+    Cada registro é uma linha completa: número + sufixo (`271A-10` ≠
+    `271A-51`). `codigo` = numero-sufixo, montado pelo backend via
+    app/core/linha.py. numero/sufixo NULL só nos placeholders de manobra
+    `MAN-<setor>` e nas linhas desativadas por fusão (`#fundida`).
+    """
     __tablename__ = "linha"
 
     id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True, default=uuid4)
     codigo: Mapped[str] = mapped_column(String(20), unique=True, nullable=False)
+    numero: Mapped[Optional[str]] = mapped_column(String(8), nullable=True)
+    sufixo: Mapped[Optional[str]] = mapped_column(String(3), nullable=True)
     nome: Mapped[str] = mapped_column(String(120), nullable=False)
     setor: Mapped[SetorEnum] = mapped_column(setor_pg, nullable=False)
     ativa: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)

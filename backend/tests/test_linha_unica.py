@@ -38,6 +38,7 @@ def test_normalizar_linha_exemplos_da_r2(entrada, esperado):
     ("271", None),                   # número com 3 caracteres: não adivinha
     ("271A-", None),
     ("271A-5100", None),             # sufixo com mais de 3 dígitos
+    ("lixo", None),                  # 4 letras sem dígito não é número de linha
 ])
 def test_normalizar_linha_bordas(entrada, esperado):
     assert normalizar_linha(entrada) == esperado
