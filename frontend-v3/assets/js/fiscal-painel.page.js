@@ -587,6 +587,7 @@ async function iniciar() {
         containerLista: document.getElementById('fp-nova-linha-lista'),
         campoBusca: document.getElementById('fp-nova-linha-busca'),
         multiplo: false,
+        url: '/fiscalizacao/linhas',  // cadastro único (048), porta do painel
     });
 
     document.getElementById('fp-btn-nova-acao').addEventListener('click', abrirModalAcao);

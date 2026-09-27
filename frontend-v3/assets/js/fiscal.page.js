@@ -123,7 +123,14 @@ async function atualizarProntidao() {
 // MESMO ponto final e da MESMA ponta (D10: um fiscal por terminal). O backend
 // recusa o resto com 422 — aqui é só para a tela não oferecer o que não pode.
 
-const AVISO_FORA_CATALOGO = 'não está no catálogo — avise o coordenador para corrigir o posto na Escala de Fiscais';
+// Cadastro único de linhas (048): a linha do posto vem de public.linha por
+// linha_id. `aviso` preenchido (linha sem cadastro / desativada) = aparece,
+// mas não pode ser marcada — o backend recusa com 422 do mesmo jeito.
+const AVISO_COMPLEMENTO = 'avise o coordenador para cadastrar em Escala de Fiscais → Linhas';
+
+function avisoLinha(l) {
+    return `${l.aviso} — ${AVISO_COMPLEMENTO}`;
+}
 
 async function iniciarAbertura() {
     document.getElementById('fis-abertura').style.display = '';
@@ -158,9 +165,9 @@ function htmlPosto(p) {
     const classe = escolhido ? 'fis-posto-escolhido' : (apagado ? 'fis-posto-apagado' : '');
     const marca = escolhido ? '✓' : (juntavel ? '+ juntar' : '');
     const linhas = (p.linhas || []).map(l => `
-        <div class="fis-posto-linha${l.no_catalogo ? '' : ' fis-posto-linha-fora'}">
+        <div class="fis-posto-linha${l.aviso ? ' fis-posto-linha-fora' : ''}">
             <span class="fis-posto-codigo">${escapeHtml(l.codigo)}</span>${l.nome ? ` · ${escapeHtml(l.nome)}` : ''}
-            ${l.no_catalogo ? '' : `<div class="fis-posto-aviso">${escapeHtml(AVISO_FORA_CATALOGO)}</div>`}
+            ${l.aviso ? `<div class="fis-posto-aviso">${escapeHtml(avisoLinha(l))}</div>` : ''}
         </div>
     `).join('') || '<div class="fis-posto-linha fis-posto-linha-fora">Posto sem linha cadastrada</div>';
     const sub = p.lado + (p.ponto_final_nome ? ` · ${p.ponto_final_nome}` : '');
@@ -284,11 +291,11 @@ function linhasDosPostosEscolhidos() {
 function renderPassoLinhas({ rolar = true } = {}) {
     const el = document.getElementById('fis-linhas-checklist');
     const linhas = linhasDosPostosEscolhidos();
-    linhasEscolhidas = new Set(linhas.filter(l => l.no_catalogo).map(l => l.codigo));
+    linhasEscolhidas = new Set(linhas.filter(l => !l.aviso).map(l => l.codigo));
     el.innerHTML = linhas.map(l => {
         const rotulo = `${escapeHtml(l.codigo)}${l.nome ? ` · ${escapeHtml(l.nome)}` : ''}`;
-        if (!l.no_catalogo) {
-            return `<button type="button" class="recolhida-chip fis-linha-chip fis-linha-chip-fora" disabled>${rotulo}<span class="fis-posto-aviso">${escapeHtml(AVISO_FORA_CATALOGO)}</span></button>`;
+        if (l.aviso) {
+            return `<button type="button" class="recolhida-chip fis-linha-chip fis-linha-chip-fora" disabled>${rotulo}<span class="fis-posto-aviso">${escapeHtml(avisoLinha(l))}</span></button>`;
         }
         return `<button type="button" class="recolhida-chip fis-linha-chip active" data-linha="${escapeHtml(l.codigo)}">${rotulo}</button>`;
     }).join('');

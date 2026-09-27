@@ -27,19 +27,19 @@ TipoEvento = Literal[
 ]
 TipoBaita = Literal["BAITA", "ANTI_BAITA"]
 EstadoPartida = Literal["REALIZADA", "PERDIDA", "ATRASADA", "AGUARDANDO"]
-Setor = Literal["E2", "AR2"]
 
 
 # ============================================================================
-# CATÁLOGO DE LINHAS — leitura do catálogo do Pátio (app/models/catalogos.py
-# ::Linha), servida pela própria Fiscalização (ver comentário do endpoint em
-# app/routers/fiscalizacao.py sobre por que não é GET /linhas direto).
+# LINHAS — leitura do cadastro único (public.linha, migration 048), servida
+# pela própria Fiscalização (GET /fiscalizacao/linhas).
 # ============================================================================
 
-class CatalogoLinhaItem(ORMBase):
+class LinhaCadastroItem(BaseModel):
+    id: UUID
     codigo: str
-    nome: str
-    setor: Setor
+    numero: str
+    sufixo: str
+    nome: Optional[str] = None
 
 
 # ============================================================================
@@ -48,15 +48,18 @@ class CatalogoLinhaItem(ORMBase):
 # ============================================================================
 
 class PostoLinhaItem(BaseModel):
-    """Uma linha do posto. `codigo` é o da Escala com `/` trocado por `-`
-    (formato do catálogo, da grade e do ICV); `codigo_escala` é o texto
-    como a Escala grava. `no_catalogo=False` = código inexistente ou
-    inativo no catálogo — a linha aparece, mas não pode ser marcada."""
+    """Uma linha do posto, lida do cadastro único por linha_id (048).
+    `aviso` preenchido ("linha sem cadastro" / "linha desativada no
+    cadastro") = a linha aparece, mas não pode ser marcada; sem cadastro,
+    `codigo` é o texto que a Escala guardou e linha_id/numero/sufixo vêm
+    nulos."""
 
+    linha_id: Optional[UUID] = None
     codigo: str
-    codigo_escala: str
+    numero: Optional[str] = None
+    sufixo: Optional[str] = None
     nome: Optional[str] = None
-    no_catalogo: bool
+    aviso: Optional[str] = None
 
 
 class PostoFiscalizacaoRead(BaseModel):

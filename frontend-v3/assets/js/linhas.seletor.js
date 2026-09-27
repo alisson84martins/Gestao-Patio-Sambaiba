@@ -23,7 +23,7 @@ import { escapeHtml } from './escape.js';
  * @param {HTMLInputElement} [args.campoBusca] — input de filtro (código ou nome)
  * @param {boolean} [args.multiplo=false] — true: toque alterna (várias linhas);
  *   false: toque escolhe uma só e desmarca as demais
- * @param {string} [args.url='/fiscalizacao/catalogo/linhas'] — de onde ler o
+ * @param {string} [args.url='/fiscalizacao/linhas'] — de onde ler o
  *   catálogo. Cada módulo lê a MESMA tabela pela própria porta (menor
  *   privilégio): /fiscalizacao/linhas, /escala-fiscais/linhas,
  *   /portaria/catalogo/linhas.
@@ -35,7 +35,7 @@ import { escapeHtml } from './escape.js';
  *             getSelecao: () => Set<string>, getCatalogo: () => object[] }}
  */
 export function criarSeletorLinhas({
-    containerLista, campoBusca, multiplo = false, url = '/fiscalizacao/catalogo/linhas',
+    containerLista, campoBusca, multiplo = false, url = '/fiscalizacao/linhas',
     chave = 'codigo', onMudar,
 }) {
     let catalogo = [];
