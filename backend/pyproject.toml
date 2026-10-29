@@ -21,7 +21,7 @@ dependencies = [
 
     # Configuração / validação
     "pydantic>=2.9.0",
-    "pydantic-settings>=2.6.0",
+    "pydantic-settings>=2.14.2",  # CVE-2026-58203
 
     # Autenticação
     "python-jose[cryptography]>=3.3.0",
@@ -29,7 +29,7 @@ dependencies = [
     "bcrypt==4.0.1",  # versão fixa pelo conflito conhecido com passlib
 
     # Utilitários
-    "python-multipart>=0.0.20",  # upload de arquivos
+    "python-multipart>=0.0.31",  # upload de arquivos — PYSEC-2026-3036/3037/3040
     "openpyxl>=3.1.5",            # leitura de Excel
     "httpx>=0.27.0",              # webhook n8n (pré-ocorrência)
     "qrcode>=8.0",                 # QR do veículo (Portaria)
@@ -39,6 +39,19 @@ dependencies = [
     # aditiva (nenhuma dependência já usada pelo projeto foi trocada).
     # Ver _handoff-claude/PROMPT-leitura-placa-engine.md.
     "fast-alpr[onnx]>=0.4.0",
+
+    # Pisos de segurança (23/10/2026) — dependências indiretas com CVE
+    # conhecido nas versões que estavam instaladas. Testado: 720 testes
+    # verdes e as mesmas 251 rotas com FastAPI 0.136.1. ⚠️ Não subir o
+    # FastAPI junto sem olhar: versões novas não expandem include_router em
+    # app.routes e derrubam test_patio_liberados (armadilha conhecida).
+    "starlette>=1.3.1",
+    "urllib3>=2.8.0",
+    "cryptography>=50.0.0",
+    "pyasn1>=0.6.4",
+    "idna>=3.15",
+    "anyio>=4.14.2",
+    "certifi>=2026.10.19",
 ]
 
 [project.optional-dependencies]
