@@ -80,7 +80,22 @@
             <div class="ef-mt-estado" id="ef-mt-estado" aria-live="polite"></div>
         </div>
 
+        <!-- Fechamento automático do fim de semana (29/10/2026): preenche a
+             grade com a sugestão; nada é gravado até Salvar rascunho. -->
+        <div class="ef-mt-fechar" id="ef-mt-fechar-box">
+            <div class="form-group ef-mt-campo">
+                <label class="form-label" for="ef-mt-modo">Quando faltar fiscal</label>
+                <select class="form-select" id="ef-mt-modo">
+                    <option value="sem_dobra">Deixar em branco (sem dobra)</option>
+                    <option value="com_dobra">Sugerir dobra (rodízio)</option>
+                </select>
+            </div>
+            <button type="button" class="btn btn-primary ef-mt-fechar-btn" id="ef-mt-fechar">Fechar fim de semana</button>
+            <p class="ef-meta ef-mt-fechar-ajuda">Tira quem está de folga, põe quem está livre, leva o fiscal do TS para o TP e mostra o que ficou faltando. Nada é salvo até você conferir e clicar em Salvar rascunho.</p>
+        </div>
+
         <div id="ef-mt-avisos"></div>
+        <div id="ef-mt-fechamento" class="ef-mt-fechamento" aria-live="polite" hidden></div>
         <div id="ef-mt-resumo" class="ef-mt-resumo"></div>
         <div id="ef-mt-detalhe" class="ef-mt-detalhe" hidden></div>
         <div id="ef-mt-grade"><div class="patio-loading">Carregando…</div></div>
@@ -218,6 +233,10 @@
                     <select class="form-select" id="posto-ponto"><option value="">— nenhum —</option></select>
                 </div>
             </div>
+            <label class="ef-check" for="posto-obrig">
+                <input type="checkbox" id="posto-obrig">
+                Obrigatório no fim de semana (TS de rendição — o TP já é sempre obrigatório)
+            </label>
             <!-- Linhas do cadastro único (public.linha) — toque para marcar. -->
             <div class="form-group">
                 <label class="form-label" for="posto-linhas-busca">Linhas * (toque para marcar)</label>

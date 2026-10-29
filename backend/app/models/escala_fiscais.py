@@ -97,6 +97,10 @@ class EscalaFiscalPosto(Base):
         PG_UUID(as_uuid=True), ForeignKey(f"{SCHEMA}.escala_fiscal_ponto_final.id"), nullable=True
     )
     ativo: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    # Migration 049 — fechamento automático do fim de semana: TS que não pode
+    # ficar sem fiscal no sábado e no domingo (as rendições). TP é sempre
+    # obrigatório no fim de semana, com ou sem a marca.
+    obrigatorio_fds: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
 
     linhas: Mapped[list["EscalaFiscalPostoLinha"]] = relationship(
         "EscalaFiscalPostoLinha",

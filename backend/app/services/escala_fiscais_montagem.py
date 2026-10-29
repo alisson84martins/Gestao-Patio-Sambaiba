@@ -14,6 +14,7 @@ periodo). Salvar ATUALIZA a linha que já existe na mesma chave, apaga só as
 que saíram e dá flush antes de inserir — nunca "apaga tudo e insere" na
 mesma unidade de trabalho.
 """
+from collections import Counter
 from collections.abc import Iterable
 from dataclasses import dataclass, field
 from datetime import date, datetime, time, timedelta
@@ -40,6 +41,7 @@ from app.models.escala_fiscais import (
     EscalaFiscalTroca,
 )
 from app.services import escala_fiscais_regras as regras
+from app.services.escala_fiscais_fechamento import DiaEntrada, Familiaridade
 from app.services.escala_fiscais_regras import Aloc
 
 CAMPOS_ALOC = ("situacao", "re", "outra_garagem", "marcador", "hora_inicio", "hora_termino")
@@ -61,6 +63,7 @@ def carregar_postos(db: Session) -> dict[UUID, regras.PostoInfo]:
         p.id: regras.PostoInfo(
             id=p.id, lado=p.lado, cod_jb=p.cod_jb, lote=p.lote, linhas=[pl.linha for pl in p.linhas],
             ponto_final_id=p.ponto_final_id, ponto_final_nome=pontos.get(p.ponto_final_id),
+            obrigatorio_fds=bool(getattr(p, "obrigatorio_fds", False)),
         )
         for p in db.execute(select(EscalaFiscalPosto)).scalars()
     }
@@ -478,3 +481,53 @@ def registrar_alteracao(db: Session, dia: EscalaFiscalDia, usuario_id: UUID, ant
     db.add(EscalaFiscalAlteracao(
         escala_dia_id=dia.id, versao=dia.versao, alterado_por=usuario_id, antes=antes, depois=depois,
     ))
+
+
+# ─── Fechamento automático do fim de semana (29/10/2026) ─────────────────────
+
+def familiaridade(db: Session):
+    """RE → postos onde ele é o padrão em QUALQUER modelo (útil, sábado,
+    domingo, ímpar e par). É assim que o fechamento sabe que o fiscal do TS
+    da 351F conhece a 351F do TP."""
+    fam = Familiaridade()
+    for mp in db.execute(
+        select(EscalaFiscalModeloPosto).where(EscalaFiscalModeloPosto.re_padrao.is_not(None))
+    ).scalars():
+        fam.postos_por_re.setdefault(mp.re_padrao, set()).add(mp.posto_id)
+    return fam
+
+
+def historico_dobras(db: Session, sabado: date, padroes: dict, *, semanas: int = 4, postos=None):
+    """Quantas vezes cada RE dobrou nos `semanas` fins de semana ANTERIORES
+    (publicada: a dobra congelada; rascunho: calculada). Base do rodízio."""
+    contagem: Counter = Counter()
+    for k in range(1, semanas + 1):
+        sab = sabado - timedelta(days=7 * k)
+        for d in (sab, sab + timedelta(days=1)):
+            contagem.update(dobras_do_dia(db, d, padroes, postos))
+    return contagem
+
+
+def entrada_do_fechamento(db: Session, d: date, ctx: regras.Contexto):
+    """O ponto de partida do fechamento de um dia: o rascunho salvo ou a
+    prévia do modelo sugerido. None = já publicada (não se mexe) ou sem
+    modelo. Devolve (entrada, dia, modelo)."""
+    dia = buscar_dia(db, d)
+    if dia is not None and dia.status == "publicada":
+        return None, dia, db.get(EscalaFiscalModelo, dia.modelo_id)
+    if dia is None:
+        modelo = modelo_sugerido(db, d)
+        if modelo is None:
+            return None, None, None
+        prev = previa(db, d, modelo, ctx)
+        alocs, notas = prev.alocs, prev.notas
+    else:
+        modelo = db.get(EscalaFiscalModelo, dia.modelo_id)
+        alocs, notas = [aloc_de(a) for a in alocacoes_do_dia(db, dia.id)], {}
+    itens = _itens_modelo(db, modelo.id)
+    entrada = DiaEntrada(
+        ctx=ctx, alocs=alocs, notas=notas,
+        padrao_modelo={(mp.posto_id, mp.periodo): mp.re_padrao for mp in itens},
+        ordem={(mp.posto_id, mp.periodo): mp.ordem for mp in itens},
+    )
+    return entrada, dia, modelo

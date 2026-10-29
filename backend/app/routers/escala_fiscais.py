@@ -97,6 +97,7 @@ from app.schemas.escala_fiscais import (
     TrocaCreate,
     TrocaRead,
 )
+from app.services import escala_fiscais_fechamento as fechamento
 from app.services import escala_fiscais_importacao as importacao
 from app.services import escala_fiscais_montagem as montagem
 from app.services import escala_fiscais_regras as regras
@@ -401,6 +402,7 @@ def _posto_read(p: EscalaFiscalPosto, nomes_ponto: dict[UUID, str], cadastro: di
         id=p.id, lado=p.lado, cod_jb=p.cod_jb, lote=p.lote, ponto_final_id=p.ponto_final_id,
         ponto_final_nome=nomes_ponto.get(p.ponto_final_id) if p.ponto_final_id else None,
         linhas=[pl.linha for pl in p.linhas], itens_linha=itens, ativo=p.ativo,
+        obrigatorio_fds=bool(p.obrigatorio_fds),
     )
 
 
@@ -491,6 +493,7 @@ def criar_posto(payload: PostoCreate, _: EscritaEscala, db: DbSession):
     p = EscalaFiscalPosto(
         lado=payload.lado, cod_jb=payload.cod_jb or None, lote=payload.lote or None,
         ponto_final_id=payload.ponto_final_id, ativo=payload.ativo,
+        obrigatorio_fds=payload.obrigatorio_fds,
     )
     p.linhas = _itens_do_posto(linhas)
     db.add(p)
@@ -857,6 +860,8 @@ def alterar_posto(posto_id: UUID, payload: PostoUpdate, _: EscritaEscala, db: Db
         _checar_ponto_final(db, dados["ponto_final_id"])
     if dados.get("lado") is None:
         dados.pop("lado", None)
+    if dados.get("obrigatorio_fds") is None:
+        dados.pop("obrigatorio_fds", None)
     novos_ids = dados.pop("linha_ids", None)
     novas_linhas = _linhas_escolhidas(db, novos_ids) if novos_ids is not None else None
     lado = dados.get("lado", p.lado)
@@ -1018,6 +1023,91 @@ def remover_troca(troca_id: UUID, _: EscritaEscala, db: DbSession) -> None:
 @router.get("/dias/{data}", summary="Escala do dia: a gravada, ou a PRÉVIA de um dia novo copiada do modelo (nada é gravado)")
 def ver_dia(data: date, usuario: LeituraEscala, db: DbSession, modelo_id: Optional[UUID] = None):
     return _resposta_do_dia(db, data, usuario, modelo_id)
+
+
+@router.get(
+    "/dias/{data}/fechamento",
+    summary="FECHAR FIM DE SEMANA: sugere o dia já preenchido (folgas, livres, acúmulo, dobra). Nada é gravado",
+)
+def sugerir_fechamento(
+    data: date,
+    usuario: EscritaEscala,
+    db: DbSession,
+    modo: Annotated[str, Query(pattern="^(sem_dobra|com_dobra)$")] = "sem_dobra",
+):
+    """Monta o sábado e o domingo juntos (o domingo sabe quem dobrou no
+    sábado) e devolve o dia pedido no MESMO formato de GET /dias/{data}, com
+    o bloco `fechamento` (o que mudou, vagas em branco, dobras sugeridas,
+    quem sobrou e a conta do quadro). A tela põe isso na grade como mudança
+    não salva; o coordenador confere e salva pelo PUT de sempre."""
+    sab = regras.sabado_do_fim_de_semana(data)
+    if sab is None:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, detail="O fechamento automático é só para sábado e domingo")
+    editaveis = periodos_editaveis(db, usuario)
+    if not editaveis:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, detail="Você não está ligado a nenhum período na aba Coordenadores")
+    padroes = padroes_periodo()
+    dias = (sab, sab + timedelta(days=1))
+    contextos = {d: _contexto(db, d) for d in dias}
+    entradas = {d: montagem.entrada_do_fechamento(db, d, contextos[d]) for d in dias}
+    entrada_pedida, dia_pedido, modelo_pedido = entradas[data]
+    if dia_pedido is not None and dia_pedido.status == "publicada":
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            detail="Esta escala já está publicada: o fechamento automático só mexe em prévia e rascunho",
+        )
+    if entrada_pedida is None:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Nenhum modelo para este dia. Importe a planilha ou crie o modelo na aba Modelos")
+
+    postos = contextos[data].postos
+    resultado = fechamento.sugerir_fim_de_semana(
+        entradas[dias[0]][0], entradas[dias[1]][0], modo=modo, editaveis=editaveis,
+        familiaridade=montagem.familiaridade(db),
+        historico_dobras=montagem.historico_dobras(db, sab, padroes, postos=postos),
+    )
+    pedido = resultado["sabado" if data == sab else "domingo"]
+
+    ctx = contextos[data]
+    _com_nomes(db, ctx, pedido.alocs)
+    base = [montagem.aloc_de(a) for a in montagem.alocacoes_do_dia(db, dia_pedido.id)] if dia_pedido else []
+    plantao = montagem.plantao_do_dia(db, dia_pedido.id) if dia_pedido else montagem.plantao_do_cadastro(db)
+    resp = montagem.montar_resposta(db, data, dia=dia_pedido, modelo=modelo_pedido, alocs=pedido.alocs,
+                                    plantao=plantao, ctx=ctx, base=base, notas=pedido.notas)
+    resp["periodos_editaveis"] = sorted(editaveis)
+    resp["hoje"] = hoje_operacao()
+
+    quadro = [f for f in ctx.quadro.values() if f.ativo]
+    por_periodo = {p: sum(1 for f in quadro if f.periodo == p) for p in (1, 2)}
+
+    def resumo_dia(nome: str, d: date) -> Optional[dict]:
+        s = resultado[nome]
+        if s is None:
+            entrada, dia, _ = entradas[d]
+            motivo = "publicada" if dia is not None and dia.status == "publicada" else "sem_modelo"
+            return {"data": d, "incluido": False, "motivo": motivo}
+        nomes = nomes_por_re(db, set(s.dobras) | set(s.sobrando))
+        return {
+            "data": d, "incluido": True,
+            "mudancas": len(s.mudancas),
+            "vagas": s.vagas,
+            "dobras": [{**x, "nome": nomes.get(x["re"])} for x in s.dobras_info],
+            "acumulos": s.acumulos,
+            "liberados": s.liberados,
+            "sobrando": [{"re": r, "nome": nomes.get(r)} for r in s.sobrando],
+            "fora_do_periodo": s.fora_do_periodo,
+            "obrigatorios": {str(k): v for k, v in s.obrigatorios.items()},
+        }
+
+    resp["fechamento"] = {
+        "modo": modo,
+        "mudancas": pedido.mudancas,
+        "sabado": resumo_dia("sabado", dias[0]),
+        "domingo": resumo_dia("domingo", dias[1]),
+        "conta": fechamento.conta_do_quadro(
+            resultado["sabado"], resultado["domingo"], quadro_por_periodo=por_periodo, periodos=editaveis,
+        ),
+    }
+    return resp
 
 
 @router.put("/dias/{data}", summary="Salva o rascunho; em escala publicada, gera nova versão com registro da alteração")

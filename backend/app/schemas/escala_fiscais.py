@@ -146,6 +146,7 @@ class PostoCreate(BaseModel):
     ponto_final_id: Optional[UUID] = None
     linha_ids: list[UUID] = Field(..., min_length=1)
     ativo: bool = True
+    obrigatorio_fds: bool = False
 
     _linha_ids = field_validator("linha_ids")(_sem_repetir)
 
@@ -157,6 +158,7 @@ class PostoUpdate(BaseModel):
     ponto_final_id: Optional[UUID] = None
     linha_ids: Optional[list[UUID]] = None
     ativo: Optional[bool] = None
+    obrigatorio_fds: Optional[bool] = None
 
     _linha_ids = field_validator("linha_ids")(_sem_repetir)
 
@@ -178,6 +180,8 @@ class PostoRead(BaseModel):
     linhas: list[str]
     itens_linha: list[PostoLinhaRead] = []
     ativo: bool
+    # TS que não fica sem fiscal no fim de semana (TP sempre é).
+    obrigatorio_fds: bool = False
 
 
 class LinhaCadastroRead(BaseModel):

@@ -484,6 +484,7 @@ function setupPostos() {
             lote: valor('posto-lote') || null,
             ponto_final_id: valor('posto-ponto') || null,
             linha_ids: ordemLinhasPosto.slice(),
+            obrigatorio_fds: document.getElementById('posto-obrig').checked,
         };
         try {
             if (id) await apiPatch(`${API}/postos/${id}`, corpo);
@@ -559,7 +560,7 @@ function renderPostos() {
                 <span><strong>${escapeHtml(descreverPosto(p))}</strong></span>
                 <span class="remanejo-badge">${escapeHtml(p.lote || 'sem lote')}</span>
             </div>
-            <div class="ef-meta">Cód. JB ${escapeHtml(p.cod_jb || '—')} · Ponto final: ${escapeHtml(p.ponto_final_nome || 'não ligado')}</div>
+            <div class="ef-meta">Cód. JB ${escapeHtml(p.cod_jb || '—')} · Ponto final: ${escapeHtml(p.ponto_final_nome || 'não ligado')}${p.lado === 'TS' && p.obrigatorio_fds ? ' · <span class="ef-tag">obrigatório no fim de semana</span>' : ''}</div>
             ${linhasSemCadastro(p).length ? `<div class="ef-meta"><span class="ef-tag ef-tag-alerta">linha sem cadastro</span> ${escapeHtml(linhasSemCadastro(p).join(' / '))} — cadastre na aba Linhas</div>` : ''}
             ${botoesAcao([
                 { acao: 'editar', id: p.id, texto: 'Editar' },
@@ -574,6 +575,7 @@ function renderPostos() {
             document.getElementById('posto-codjb').value = p.cod_jb || '';
             document.getElementById('posto-lote').value = p.lote || '';
             document.getElementById('posto-ponto').value = p.ponto_final_id || '';
+            document.getElementById('posto-obrig').checked = !!p.obrigatorio_fds;
             ordemLinhasPosto = (p.itens_linha || []).filter(i => i.linha_id).map(i => i.linha_id);
             seletorLinhasPosto.carregar(ordemLinhasPosto)
                 .then(() => atualizarLinhasEscolhidas(new Set(ordemLinhasPosto)));

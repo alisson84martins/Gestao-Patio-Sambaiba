@@ -83,6 +83,9 @@ class PostoInfo:
     linhas: list[str]
     ponto_final_id: Optional[UUID] = None
     ponto_final_nome: Optional[str] = None
+    # Fechamento automático: TS que não pode ficar sem fiscal no fim de
+    # semana (as rendições). TP é sempre obrigatório.
+    obrigatorio_fds: bool = False
 
     @property
     def rotulo(self) -> str:

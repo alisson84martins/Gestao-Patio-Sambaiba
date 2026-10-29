@@ -17,8 +17,15 @@
  * pergunta uma a uma e reenvia com as confirmações.
  *
  * Dia novo = PRÉVIA (nada gravado até Salvar rascunho). O modelo vem
- * sugerido pelo mês do próprio dia (RN01) e só pode ser trocado antes de
- * salvar. Datas com dataLocalISO(), 🔴 nunca toISOString().
+ * sugerido pela paridade do mês (RN01 — fim de semana segue o mês do
+ * DOMINGO) e só pode ser trocado antes de salvar. Datas com dataLocalISO(),
+ * 🔴 nunca toISOString().
+ *
+ * FECHAR FIM DE SEMANA (29/10/2026): GET /dias/{data}/fechamento devolve o
+ * dia já preenchido (mesmo formato de GET /dias/{data}) + o bloco
+ * `fechamento`. A grade recebe a sugestão como MUDANÇA NÃO SALVA, as células
+ * que mudaram ficam marcadas, e o painel mostra o que mudou, o que ficou em
+ * branco e a conta do quadro. Salvar segue o fluxo de sempre.
  */
 import { apiGet, apiPut, apiPost, ApiError } from './api.js';
 import { escapeHtml } from './escape.js';
@@ -35,6 +42,7 @@ const estado = {
     confirmacoes: new Set(),
     plantao: [],         // cópia editável do plantão do dia
     escreve: false,
+    fechamento: null,    // bloco `fechamento` da última sugestão (até sair do dia)
 };
 
 let aviso = () => {};    // mostrarMensagem da página
@@ -53,6 +61,8 @@ export function iniciarMontagem({ escreve, mostrarMensagem, erro }) {
     document.getElementById('ef-mt-salvar').addEventListener('click', () => salvar());
     document.getElementById('ef-mt-publicar').addEventListener('click', () => publicar());
     document.getElementById('ef-mt-imprimir').addEventListener('click', () => imprimir());
+    document.getElementById('ef-mt-fechar').addEventListener('click', () => fecharFimDeSemana());
+    document.getElementById('ef-mt-fechamento').addEventListener('click', aoClicarFechamento);
     document.getElementById('ef-mt-resumo').addEventListener('click', abrirDetalheResumo);
     const grade = document.getElementById('ef-mt-grade');
     grade.addEventListener('change', aoMudarCelula);
@@ -145,9 +155,10 @@ async function carregar(iso, modeloId = null) {
     }
 }
 
-function aplicar(resp) {
+function aplicar(resp, { fechamento = null } = {}) {
     estado.resp = resp;
-    estado.sujo = false;
+    estado.fechamento = fechamento;
+    estado.sujo = !!fechamento;
     estado.confirmacoes = new Set();
     estado.plantao = resp.plantao.map(p => ({ turno: p.turno, re: p.re, nome: p.nome, hora_inicio: p.hora_inicio, hora_fim: p.hora_fim }));
     desenhar();
@@ -175,7 +186,7 @@ function desenhar() {
         || '<option value="">— nenhum modelo importado —</option>';
     sel.value = r.modelo?.id || '';
     sel.disabled = r.status !== 'novo' || !estado.escreve;
-    sel.title = r.status === 'novo' ? 'RN01: sugerido pelo mês do próprio dia; troque antes de salvar' : 'O modelo não muda depois de salvo';
+    sel.title = r.status === 'novo' ? 'RN01: sugerido pela paridade do mês (fim de semana = mês do domingo); troque antes de salvar' : 'O modelo não muda depois de salvo';
 
     desenharEstado();
     desenharAvisos();
@@ -183,6 +194,7 @@ function desenhar() {
     desenharGrade();
     desenharPlantao();
     desenharBotoes();
+    desenharFechamento();
 }
 
 function desenharEstado() {
@@ -312,6 +324,7 @@ function desenharGrade() {
         </div>`;
     });
     grade.innerHTML = blocos.join('');
+    marcarSugeridas();
 }
 
 function linhaHtml(l, lado) {
@@ -429,6 +442,7 @@ async function aoMudarCelula(e) {
         alvo.value = re;
     }
     const td = alvo.closest('td');
+    td.classList.remove('ef-mt-sugerido');
     td.classList.toggle('ef-mt-dobra', !!p.dobra);
     td.querySelector('.ef-mt-nome').innerHTML = p.nome ? escapeHtml(p.nome) : '';
     marcarSujo();
@@ -532,6 +546,10 @@ function aoClicarPlantao(e) {
 function desenharBotoes() {
     const r = estado.resp;
     const pode = estado.escreve && r.modelo && r.periodos_editaveis.length > 0;
+    const bFechar = document.getElementById('ef-mt-fechar');
+    document.getElementById('ef-mt-fechar-box').hidden = !estado.escreve || r.tipo_dia === 'util';
+    bFechar.disabled = !pode || r.status === 'publicada';
+    bFechar.title = r.status === 'publicada' ? 'Escala publicada: o fechamento automático só mexe em prévia e rascunho' : '';
     document.getElementById('ef-mt-salvar').disabled = !pode;
     document.getElementById('ef-mt-salvar').textContent = r.status === 'publicada' ? 'Salvar (nova versão)' : 'Salvar rascunho';
     document.getElementById('ef-mt-publicar').disabled = !pode || r.status === 'publicada';
@@ -636,6 +654,127 @@ async function imprimir() {
         if (salvarAntes && !(await salvar({ silencioso: true }))) return;
     }
     window.open(`escala-fiscais-impressao.html?data=${encodeURIComponent(estado.data)}`, '_blank', 'noopener');
+}
+
+// ─── Fechar fim de semana (sugestão automática) ──────────────────────────
+
+const TIPO_MUDANCA = {
+    livre: 'estava livre',
+    remanejado: 'veio do TS',
+    acumulo: 'acúmulo',
+    dobra: 'dobra sugerida',
+    branco: 'em branco',
+};
+
+async function fecharFimDeSemana() {
+    const r = estado.resp;
+    if (!r || r.tipo_dia === 'util') return;
+    if (estado.sujo && !(await perguntar('Substituir o que você mudou?',
+        '<p>A sugestão é montada a partir do que está salvo (ou do modelo). As mudanças desta tela que ainda não foram salvas se perdem.</p>',
+        'Montar a sugestão', 'Cancelar'))) return;
+    const modo = document.getElementById('ef-mt-modo').value;
+    const btn = document.getElementById('ef-mt-fechar');
+    btn.disabled = true;
+    btn.textContent = 'Montando…';
+    try {
+        const resp = await apiGet(`${API}/dias/${estado.data}/fechamento?modo=${encodeURIComponent(modo)}`);
+        aplicar(resp, { fechamento: resp.fechamento });
+        const f = resp.fechamento;
+        const dia = f[r.tipo_dia];
+        const vagas = dia?.vagas?.length || 0;
+        aviso(`Sugestão pronta: ${f.mudancas.length} mudança(s)${vagas ? `, ${vagas} posto(s) obrigatório(s) em branco` : ''}. Confira e clique em Salvar rascunho.`, vagas ? 'alerta' : 'ok');
+        document.getElementById('ef-mt-fechamento').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    } catch (err) {
+        tratarErro(err);
+    } finally {
+        btn.textContent = 'Fechar fim de semana';
+        desenharBotoes();
+    }
+}
+
+function marcarSugeridas() {
+    const f = estado.fechamento;
+    if (!f) return;
+    for (const m of f.mudancas) {
+        const td = document.querySelector(`#ef-mt-grade td[data-chave="${m.posto_id}|${m.periodo}"]`);
+        if (td) {
+            td.classList.add('ef-mt-sugerido');
+            td.title = m.nota || '';
+        }
+    }
+}
+
+function itemFiscal(x) {
+    return fiscal(x.re, x.nome);
+}
+
+function desenharFechamento() {
+    const painel = document.getElementById('ef-mt-fechamento');
+    const f = estado.fechamento;
+    if (!f) { painel.hidden = true; painel.innerHTML = ''; return; }
+    const r = estado.resp;
+    const lista = (itens) => itens.length ? `<ul>${itens.map(i => `<li>${i}</li>`).join('')}</ul>` : '<p class="ef-meta">Nenhum.</p>';
+    const resumoDia = (nome, rotulo) => {
+        const d = f[nome];
+        if (!d) return '';
+        const atual = d.data === r.data ? ' ef-mt-fc-dia-atual' : '';
+        if (!d.incluido) {
+            const porque = d.motivo === 'publicada' ? 'já publicada — não foi mexida' : 'sem modelo';
+            return `<div class="ef-mt-fc-dia${atual}"><strong>${rotulo} ${ddmm(d.data)}</strong><span class="ef-meta">${porque}</span></div>`;
+        }
+        const chip = (n, txt, cls = '') => `<span class="ef-mt-fc-num${cls}">${n}</span> ${txt}`;
+        return `<div class="ef-mt-fc-dia${atual}">
+            <strong>${rotulo} ${ddmm(d.data)}</strong>
+            <span>${chip(d.mudancas, 'mudança(s)')}</span>
+            <span>${chip(d.vagas.length, 'obrigatório(s) em branco', d.vagas.length ? ' ef-mt-fc-ruim' : ' ef-mt-fc-bom')}</span>
+            <span>${chip(d.dobras.length, 'dobra(s)', d.dobras.length ? ' ef-mt-fc-dobra' : '')}</span>
+            <span>${chip(d.acumulos.length, 'acúmulo(s)')}</span>
+            <span>${chip(d.sobrando.length, 'sobrando')}</span>
+        </div>`;
+    };
+    const dia = f[r.tipo_dia] || {};
+    const outro = r.tipo_dia === 'sabado' ? 'domingo' : 'sabado';
+    const mudancas = f.mudancas.map(m => `<strong>${escapeHtml(m.posto)}</strong>: ${escapeHtml(m.antes)} → <strong>${escapeHtml(m.depois)}</strong> <span class="ef-tag${m.tipo === 'dobra' ? ' ef-mt-tag-dobra' : m.tipo === 'branco' ? ' ef-tag-alerta' : ''}">${escapeHtml(TIPO_MUDANCA[m.tipo] || m.tipo)}</span>${m.nota ? `<div class="ef-meta">${escapeHtml(m.nota)}</div>` : ''}`);
+    const conta = (f.conta || []).map(c => `
+        <tr><td>${c.periodo}º</td><td>${c.postos_obrigatorios}</td><td>${c.fiscais_no_quadro}</td>
+            <td>${c.falta_sem_dobra}</td><td>${c.quadro_ideal}</td><td><strong>${c.contratar}</strong></td></tr>`).join('');
+    painel.innerHTML = `
+        <div class="ef-mt-fc-topo">
+            <div>
+                <div class="ef-mt-fc-titulo">Sugestão do fechamento · ${f.modo === 'com_dobra' ? 'com dobra' : 'sem dobra'}</div>
+                <div class="ef-meta">Células com borda verde foram mudadas pela sugestão. Nada foi salvo ainda.</div>
+            </div>
+            <button type="button" class="btn btn-ghost ef-btn-mini" data-fc="descartar">Descartar sugestão</button>
+        </div>
+        <div class="ef-mt-fc-dias">${resumoDia('sabado', 'Sábado')}${resumoDia('domingo', 'Domingo')}</div>
+        ${f[outro]?.incluido ? `<p class="ef-meta">Depois de salvar este dia, abra o ${outro === 'sabado' ? 'sábado' : 'domingo'} e clique de novo em Fechar fim de semana: a conta dos dois dias é feita junto (quem dobrar num dia não dobra no outro).</p>` : ''}
+        <details class="ef-detalhes" open>
+            <summary>O que mudou neste dia (${f.mudancas.length})</summary>${lista(mudancas)}
+        </details>
+        ${dia.vagas?.length ? `<details class="ef-detalhes" open><summary>Obrigatórios em branco (${dia.vagas.length})</summary>${lista(dia.vagas.map(v => escapeHtml(v.posto)))}<p class="ef-meta">Sem fiscal livre${f.modo === 'sem_dobra' ? '. Para cobrir, troque para "Sugerir dobra" ou digite o RE na célula.' : ' e sem quem possa dobrar (ninguém que folga pela base, sem dobra no fim de semana anterior).'}</p></details>` : ''}
+        ${dia.dobras?.length ? `<details class="ef-detalhes"><summary>Dobras sugeridas (${dia.dobras.length})</summary>${lista(dia.dobras.map(x => `${itemFiscal(x)} — ${escapeHtml(x.posto)} · dobrou ${x.vezes_antes}x nas últimas 4 semanas`))}</details>` : ''}
+        ${dia.liberados?.length ? `<details class="ef-detalhes"><summary>Saíram do modelo por folga (${dia.liberados.length})</summary>${lista(dia.liberados.map(x => `${fiscal(x.re)} — ${escapeHtml(x.posto)}`))}</details>` : ''}
+        ${dia.sobrando?.length ? `<details class="ef-detalhes"><summary>Livres que sobraram (${dia.sobrando.length})</summary>${lista(dia.sobrando.map(itemFiscal))}<p class="ef-meta">Trabalham neste dia e não precisaram entrar. Podem cobrir um TS comum ou reforço.</p></details>` : ''}
+        ${dia.fora_do_periodo?.length ? `<details class="ef-detalhes"><summary>Obrigatórios vagos no período de outro coordenador (${dia.fora_do_periodo.length})</summary>${lista(dia.fora_do_periodo.map(v => escapeHtml(v.posto)))}</details>` : ''}
+        ${conta ? `<details class="ef-detalhes">
+            <summary>Conta do quadro deste fim de semana</summary>
+            <div class="ef-mt-rolagem"><table class="ef-mt-fc-conta">
+                <thead><tr><th>Período</th><th>Postos obrigatórios (sáb + dom)</th><th>Fiscais no quadro</th><th>Faltam sem dobra</th><th>Quadro ideal (10% de reserva)</th><th>Pedir para contratar</th></tr></thead>
+                <tbody>${conta}</tbody>
+            </table></div>
+            <p class="ef-meta">Cada fiscal trabalha um dos dois dias, então o que pesa é a soma de sábado e domingo. "Faltam sem dobra" é o número de dobras por fim de semana com o quadro de hoje.</p>
+        </details>` : ''}`;
+    painel.hidden = false;
+}
+
+async function aoClicarFechamento(e) {
+    const b = e.target.closest('[data-fc]');
+    if (!b) return;
+    if (b.dataset.fc === 'descartar') {
+        if (!(await perguntar('Descartar a sugestão?', '<p>A grade volta para o que está salvo (ou para o modelo).</p>', 'Descartar', 'Cancelar'))) return;
+        estado.sujo = false;
+        carregar(estado.data);
+    }
 }
 
 // ─── Modal de pergunta ───────────────────────────────────────────────────
