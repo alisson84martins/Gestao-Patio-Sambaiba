@@ -9,10 +9,15 @@ O fim de semana é identificado pela data do SÁBADO; o fim de semana anterior
 é o sábado menos 7 dias.
 
 Regras (numeração do pedido do Alisson, 24/09/2026):
-  RN01  modelo sugerido pelo mês do PRÓPRIO dia (ímpar/par; seg–sex = útil);
-        sábado e domingo em meses diferentes = aviso de virada de mês.
-  RN02  folga_base vale nos meses ímpares; no mês par inverte. Sem folga
-        base confirmada: não calcula dobra e avisa.
+  RN01  modelo sugerido pela paridade do mês (ímpar/par; seg–sex = útil).
+        Fim de semana é UMA unidade e segue o mês do DOMINGO (revisão de
+        29/10/2026, conferida na escala real de 31/10 e 01/11: o 2º período
+        inteiro já folgou pelo padrão de novembro no sábado 31/10). Assim
+        ninguém folga os dois dias nem trabalha os dois na virada. Sábado e
+        domingo em meses diferentes = aviso de virada de mês.
+  RN02  folga_base vale nos meses ímpares; no mês par inverte (mês de
+        referência = o do domingo, no fim de semana). Sem folga base
+        confirmada: não calcula dobra e avisa.
   RN06  troca 1x1: cada um dos dois inverte o próprio dia de folga naquele
         fim de semana.
   RN07  troca 2x2: no fim de semana de data_sabado, re_a trabalha os dois
@@ -153,12 +158,20 @@ def sabado_do_fim_de_semana(d: date) -> Optional[date]:
     return None
 
 
+def mes_de_referencia(d: date) -> int:
+    """Mês que manda na paridade. Sábado e domingo: o mês do DOMINGO do fim
+    de semana (31/10 + 01/11 = novembro). Dia útil: o próprio mês."""
+    sab = sabado_do_fim_de_semana(d)
+    return (sab + timedelta(days=1)).month if sab else d.month
+
+
 def paridade(d: date) -> str:
-    return "impar" if d.month % 2 else "par"
+    return "impar" if mes_de_referencia(d) % 2 else "par"
 
 
 def modelo_sugerido(d: date) -> tuple[str, Optional[str]]:
-    """RN01: (tipo_dia, paridade) pelo mês do PRÓPRIO dia."""
+    """RN01: (tipo_dia, paridade) pelo mês de referência (fim de semana =
+    mês do domingo)."""
     tipo = tipo_do_dia(d)
     return (tipo, paridade(d)) if tipo != "util" else ("util", None)
 
@@ -171,13 +184,13 @@ def virada_de_mes(d: date) -> Optional[dict]:
     dom = sab + timedelta(days=1)
     if sab.month == dom.month:
         return None
+    par = "ímpar" if dom.month % 2 else "par"
     return {
         "codigo": "virada_mes",
         "mensagem": (
-            f"Virada de mês: o sábado {ddmm(sab)} é de mês {'ímpar' if sab.month % 2 else 'par'} e o "
-            f"domingo {ddmm(dom)} é de mês {'ímpar' if dom.month % 2 else 'par'}. Cada dia usa o modelo "
-            f"e a folga do PRÓPRIO mês: quem folga no sábado pelo mês de um pode folgar de novo, ou "
-            f"trabalhar os dois dias, pelo mês do outro. Confira as folgas deste fim de semana."
+            f"Virada de mês: o sábado {ddmm(sab)} e o domingo {ddmm(dom)} estão em meses diferentes. "
+            f"O fim de semana inteiro segue o mês do domingo (mês {par}): modelos e folgas "
+            f"\"{par}\" nos dois dias, para ninguém folgar ou trabalhar os dois dias por causa da virada."
         ),
     }
 
@@ -189,8 +202,9 @@ def _inverte(nome_dia: str) -> str:
 
 
 def folga_pelo_mes(folga_base: str, d: date) -> bool:
-    """RN02: folga_base vale no mês ímpar; no par inverte. Mês do próprio dia."""
-    dia_folga = folga_base if d.month % 2 else _inverte(folga_base)
+    """RN02: folga_base vale no mês ímpar; no par inverte. Mês de referência
+    = o do domingo do fim de semana."""
+    dia_folga = folga_base if mes_de_referencia(d) % 2 else _inverte(folga_base)
     return NOME_DIA.get(d.weekday()) == dia_folga
 
 

@@ -247,13 +247,30 @@ def test_rn01_virada_de_mes_avisa_no_sabado_e_no_domingo(amb):
         assert resp["virada_mes"] is not None
         assert "Virada de mês" in resp["virada_mes"]["mensagem"]
         assert any(a["codigo"] == "virada_mes" for a in resp["validacao"]["avisos"])
-    # 31/10 é outubro (par) e 01/11 é novembro (ímpar): cada dia com o seu modelo.
-    assert http.get("/escala-fiscais/dias/2026-10-31").json()["modelo"]["nome"] == "Sábado par"
+    # 31/10 + 01/11: o fim de semana inteiro segue novembro (mês do domingo, ímpar).
+    assert http.get("/escala-fiscais/dias/2026-10-31").json()["modelo"]["nome"] == "Sábado ímpar"
     assert http.get("/escala-fiscais/dias/2026-11-01").json()["modelo"]["nome"] == "Domingo ímpar"
     assert http.get(f"/escala-fiscais/dias/{SAB}").json()["virada_mes"] is None
 
 
 # ─── RN02 — folga base, inversão no mês par, folga não confirmada ────────────
+
+def test_rn01_virada_de_mes_cada_fiscal_folga_um_dia_so():
+    """Revisão 29/10/2026: na virada o fim de semana segue o mês do domingo.
+    Folga base sábado → em novembro (ímpar) folga o sábado 31/10 e trabalha
+    o domingo 01/11. Antes, pelo mês de cada dia, folgava os dois."""
+    quadro = {"90001": regras.FiscalQuadro("90001", 2, "sabado"),
+              "90002": regras.FiscalQuadro("90002", 2, "domingo")}
+    sab, dom = date(2026, 10, 31), date(2026, 11, 1)
+    assert regras.mes_de_referencia(sab) == 11 and regras.mes_de_referencia(dom) == 11
+    assert regras.modelo_sugerido(sab) == ("sabado", "impar")
+    assert regras.folga_no_dia("90001", sab, quadro, []) == (True, "base")
+    assert regras.folga_no_dia("90001", dom, quadro, []) == (False, "base")
+    assert regras.folga_no_dia("90002", sab, quadro, []) == (False, "base")
+    assert regras.folga_no_dia("90002", dom, quadro, []) == (True, "base")
+    # Dia útil continua pelo próprio mês.
+    assert regras.mes_de_referencia(date(2026, 10, 30)) == 10
+
 
 def test_rn02_folga_base_vale_no_mes_impar_e_inverte_no_par():
     quadro = {"90001": regras.FiscalQuadro("90001", 1, "sabado")}
