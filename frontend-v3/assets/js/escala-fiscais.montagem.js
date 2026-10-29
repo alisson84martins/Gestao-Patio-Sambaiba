@@ -350,7 +350,15 @@ function periodoHtml(p, periodo) {
     if (p.dobra) classes.push('ef-mt-dobra');
     if (p.ausencia) classes.push('ef-mt-ausente');
     const tags = [];
-    if (p.acumulo) tags.push(`<span class="ef-tag" title="${escapeHtml(p.ponto_final || 'sem ponto final')}">acúmulo</span>`);
+    if (p.acumulo) {
+        // "acúmulo c/ <linhas do outro posto>": até 2 linhas na etiqueta, a lista
+        // completa no title. Sem acumulo_com (estado antigo) fica só "acúmulo".
+        const com = p.acumulo_com || [];
+        const pf = p.ponto_final || 'sem ponto final';
+        const texto = com.length ? `acúmulo c/ ${com.slice(0, 2).join(' ')}${com.length > 2 ? ' …' : ''}` : 'acúmulo';
+        const title = com.length ? `${com.join(' ')} · ${pf}` : pf;
+        tags.push(`<span class="ef-tag" title="${escapeHtml(title)}">${escapeHtml(texto)}</span>`);
+    }
     if (p.dobra) tags.push('<span class="ef-tag ef-mt-tag-dobra">dobra</span>');
     if (p.dobra_seguida_confirmada_por) tags.push(`<span class="ef-tag" title="Confirmado por ${escapeHtml(p.dobra_seguida_confirmada_por)}">2º fds confirmado</span>`);
     if (p.situacao === 'escalado' && !p.no_quadro) tags.push('<span class="ef-tag ef-tag-alerta">fora do quadro</span>');
@@ -418,7 +426,7 @@ async function aoMudarCelula(e) {
         return;
     }
     if (!texto || RE_MARCADOR.test(texto)) {
-        Object.assign(p, { re: null, nome: null, marcador: texto, dobra: false, ausencia: null, acumulo: false });
+        Object.assign(p, { re: null, nome: null, marcador: texto, dobra: false, ausencia: null, acumulo: false, acumulo_com: [] });
         p.situacao = /^G\d+$/i.test(texto) ? 'outra_garagem' : /^DIRETO$/i.test(texto) ? 'direto' : 'descoberto';
     } else {
         const re = texto.toUpperCase();

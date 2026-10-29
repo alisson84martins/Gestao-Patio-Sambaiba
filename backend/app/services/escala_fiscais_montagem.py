@@ -318,6 +318,7 @@ def montar_resposta(
             "hora_inicio": _hhmm(a.hora_inicio), "hora_termino": _hhmm(a.hora_termino),
             "marcador": a.marcador, "outra_garagem": a.outra_garagem,
             "dobra": marca.get("dobra", False), "acumulo": marca.get("acumulo", False),
+            "acumulo_com": marca.get("acumulo_com", []),
             "folga": marca.get("folga"), "motivo_folga": marca.get("motivo_folga"),
             "ausencia": marca.get("ausencia"), "no_quadro": marca.get("no_quadro", False),
             "nota": notas.get(a.chave),

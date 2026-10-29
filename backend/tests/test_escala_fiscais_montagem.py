@@ -459,6 +459,9 @@ def test_rn08_mesmo_ponto_final_permite_e_marca_acumulo(amb):
     salvo = _abrir_e_salvar(amb["http"], SAB, {(ids["P2"], 2): {"re": "90002", "marcador": None}})
     assert _linha(salvo, ids["P1"], 2)["acumulo"] and _linha(salvo, ids["P2"], 2)["acumulo"]
     assert salvo["resumo"]["acumulos"][0]["ponto_final"] == "Ponto Ficticio A"
+    # A grade recebe com qual linha cada lado acumula (etiqueta "acúmulo c/ …").
+    assert _linha(salvo, ids["P1"], 2)["acumulo_com"] == _linha(salvo, ids["P2"], 2)["linhas"]
+    assert _linha(salvo, ids["P2"], 2)["acumulo_com"] == _linha(salvo, ids["P1"], 2)["linhas"]
 
 
 def test_rn08_pontos_finais_diferentes_no_mesmo_horario_bloqueia(amb):
@@ -493,6 +496,58 @@ def test_rn08_posto_sem_ponto_final_pergunta_antes_de_acumular(amb):
     assert r.status_code == 200 and _linha(r.json(), ids["P4"], 2)["acumulo"]
     # Já gravado: não pergunta de novo.
     assert http.put(f"/escala-fiscais/dias/{SAB}", json=_payload(r.json())).status_code == 200
+
+
+# acumulo_com — etiqueta "acúmulo c/ <linhas do outro posto>" (29/10/2026),
+# direto em regras.avaliar.
+_PF = uuid4()
+_PADROES_AC = {1: (time(5), time(14)), 2: (time(14), time(23))}
+
+
+def _posto_ac(linhas, ponto=_PF):
+    return regras.PostoInfo(id=uuid4(), lado="TP", cod_jb=None, lote=None, linhas=linhas,
+                            ponto_final_id=ponto, ponto_final_nome="PF" if ponto else None)
+
+
+def _avaliar_ac(postos, alocs):
+    ctx = regras.Contexto(data=SAB, postos={p.id: p for p in postos},
+                          quadro={"90001": regras.FiscalQuadro("90001", 2, "domingo")},
+                          ausencias=[], trocas=[], padroes=_PADROES_AC)
+    return regras.avaliar(alocs, ctx)
+
+
+def _ac(posto, periodo=2, ini=None, fim=None):
+    return regras.Aloc(posto_id=posto.id, periodo=periodo, situacao="escalado", re="90001",
+                       hora_inicio=ini, hora_termino=fim)
+
+
+def test_acumulo_com_mesmo_ponto_final_lista_as_linhas_do_outro_posto():
+    p1, p2 = _posto_ac(["9001-10"]), _posto_ac(["9002-10", "9002-41"])
+    av = _avaliar_ac([p1, p2], [_ac(p1), _ac(p2)])
+    assert av.linhas[(p1.id, 2)]["acumulo_com"] == ["9002-10", "9002-41"]
+    assert av.linhas[(p2.id, 2)]["acumulo_com"] == ["9001-10"]
+
+
+def test_acumulo_com_posto_sem_ponto_final_lista_as_linhas_do_outro_posto():
+    p1, p2 = _posto_ac(["9001-10"], ponto=None), _posto_ac(["9002-10"])
+    av = _avaliar_ac([p1, p2], [_ac(p1), _ac(p2)])
+    assert av.linhas[(p1.id, 2)]["acumulo"] and av.linhas[(p1.id, 2)]["acumulo_com"] == ["9002-10"]
+    assert av.linhas[(p2.id, 2)]["acumulo_com"] == ["9001-10"]
+
+
+def test_acumulo_com_em_tres_postos_cada_um_lista_os_outros_dois():
+    p1, p2, p3 = _posto_ac(["9001-10"]), _posto_ac(["9002-10"]), _posto_ac(["9003-10"])
+    av = _avaliar_ac([p1, p2, p3], [_ac(p1), _ac(p2), _ac(p3)])
+    assert av.linhas[(p1.id, 2)]["acumulo_com"] == ["9002-10", "9003-10"]
+    assert av.linhas[(p2.id, 2)]["acumulo_com"] == ["9001-10", "9003-10"]
+    assert av.linhas[(p3.id, 2)]["acumulo_com"] == ["9001-10", "9002-10"]
+
+
+def test_acumulo_com_vazio_sem_sobreposicao_de_horario():
+    p1, p2 = _posto_ac(["9001-10"]), _posto_ac(["9002-10"])
+    av = _avaliar_ac([p1, p2], [_ac(p1, ini=time(14), fim=time(18)), _ac(p2, ini=time(18), fim=time(23))])
+    assert not av.linhas[(p1.id, 2)]["acumulo"] and av.linhas[(p1.id, 2)]["acumulo_com"] == []
+    assert not av.linhas[(p2.id, 2)]["acumulo"] and av.linhas[(p2.id, 2)]["acumulo_com"] == []
 
 
 # ─── RN10 — coordenador edita só o período dele ─────────────────────────────

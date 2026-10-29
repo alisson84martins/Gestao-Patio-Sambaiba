@@ -287,6 +287,22 @@ def _rotulo(ctx: Contexto, a: Aloc) -> str:
     return f"{p.rotulo if p else a.posto_id} ({a.periodo}º período)"
 
 
+def _linhas_do_posto(ctx: Contexto, a: Aloc) -> list[str]:
+    p = ctx.postos.get(a.posto_id)
+    return list(p.linhas) if p else [_rotulo(ctx, a)]
+
+
+def _marca_acumulo(av: "Avaliacao", ctx: Contexto, x: Aloc, y: Aloc) -> None:
+    """RN08: marca o acúmulo nos dois lados e guarda em cada um as linhas do
+    OUTRO posto (etiqueta "acúmulo c/ <linhas>" na grade), sem repetir."""
+    for a, outro in ((x, y), (y, x)):
+        linha = av.linhas[a.chave]
+        linha["acumulo"] = True
+        for txt in _linhas_do_posto(ctx, outro):
+            if txt not in linha["acumulo_com"]:
+                linha["acumulo_com"].append(txt)
+
+
 def dobra_calculada(re_txt: Optional[str], ctx: Contexto) -> tuple[bool, str]:
     if not re_txt:
         return False, "sem_re"
@@ -318,7 +334,7 @@ def avaliar(
 
     por_re: dict[str, list[Aloc]] = {}
     for a in alocs:
-        linha = {"dobra": False, "acumulo": False, "folga": None, "motivo_folga": None,
+        linha = {"dobra": False, "acumulo": False, "acumulo_com": [], "folga": None, "motivo_folga": None,
                  "ausencia": None, "nome": ctx.nomes.get(a.re) if a.re else None,
                  "no_quadro": bool(a.re and a.re in ctx.quadro)}
         av.linhas[a.chave] = linha
@@ -379,7 +395,7 @@ def avaliar(
                 pfx = px.ponto_final_id if px else None
                 pfy = py.ponto_final_id if py else None
                 if pfx and pfy and pfx == pfy:
-                    av.linhas[x.chave]["acumulo"] = av.linhas[y.chave]["acumulo"] = True
+                    _marca_acumulo(av, ctx, x, y)
                     acumulos.append({"re": re_txt, "ponto_final": px.ponto_final_nome,
                                      "postos": [_rotulo(ctx, x), _rotulo(ctx, y)]})
                 elif pfx and pfy:
@@ -399,7 +415,7 @@ def avaliar(
                                     f"{_rotulo(ctx, y)}), e posto sem ponto final cadastrado. "
                                     f"Confirmar acúmulo?",
                     })
-                    av.linhas[x.chave]["acumulo"] = av.linhas[y.chave]["acumulo"] = True
+                    _marca_acumulo(av, ctx, x, y)
                     acumulos.append({"re": re_txt, "ponto_final": None,
                                      "postos": [_rotulo(ctx, x), _rotulo(ctx, y)]})
         periodos = {a.periodo for a in lista}
