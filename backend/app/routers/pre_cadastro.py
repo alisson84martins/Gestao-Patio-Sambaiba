@@ -10,9 +10,11 @@ do serviço, mas nunca lê a fila.
 
 🔴 /promover exige `usuarios` escrever, NÃO `pre_cadastro` — criar pessoa
 no cadastro central é ato de RH/administração, o mesmo recurso que já
-governa isso hoje. Promover NUNCA cria login (usuario_login) — devolve só
-o funcionario_id, e o acesso ao sistema segue o caminho normal de
-cadastro.
+governa isso hoje. Sem corpo, promover NÃO cria login (usuario_login).
+Com `{"criar_acesso": true}` (revisto pelo Alisson em 02/11/2026 — serve
+sobretudo para o cobrador, que não ganha login automático) cria também o
+acesso, pelas conferências de app/services/acesso_motorista.py — tudo ou
+nada. O gate é o mesmo `usuarios` escrever de POST /funcionarios/{id}/login.
 
 ⚠️ LGPD: esta é a peça mais sensível do sistema até aqui — ver
 COMMENT ON TABLE da migration 028 e o cabeçalho de
@@ -23,7 +25,8 @@ from datetime import datetime, timezone
 from typing import Annotated, Optional
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, status
+from fastapi.responses import JSONResponse
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -33,9 +36,10 @@ from app.core.deps import exige
 from app.models.cadastro import Funcionario
 from app.models.pre_cadastro import PessoaPreCadastro
 from app.schemas.pre_cadastro import (
-    PreCadastroDescartarRequest, PreCadastroPromoverResponse, PreCadastroRead,
+    PreCadastroDescartarRequest, PreCadastroPromoverRequest, PreCadastroPromoverResponse, PreCadastroRead,
     PreCadastroUpdate, StatusPreCadastro,
 )
+from app.services.acesso_motorista import conferir_identidade, criar_acesso, so_digitos
 from app.services.portaria import ligar_veiculos_por_re
 
 router = APIRouter(prefix="/pre-cadastros", tags=["pré-cadastro"])
@@ -88,7 +92,9 @@ def promover_pre_cadastro(
     pre_cadastro_id: UUID,
     usuario: EscritaUsuarios,
     db: Annotated[Session, Depends(get_db)],
+    payload: Annotated[Optional[PreCadastroPromoverRequest], Body()] = None,
 ):
+    criar_acesso_junto = payload is not None and payload.criar_acesso
     registro = _get(db, pre_cadastro_id)
     if registro.status != "PENDENTE":
         raise HTTPException(
@@ -109,8 +115,24 @@ def promover_pre_cadastro(
             detail="RE provisório — corrija pelo Completar dono, na ficha do veículo.",
         )
 
+    if criar_acesso_junto:
+        funcao_codigo = payload.funcao_codigo or (
+            registro.papel_sugerido if registro.papel_sugerido != "INDEFINIDO" else None
+        )
+        if funcao_codigo is None:
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail="Papel indefinido — escolha a função (Motorista ou Cobrador) para criar o acesso.",
+            )
+        motivos = conferir_identidade(db, re=registro.re, nome=registro.nome, cpf=registro.cpf)
+        if motivos:
+            return _recusa_acesso(motivos)
+
     novo_funcionario = Funcionario(
-        re=registro.re, nome=registro.nome, cpf=registro.cpf,
+        re=registro.re, nome=registro.nome,
+        # Com acesso, o CPF já passou nas conferências — vai só com dígitos,
+        # o mesmo formato que o serviço compara.
+        cpf=so_digitos(registro.cpf) if criar_acesso_junto else registro.cpf,
         rg=registro.rg, cnh=registro.cnh, telefone=registro.telefone,
     )
     db.add(novo_funcionario)
@@ -136,8 +158,36 @@ def promover_pre_cadastro(
         db, re=registro.re, funcionario_id=novo_funcionario.id, usuario_id=usuario.id,
     )
 
+    if criar_acesso_junto:
+        # Funcionário recém-criado, sem login, CPF igual → o serviço só põe
+        # função + login PROVISORIA + espelho + log. Qualquer outra situação
+        # aqui é inesperada: desfaz tudo (tudo ou nada).
+        resultado = criar_acesso(
+            db, re=registro.re, nome=registro.nome, cpf=registro.cpf,
+            funcao_codigo=funcao_codigo, origem="PRE_CADASTRO", criado_por=usuario.id,
+        )
+        if resultado.situacao != "CRIADO":
+            db.rollback()
+            return _recusa_acesso(resultado.motivos or [f"Acesso não criado ({resultado.situacao})"])
+
     db.commit()
-    return PreCadastroPromoverResponse(funcionario_id=novo_funcionario.id)
+    return PreCadastroPromoverResponse(
+        funcionario_id=novo_funcionario.id, acesso_criado=criar_acesso_junto,
+    )
+
+
+def _recusa_acesso(motivos: list[str]) -> JSONResponse:
+    """422 com a lista de motivos, no formato do handler global
+    (app/core/exception_handlers.py): `erro` legível + `detalhes`. Nada foi
+    commitado — o pré-cadastro continua PENDENTE."""
+    return JSONResponse(
+        status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+        content={
+            "erro": "Acesso não criado: " + "; ".join(motivos),
+            "status_code": status.HTTP_422_UNPROCESSABLE_CONTENT,
+            "detalhes": motivos,
+        },
+    )
 
 
 @router.post("/{pre_cadastro_id}/descartar", response_model=PreCadastroRead)
