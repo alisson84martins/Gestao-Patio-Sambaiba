@@ -340,7 +340,7 @@
 
 <!-- ========================================================= -->
 <!-- Modal Pré-cadastro (Bloco F) — completar e promover, ou     -->
-<!-- descartar. Nunca cria acesso ao sistema (só funcionario).   -->
+<!-- descartar. Acesso ao sistema só com a caixa marcada (02/11). -->
 <!-- ========================================================= -->
 <div class="modal-overlay" id="modal-pre-cadastro">
     <div class="modal">
@@ -392,7 +392,31 @@
              operação já acumulou (services/pre_cadastro.py). -->
         <div class="portaria-ficha-linha" id="pc-meta" style="margin-bottom:0.75rem;color:var(--muted)"></div>
 
-        <div id="modal-pre-cadastro-erro" style="display:none;color:var(--accent);font-size:0.85rem;margin-bottom:0.75rem;"></div>
+        <!-- Pendência gravada pelo acesso automático (services/acesso_motorista.py):
+             por que o login NÃO foi criado. Corrija o dado e promova com acesso. -->
+        <div id="pc-pendencia-wrap" style="display:none;margin-bottom:0.75rem;padding:8px 12px;border-left:3px solid var(--accent);background:var(--surface2);border-radius:4px">
+            <div class="form-label" style="margin-bottom:4px">Pendência do acesso</div>
+            <ul id="pc-pendencia" style="margin:0;padding-left:1.1rem;font-size:0.85rem"></ul>
+        </div>
+
+        <!-- 02/11/2026: promover pode já criar o login (cobrador não ganha
+             automático). Mesmas conferências do automático — tudo ou nada. -->
+        <div class="form-group">
+            <label class="form-check">
+                <input type="checkbox" id="pc-criar-acesso">
+                <span class="form-check-label">Já criar acesso ao sistema (login: RE + 4 últimos do CPF)</span>
+            </label>
+        </div>
+        <div class="form-group" id="pc-acesso-funcao-wrap" style="display:none">
+            <label class="form-label" for="pc-acesso-funcao">Função do acesso <span style="color:var(--accent)">*</span></label>
+            <select class="form-select" id="pc-acesso-funcao">
+                <option value="">— escolha —</option>
+                <option value="MOTORISTA">Motorista</option>
+                <option value="COBRADOR">Cobrador</option>
+            </select>
+        </div>
+
+        <div id="modal-pre-cadastro-erro" style="display:none;color:var(--accent);font-size:0.85rem;margin-bottom:0.75rem;white-space:pre-line;"></div>
 
         <button type="button" class="btn btn-primary btn-full" id="btn-promover-pre-cadastro">Completar e promover</button>
         <button type="button" class="btn btn-danger btn-full btn-modal-stack" id="btn-descartar-pre-cadastro">Descartar</button>

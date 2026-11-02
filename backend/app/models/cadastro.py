@@ -125,8 +125,14 @@ class UsuarioLogin(Base):
         nullable=False,
     )
     senha_hash: Mapped[str] = mapped_column(String(255), nullable=False)
+    # CPF | FORTE | PROPRIA | PROVISORIA (CHECK da migration 050).
+    # PROVISORIA = criado pelo sistema (app/services/acesso_motorista.py):
+    # no 1º acesso a pessoa confirma quem é e troca a senha.
     politica_senha: Mapped[str] = mapped_column(String(10), nullable=False, default="CPF")
     ativo: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    identidade_confirmada_em: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     ultimo_acesso: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     criado_em: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()

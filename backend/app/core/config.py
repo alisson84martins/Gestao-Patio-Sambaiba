@@ -79,6 +79,13 @@ class Settings(BaseSettings):
     # serviço, sem migration nem deploy de frontend.
     leitura_placa_ativa: bool = False
 
+    # Acesso de motorista a partir da ocorrência (D4, 02/11/2026): ligada,
+    # FINALIZAR uma ocorrência cria o login do condutor (RE + 4 últimos do
+    # CPF, senha PROVISORIA) se ele passar nas conferências de
+    # app/services/acesso_motorista.py. Default FALSE — mesmo padrão de
+    # leitura_placa_ativa: sobe desligada, liga trocando o .env e reiniciando.
+    auto_acesso_motorista_ocorrencia: bool = False
+
     # Escala de Fiscais (D-E, 24/09/2026) — horário PADRÃO de cada período,
     # "HH:MM-HH:MM". Usado só quando a planilha traz horário inválido,
     # invertido ou vazio: o posto entra com o padrão e o caso vai para o

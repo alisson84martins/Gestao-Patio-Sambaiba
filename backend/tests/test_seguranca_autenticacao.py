@@ -383,8 +383,11 @@ class _FuncionarioFake:
 
 
 class _UsuarioLoginFake:
-    def __init__(self, ativo):
+    # politica_senha: todo usuario_login real tem; 'CPF' = login antigo, que
+    # não passa pela confirmação de identidade (migration 050, D7).
+    def __init__(self, ativo, politica_senha="CPF"):
         self.ativo = ativo
+        self.politica_senha = politica_senha
 
 
 class _UsuarioMirrorFake:

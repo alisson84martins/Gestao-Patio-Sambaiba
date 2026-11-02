@@ -30,6 +30,7 @@ class PreCadastroRead(ORMBase):
     ultima_vez_em: datetime
     ultima_origem: Optional[str] = None
     status: StatusPreCadastro
+    pendencia: Optional[str] = None
     funcionario_id: Optional[UUID] = None
     promovido_por: Optional[UUID] = None
     promovido_em: Optional[datetime] = None
@@ -58,9 +59,27 @@ class PreCadastroDescartarRequest(BaseModel):
     motivo: str = Field(..., min_length=1)
 
 
+class PreCadastroPromoverRequest(BaseModel):
+    """Corpo OPCIONAL de POST /pre-cadastros/{id}/promover. Sem corpo =
+    comportamento de sempre (só cria o funcionário).
+
+    criar_acesso=true → também cria o login (RE + 4 últimos do CPF, senha
+    PROVISORIA) pelas mesmas conferências de app/services/acesso_motorista.py.
+    funcao_codigo: default = papel_sugerido; obrigatório quando o papel
+    sugerido é INDEFINIDO."""
+
+    criar_acesso: bool = False
+    funcao_codigo: Optional[Literal["MOTORISTA", "COBRADOR"]] = None
+
+
 class PreCadastroPromoverResponse(BaseModel):
-    """POST /pre-cadastros/{id}/promover — devolve só o funcionario_id
-    criado. ⛔ Nunca cria usuario_login: acesso segue o caminho normal de
-    cadastro, com quem tem `usuarios` escrever."""
+    """POST /pre-cadastros/{id}/promover — devolve o funcionario_id criado.
+
+    Decisão revista pelo Alisson em 02/11/2026: antes, promover NUNCA
+    criava usuario_login. Agora é opcional e controlado — só com
+    `criar_acesso=true`, por quem tem `usuarios` escrever, e só se a pessoa
+    passar nas conferências de identidade (tudo ou nada: se falhar, nem o
+    funcionário é criado)."""
 
     funcionario_id: UUID
+    acesso_criado: bool = False

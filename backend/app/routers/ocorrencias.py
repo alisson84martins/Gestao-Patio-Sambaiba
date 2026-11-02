@@ -16,6 +16,7 @@ from fastapi.responses import FileResponse
 from sqlalchemy import select, text
 from sqlalchemy.orm import Session, joinedload, selectinload
 
+from app.core.config import get_settings
 from app.core.database import get_db
 from app.core.deps import exige
 from app.core.uploads import ler_upload_limitado, resolver_caminho_seguro, validar_assinatura
@@ -33,6 +34,7 @@ from app.schemas.ocorrencia import (
     OcorrenciaListaResponse, OcorrenciaRead, OcorrenciaResumo, OcorrenciaUpdate,
     OrigemPessoa,
 )
+from app.services.acesso_motorista import criar_acesso
 from app.services.mensagem_sinistro import gerar_mensagem_sinistro
 from app.services.pre_cadastro import registrar_pessoa_vista
 
@@ -568,8 +570,34 @@ def finalizar(ocorrencia_id: UUID, usuario: EscritaOcorrencia, db: Annotated[Ses
     oc.atualizado_em = agora
     oc.atualizado_por = usuario.id
     db.commit()
+
+    # D3/D4 (02/11/2026): só na finalização — rascunho ainda pode estar com
+    # CPF errado. Depois do commit acima: a ocorrência já está FINALIZADA
+    # aconteça o que acontecer aqui. Cobrador não entra (a ocorrência não
+    # guarda CPF dele) — continua só no pré-cadastro.
+    if get_settings().auto_acesso_motorista_ocorrencia and oc.condutor_re:
+        _criar_acesso_condutor(db, oc, usuario)
+
     db.refresh(oc)
     return oc
+
+
+def _criar_acesso_condutor(db: Session, oc: Ocorrencia, usuario: Funcionario) -> None:
+    """SAVEPOINT engolindo exceção com log — mesmo padrão de
+    services/pre_cadastro.py: falha aqui jamais desfaz a finalização."""
+    try:
+        with db.begin_nested():
+            criar_acesso(
+                db, re=oc.condutor_re, nome=oc.condutor_nome, cpf=oc.condutor_cpf,
+                funcao_codigo="MOTORISTA", origem="OCORRENCIA", criado_por=usuario.id,
+            )
+        db.commit()
+    except Exception:  # noqa: BLE001 — nunca derruba a finalização
+        logger.exception("Falha ao criar acesso do condutor da ocorrência %s", oc.id)
+        try:
+            db.rollback()
+        except Exception:  # noqa: BLE001
+            pass
 
 
 # ─── EXCLUSÃO (soft delete) ────────────────────────────────────────────────────

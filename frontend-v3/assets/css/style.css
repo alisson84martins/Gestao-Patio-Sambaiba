@@ -5017,3 +5017,66 @@ body.modal-open {
 .ef-mt-fc-conta { border-collapse: collapse; width: 100%; min-width: 560px; font-size: 0.8rem; }
 .ef-mt-fc-conta th, .ef-mt-fc-conta td { border: 1px solid var(--border); padding: 4px 6px; text-align: center; font-variant-numeric: tabular-nums; }
 .ef-mt-fc-conta th { background: var(--surface2); color: var(--muted); font-size: 0.7rem; text-transform: uppercase; }
+
+/* ============================================================
+   PRIMEIRO ACESSO — "Você é fulano?" (confirmar-identidade.html)
+   Celular primeiro: o motorista responde no próprio telefone.
+   ============================================================ */
+.identidade-shell {
+    min-height: 100dvh;
+    justify-content: flex-start;
+    padding-top: 32px;
+}
+
+.identidade-card[hidden] {
+    display: none;
+}
+
+.identidade-pergunta {
+    font-size: 16px;
+    color: var(--muted);
+    font-family: var(--mono);
+    text-align: center;
+}
+
+.identidade-nome {
+    font-family: var(--display);
+    font-size: 34px;
+    font-weight: 800;
+    line-height: 1.1;
+    text-align: center;
+    margin: 8px 0;
+    overflow-wrap: anywhere;
+}
+
+.identidade-re {
+    font-size: 18px;
+    font-family: var(--mono);
+    text-align: center;
+    margin-bottom: 8px;
+}
+
+.identidade-texto {
+    font-size: 15px;
+    line-height: 1.5;
+    margin: 8px 0 0;
+}
+
+/* Botões grudados no pé do cartão: com o teclado aberto (viewport
+   interactive-widget=resizes-content) continuam à vista. */
+.identidade-acoes {
+    position: sticky;
+    bottom: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding: 16px 0 4px;
+    background: var(--surface);
+}
+
+.identidade-btn {
+    min-height: 54px;
+    font-size: 18px;
+    text-align: center;
+    text-decoration: none;
+}

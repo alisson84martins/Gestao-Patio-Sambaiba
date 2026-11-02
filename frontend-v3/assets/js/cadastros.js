@@ -451,6 +451,8 @@ function setupModais() {
         if (e.target.id === 'modal-pre-cadastro') fechar('modal-pre-cadastro');
     });
     document.getElementById('btn-promover-pre-cadastro').addEventListener('click', promoverPreCadastro);
+    document.getElementById('pc-criar-acesso').addEventListener('change', atualizarFuncaoAcessoPreCadastro);
+    document.getElementById('pc-papel').addEventListener('change', atualizarFuncaoAcessoPreCadastro);
     document.getElementById('btn-descartar-pre-cadastro').addEventListener('click', abrirDescartePreCadastro);
     document.getElementById('btn-confirmar-descarte').addEventListener('click', confirmarDescartePreCadastro);
     document.getElementById('btn-cancelar-descarte').addEventListener('click', cancelarDescartePreCadastro);
@@ -1018,10 +1020,11 @@ function tabelaPreCadastros(dados) {
         _nomeOrigemPreCadastro(p.ultima_origem),
         _dataHoraCurta(p.ultima_vez_em),
         _retencaoPreCadastro(p.retencao_expira_em),
+        _pendenciaPreCadastro(p.pendencia),
     ])).join('');
 
     return _table(
-        ['RE', 'Nome', 'Papel sugerido', 'Vezes visto', 'Última origem', 'Última vez', 'Retenção'],
+        ['RE', 'Nome', 'Papel sugerido', 'Vezes visto', 'Última origem', 'Última vez', 'Retenção', 'Pendência'],
         linhas,
     );
 }
@@ -1066,6 +1069,21 @@ function _retencaoPreCadastro(iso) {
     return `<span style="color:var(--muted)">${dias} d</span>`;
 }
 
+// Pendência do acesso (services/acesso_motorista.py): um motivo por linha.
+// Na tabela vai só o primeiro (+N), o texto inteiro fica no title e no modal.
+function _pendenciaPreCadastro(texto) {
+    const motivos = _motivosPendencia(texto);
+    if (!motivos.length) return '<span style="color:var(--muted)">—</span>';
+    const mais = motivos.length > 1 ? ` (+${motivos.length - 1})` : '';
+    return `<span title="${escapeHtml(motivos.join('\n'))}">`
+        + _badge('Pendente', 'amarelo') + ' '
+        + `<span style="font-size:0.8rem">${escapeHtml(motivos[0])}${mais}</span></span>`;
+}
+
+function _motivosPendencia(texto) {
+    return (texto || '').split('\n').map(m => m.trim()).filter(Boolean);
+}
+
 // ⛔ Nunca toISOString() para exibir data — erra o dia depois das 21h
 // (armadilha registrada no projeto). toLocaleString respeita o fuso local.
 function _dataHoraCurta(iso) {
@@ -1090,6 +1108,14 @@ function abrirModalPreCadastro(p) {
     document.getElementById('pc-telefone').value       = p.telefone || '';
     document.getElementById('pc-papel').value          = p.papel_sugerido || 'INDEFINIDO';
     document.getElementById('pc-meta').textContent     = _metaPreCadastro(p);
+
+    const motivos = _motivosPendencia(p.pendencia);
+    document.getElementById('pc-pendencia').innerHTML =
+        motivos.map(m => `<li>${escapeHtml(m)}</li>`).join('');
+    document.getElementById('pc-pendencia-wrap').style.display = motivos.length ? '' : 'none';
+    document.getElementById('pc-criar-acesso').checked = false;
+    document.getElementById('pc-acesso-funcao').value = '';
+    atualizarFuncaoAcessoPreCadastro();
 
     // O descarte começa fechado toda vez — abrir o modal não pode deixar um
     // motivo digitado antes à mostra.
@@ -1139,6 +1165,20 @@ function aplicarPermissoesPreCadastro() {
     _botaoPermissao('btn-confirmar-descarte',     podeEscreverPreCadastro, msgTriagem);
     _botaoPermissao('btn-promover-pre-cadastro',  podePromoverPreCadastro,
         'Promover cria cadastro de funcionário — exige escrita em Usuários.');
+    // Criar acesso = mesmo gate de POST /funcionarios/{id}/login (usuarios).
+    _botaoPermissao('pc-criar-acesso', podePromoverPreCadastro,
+        'Criar acesso ao sistema exige escrita em Usuários.');
+}
+
+/**
+ * Seletor de função do acesso: só aparece com a caixa marcada E papel
+ * sugerido Indefinido — Motorista/Cobrador já dizem a função sozinhos
+ * (o backend usa o papel sugerido como padrão).
+ */
+function atualizarFuncaoAcessoPreCadastro() {
+    const criar = document.getElementById('pc-criar-acesso').checked;
+    const indefinido = document.getElementById('pc-papel').value === 'INDEFINIDO';
+    document.getElementById('pc-acesso-funcao-wrap').style.display = (criar && indefinido) ? '' : 'none';
 }
 
 // Desabilita com title, nunca esconde — mesma regra do "+ Novo" e do
@@ -1163,6 +1203,25 @@ async function promoverPreCadastro() {
             'Nome é obrigatório para promover — complete o cadastro antes.');
     }
 
+    const criarAcesso = document.getElementById('pc-criar-acesso').checked;
+    const papel = document.getElementById('pc-papel').value;
+    let corpoPromover;
+    if (criarAcesso) {
+        const cpfDigitos = document.getElementById('pc-cpf').value.replace(/\D/g, '');
+        if (cpfDigitos.length !== 11) {
+            return erroModal('modal-pre-cadastro-erro',
+                'Para criar o acesso, o CPF completo (11 dígitos) é obrigatório.');
+        }
+        const funcao = papel === 'INDEFINIDO'
+            ? document.getElementById('pc-acesso-funcao').value
+            : papel;
+        if (!funcao) {
+            return erroModal('modal-pre-cadastro-erro',
+                'Escolha a função do acesso (Motorista ou Cobrador).');
+        }
+        corpoPromover = { criar_acesso: true, funcao_codigo: funcao };
+    }
+
     const dados = {
         nome,
         cpf:      document.getElementById('pc-cpf').value.trim() || null,
@@ -1179,12 +1238,19 @@ async function promoverPreCadastro() {
         if (_preCadastroMudou(p, dados)) {
             await apiPatch(`/pre-cadastros/${p.id}`, dados);
         }
-        await apiPost(`/pre-cadastros/${p.id}/promover`);
+        await apiPost(`/pre-cadastros/${p.id}/promover`, corpoPromover);
         fechar('modal-pre-cadastro');
         preCadastroAtual = null;
         carregarAba();
     } catch (err) {
-        erroModal('modal-pre-cadastro-erro', err.message);
+        // 422 das conferências de identidade: lista de motivos em `detalhes`
+        // (strings). Tudo ou nada — o pré-cadastro continua pendente.
+        const motivos = Array.isArray(err.body?.detalhes)
+            ? err.body.detalhes.filter(m => typeof m === 'string')
+            : [];
+        erroModal('modal-pre-cadastro-erro', motivos.length
+            ? 'Acesso não criado — nada foi promovido:\n• ' + motivos.join('\n• ')
+            : err.message);
     }
 }
 
