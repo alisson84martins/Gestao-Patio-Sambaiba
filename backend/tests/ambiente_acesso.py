@@ -70,6 +70,15 @@ def criar_engine():
         dbapi_conn.execute("ATTACH DATABASE ':memory:' AS coordenadoria")
         dbapi_conn.execute("ATTACH DATABASE ':memory:' AS portaria")
         dbapi_conn.create_function("fn_ajustar_funcao_principal", 1, lambda _fid: None)
+        # Receita do SQLAlchemy para SAVEPOINT no pysqlite: sem BEGIN
+        # explícito, o driver deixa o 1º SAVEPOINT abrir a transação e o
+        # RELEASE dele COMMITA — a simulação do lote e o savepoint da
+        # finalização seriam testados errado (no Postgres isso não acontece).
+        dbapi_conn.isolation_level = None
+
+    @event.listens_for(engine, "begin")
+    def _begin(conn):
+        conn.exec_driver_sql("BEGIN")
 
     Base.metadata.create_all(engine, tables=TABELAS)
     with engine.begin() as conn:
