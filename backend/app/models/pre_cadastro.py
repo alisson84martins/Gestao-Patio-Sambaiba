@@ -44,6 +44,10 @@ class PessoaPreCadastro(Base):
     # FK: um pré-cadastro sobrevive ao apagamento do evento que o originou.
     ultima_origem: Mapped[Optional[str]] = mapped_column(String(30), nullable=True)
     status: Mapped[str] = mapped_column(String(12), nullable=False, default="PENDENTE")
+    # Migration 050: por que o acesso ao sistema NÃO foi criado (conferências
+    # de app/services/acesso_motorista.py), um motivo por linha. ⛔ Nunca
+    # contém CPF completo. NULL = sem pendência.
+    pendencia: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
     funcionario_id: Mapped[Optional[UUID]] = mapped_column(
         PG_UUID(as_uuid=True), ForeignKey("funcionario.id"), nullable=True

@@ -30,6 +30,7 @@ class PreCadastroRead(ORMBase):
     ultima_vez_em: datetime
     ultima_origem: Optional[str] = None
     status: StatusPreCadastro
+    pendencia: Optional[str] = None
     funcionario_id: Optional[UUID] = None
     promovido_por: Optional[UUID] = None
     promovido_em: Optional[datetime] = None
