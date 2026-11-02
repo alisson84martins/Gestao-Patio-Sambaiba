@@ -21,6 +21,24 @@ class TokenResponse(BaseModel):
     token_type: str = "bearer"
     expires_in: int = Field(..., description="Tempo de vida em segundos")
     primeiro_acesso: bool = False
+    # Login PROVISORIA (criado pelo sistema — app/services/acesso_motorista.py):
+    # antes de qualquer módulo, a pessoa confirma "Você é NOME, RE X?" em
+    # POST /auth/confirmar-identidade. Logins CPF/FORTE/PROPRIA: sempre false.
+    confirmar_identidade: bool = False
+    nome: Optional[str] = None
+    re: Optional[str] = None
+
+
+class ConfirmarIdentidadeRequest(BaseModel):
+    """POST /auth/confirmar-identidade. sou_eu=true exige senha_nova
+    (mínimo 6, diferente dos 4 últimos do CPF); sou_eu=false desativa o
+    login."""
+    sou_eu: bool
+    senha_nova: Optional[str] = Field(None, max_length=72)
+
+
+class ConfirmarIdentidadeResponse(BaseModel):
+    situacao: str = Field(..., description="CONFIRMADA ou NEGADA")
 
 
 class TokenPayload(BaseModel):

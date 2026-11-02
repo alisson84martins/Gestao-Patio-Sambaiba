@@ -12,12 +12,14 @@ from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.core.database import get_db
-from app.core.deps import oauth2_scheme
+from app.core.deps import get_funcionario_identidade_pendente, oauth2_scheme
 from app.core.registro import normalizar_re_obrigatorio
-from app.core.security import JWTError, create_access_token, decode_access_token, verify_password
+from app.core.security import JWTError, create_access_token, decode_access_token, hash_password, verify_password
 from app.models import Usuario
 from app.models.cadastro import Funcao, FuncionarioFuncao, Funcionario, UsuarioLogin
-from app.schemas.auth import LoginRequest, MeResponse, TokenResponse
+from app.schemas.auth import (
+    ConfirmarIdentidadeRequest, ConfirmarIdentidadeResponse, LoginRequest, MeResponse, TokenResponse,
+)
 from app.services.acesso import acesso_efetivo, destino_login, modulos_disponiveis
 from app.services.auditoria import ip_do_request, registrar_log_acesso
 
@@ -123,6 +125,18 @@ def _autenticar_e_gerar_token(re: str, senha: str, db: Session, ip: str | None =
             subject=func.id,
             extra_claims={"re": func.re, "funcionario_id": str(func.id)},
         )
+        # Login PROVISORIA (criado pelo sistema): a tela mostra "Você é
+        # NOME, RE X?" antes de qualquer módulo. Até a resposta, toda rota
+        # autenticada dá 403 IDENTIDADE_PENDENTE (core/deps.py). Logins
+        # CPF/FORTE/PROPRIA seguem exatamente como antes (D7).
+        if ul.politica_senha == "PROVISORIA":
+            return TokenResponse(
+                access_token=token,
+                expires_in=settings.jwt_expire_minutes * 60,
+                confirmar_identidade=True,
+                nome=func.nome,
+                re=func.re,
+            )
         return TokenResponse(
             access_token=token,
             expires_in=settings.jwt_expire_minutes * 60,
@@ -208,6 +222,13 @@ def get_me(
     # ── JWT novo: sub = funcionario.id ────────────────────────────────────
     func = db.get(Funcionario, sub_id)
     if func is not None:
+        # Mesma trava de get_current_funcionario: nada de dados de acesso
+        # antes de confirmar a identidade (login PROVISORIA).
+        politica = db.execute(
+            select(UsuarioLogin.politica_senha).where(UsuarioLogin.funcionario_id == func.id)
+        ).scalar_one_or_none()
+        if politica == "PROVISORIA":
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="IDENTIDADE_PENDENTE")
         funcoes = list(db.execute(
             select(Funcao.codigo)
             .join(FuncionarioFuncao, FuncionarioFuncao.funcao_id == Funcao.id)
@@ -269,3 +290,66 @@ def get_me(
         perfil=user.perfil.value,
         primeiro_acesso=user.primeiro_acesso,
     )
+
+
+@router.post(
+    "/confirmar-identidade",
+    response_model=ConfirmarIdentidadeResponse,
+    summary="1º acesso de login provisório: 'Sou eu' (troca a senha) ou 'Não sou eu' (bloqueia)",
+)
+def confirmar_identidade(
+    request: Request,
+    dados: ConfirmarIdentidadeRequest,
+    funcionario: Annotated[Funcionario, Depends(get_funcionario_identidade_pendente)],
+    db: Annotated[Session, Depends(get_db)],
+) -> ConfirmarIdentidadeResponse:
+    """D6 (02/11/2026) — a terceira conferência é a própria pessoa: o login
+    nasceu dos dados de uma ocorrência, e só quem é dono do RE sabe se o
+    nome está certo.
+
+    Única rota que um login PROVISORIA consegue chamar (dependency
+    get_funcionario_identidade_pendente). Login que não é PROVISORIA → 409.
+    """
+    ul = db.execute(
+        select(UsuarioLogin).where(UsuarioLogin.funcionario_id == funcionario.id)
+    ).scalar_one_or_none()
+    if ul is None or ul.politica_senha != "PROVISORIA":
+        raise HTTPException(status.HTTP_409_CONFLICT, detail="Não há identidade a confirmar para este acesso")
+
+    agora = datetime.now(timezone.utc)
+    espelho = db.execute(select(Usuario).where(Usuario.re == funcionario.re)).scalar_one_or_none()
+
+    if not dados.sou_eu:
+        ul.ativo = False
+        ul.atualizado_em = agora
+        ul.atualizado_por = funcionario.id
+        if espelho is not None:
+            espelho.ativo = False
+        db.commit()
+        registrar_log_acesso(db, "IDENTIDADE_NEGADA", funcionario_id=funcionario.id,
+                             re_tentativa=funcionario.re, ip=ip_do_request(request))
+        return ConfirmarIdentidadeResponse(situacao="NEGADA")
+
+    senha = dados.senha_nova or ""
+    if len(senha) < 6:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT,
+                            detail="A senha nova precisa ter pelo menos 6 caracteres")
+    cpf_digitos = "".join(c for c in (funcionario.cpf or "") if c.isdigit())
+    if cpf_digitos and senha == cpf_digitos[-4:]:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT,
+                            detail="A senha nova não pode ser os 4 últimos dígitos do CPF")
+
+    senha_hash = hash_password(senha)
+    ul.senha_hash = senha_hash
+    ul.politica_senha = "PROPRIA"
+    ul.identidade_confirmada_em = agora
+    ul.atualizado_em = agora
+    ul.atualizado_por = funcionario.id
+    if espelho is not None:
+        # Os routers legados do Pátio autenticam pelo espelho — mesma senha.
+        espelho.senha_hash = senha_hash
+        espelho.primeiro_acesso = False
+    db.commit()
+    registrar_log_acesso(db, "IDENTIDADE_CONFIRMADA", funcionario_id=funcionario.id,
+                         re_tentativa=funcionario.re, ip=ip_do_request(request))
+    return ConfirmarIdentidadeResponse(situacao="CONFIRMADA")

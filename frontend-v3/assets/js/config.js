@@ -41,6 +41,10 @@ export const POLLING_INTERVAL_MS = 5000;
 export const TOKEN_KEY = 'patio_v3_jwt';
 // Chave usada no localStorage para o usuário corrente
 export const USER_KEY = 'patio_v3_user';
+// Login provisório (motorista criado pelo sistema): { nome, re } enquanto a
+// pessoa não responde "Você é fulano?" em confirmar-identidade.html.
+export const IDENTIDADE_PENDENTE_KEY = 'patio_v3_identidade_pendente';
+export const PAGINA_CONFIRMAR_IDENTIDADE = 'confirmar-identidade.html';
 
 // Log discreto pra facilitar debug em campo (operador F12 → Console)
 console.info(

@@ -15,7 +15,7 @@
  */
 
 import { apiPost, apiGet, ApiError } from './api.js';
-import { TOKEN_KEY, USER_KEY } from './config.js';
+import { TOKEN_KEY, USER_KEY, IDENTIDADE_PENDENTE_KEY, PAGINA_CONFIRMAR_IDENTIDADE } from './config.js';
 import { destinoAposLogin } from './sessao.js';
 
 const EXPIRES_AT_KEY = 'patio_v3_expires_at';
@@ -23,6 +23,11 @@ const EXPIRES_AT_KEY = 'patio_v3_expires_at';
 /**
  * Login: chama POST /auth/login, guarda token + dados do usuário.
  * Retorna o usuário em caso de sucesso. Lança ApiError em caso de falha.
+ *
+ * Login provisório (motorista criado pelo sistema, `confirmar_identidade`):
+ * NÃO busca /auth/me (o backend devolve 403 IDENTIDADE_PENDENTE até a
+ * confirmação) — guarda { nome, re } e devolve { identidadePendente: true }
+ * para a tela de login mandar para confirmar-identidade.html.
  */
 export async function login(re, senha) {
     // 1. Pega o token
@@ -35,7 +40,23 @@ export async function login(re, senha) {
     localStorage.setItem(TOKEN_KEY, access_token);
     localStorage.setItem(EXPIRES_AT_KEY, String(expiresAt));
 
-    // 2. Busca os dados do usuário pra mostrar na UI
+    if (tokenResp.confirmar_identidade) {
+        localStorage.removeItem(USER_KEY);
+        localStorage.setItem(IDENTIDADE_PENDENTE_KEY, JSON.stringify({
+            nome: tokenResp.nome, re: tokenResp.re,
+        }));
+        return { identidadePendente: true, nome: tokenResp.nome ?? '' };
+    }
+    localStorage.removeItem(IDENTIDADE_PENDENTE_KEY);
+
+    return carregarUsuario();
+}
+
+/**
+ * Busca /auth/me e guarda na sessão. Usado no login e logo depois do
+ * "Sou eu" da confirmação de identidade.
+ */
+export async function carregarUsuario() {
     try {
         const user = await apiGet('/auth/me');
         localStorage.setItem(USER_KEY, JSON.stringify(user));
@@ -47,6 +68,21 @@ export async function login(re, senha) {
     }
 }
 
+/** { nome, re } do login provisório ainda não confirmado, ou null. */
+export function identidadePendente() {
+    const raw = localStorage.getItem(IDENTIDADE_PENDENTE_KEY);
+    if (!raw) return null;
+    try {
+        return JSON.parse(raw);
+    } catch {
+        return null;
+    }
+}
+
+export function limparIdentidadePendente() {
+    localStorage.removeItem(IDENTIDADE_PENDENTE_KEY);
+}
+
 /**
  * Apaga toda a sessão local. Não precisa chamar nada no backend
  * (JWT é stateless — basta o cliente esquecer o token).
@@ -55,6 +91,7 @@ export function logout() {
     localStorage.removeItem(TOKEN_KEY);
     localStorage.removeItem(USER_KEY);
     localStorage.removeItem(EXPIRES_AT_KEY);
+    localStorage.removeItem(IDENTIDADE_PENDENTE_KEY);
 }
 
 /**
@@ -90,6 +127,11 @@ export function requireAuth() {
         window.location.replace('index.html');
         return false;
     }
+    // Login provisório ainda sem "Sou eu": nenhum módulo antes da confirmação.
+    if (identidadePendente()) {
+        window.location.replace(PAGINA_CONFIRMAR_IDENTIDADE);
+        return false;
+    }
     return true;
 }
 
@@ -99,7 +141,7 @@ export function requireAuth() {
  */
 export function redirectIfAuthenticated() {
     if (isAuthenticated()) {
-        window.location.replace(destinoAposLogin());
+        window.location.replace(identidadePendente() ? PAGINA_CONFIRMAR_IDENTIDADE : destinoAposLogin());
     }
 }
 

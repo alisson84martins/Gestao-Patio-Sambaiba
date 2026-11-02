@@ -76,6 +76,7 @@ def get_current_user(
         # puramente legada, de antes do cadastro central existir.
         if func is not None:
             _recusar_se_desligado(func)
+            _recusar_se_identidade_pendente(db, func.id)
         return user
 
     # JWT novo: sub = funcionario.id → busca Usuario pelo RE (para compatibilidade)
@@ -83,6 +84,7 @@ def get_current_user(
     if func is None:
         raise cred_exc
     _recusar_se_desligado(func)
+    _recusar_se_identidade_pendente(db, func.id)
 
     user = db.execute(select(Usuario).where(Usuario.re == func.re)).scalar_one_or_none()
     if user is None or not user.ativo:
@@ -99,7 +101,24 @@ def get_current_funcionario(
     Compatível com os dois JWTs:
     - JWT novo (sub = funcionario.id): busca Funcionario diretamente.
     - JWT antigo (sub = usuario.id): busca Usuario → Funcionario pelo RE.
+
+    Login PROVISORIA (identidade ainda não confirmada) → 403
+    IDENTIDADE_PENDENTE — ver _recusar_se_identidade_pendente.
     """
+    return _funcionario_do_token(token, db, permitir_identidade_pendente=False)
+
+
+def get_funcionario_identidade_pendente(
+    token: Annotated[str, Depends(oauth2_scheme)],
+    db: Annotated[Session, Depends(get_db)],
+) -> Funcionario:
+    """Igual a get_current_funcionario, mas DEIXA PASSAR o login
+    PROVISORIA. ⛔ Só para POST /auth/confirmar-identidade — a única rota
+    que quem ainda não confirmou a identidade pode chamar."""
+    return _funcionario_do_token(token, db, permitir_identidade_pendente=True)
+
+
+def _funcionario_do_token(token: str, db: Session, *, permitir_identidade_pendente: bool) -> Funcionario:
     cred_exc = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Credenciais inválidas",
@@ -126,6 +145,8 @@ def get_current_funcionario(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Acesso desativado. Procure o administrador.",
             )
+        if ul is not None and ul.politica_senha == "PROVISORIA" and not permitir_identidade_pendente:
+            raise _identidade_pendente()
         return func
 
     # Fallback: JWT antigo (sub = usuario.id) → busca Funcionario pelo RE
@@ -142,7 +163,28 @@ def get_current_funcionario(
             detail="Esta conta não tem cadastro no sistema novo. Procure o administrador.",
         )
     _recusar_se_desligado(func)
+    if not permitir_identidade_pendente:
+        _recusar_se_identidade_pendente(db, func.id)
     return func
+
+
+def _identidade_pendente() -> HTTPException:
+    # O handler global (core/exception_handlers.py) devolve isto como
+    # {"erro": "IDENTIDADE_PENDENTE", "status_code": 403}; api.js do
+    # frontend-v3 reconhece o código e leva para a tela de confirmação.
+    return HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="IDENTIDADE_PENDENTE")
+
+
+def _recusar_se_identidade_pendente(db: Session, funcionario_id: UUID) -> None:
+    """Login PROVISORIA = criado pelo sistema (app/services/acesso_motorista.py)
+    e ainda sem o "Sou eu" do 1º acesso. Enquanto isso, TODA rota
+    autenticada responde 403 IDENTIDADE_PENDENTE — a trava é aqui no
+    backend, não só na tela. Logins CPF/FORTE/PROPRIA não são afetados (D7)."""
+    politica = db.execute(
+        select(UsuarioLogin.politica_senha).where(UsuarioLogin.funcionario_id == funcionario_id)
+    ).scalar_one_or_none()
+    if politica == "PROVISORIA":
+        raise _identidade_pendente()
 
 
 def _recusar_se_desligado(func: Funcionario) -> None:

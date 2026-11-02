@@ -13,7 +13,9 @@
  * NÃO usar fetch() direto em outros módulos — sempre passar por aqui.
  */
 
-import { API_BASE_URL, TOKEN_KEY, USER_KEY } from './config.js';
+import {
+    API_BASE_URL, TOKEN_KEY, USER_KEY, IDENTIDADE_PENDENTE_KEY, PAGINA_CONFIRMAR_IDENTIDADE,
+} from './config.js';
 
 /**
  * Erro padronizado da API. Mantém o status HTTP e a mensagem do backend.
@@ -34,6 +36,23 @@ function getToken() {
 function clearSession() {
     localStorage.removeItem(TOKEN_KEY);
     localStorage.removeItem(USER_KEY);
+    localStorage.removeItem(IDENTIDADE_PENDENTE_KEY);
+}
+
+/**
+ * 403 IDENTIDADE_PENDENTE: login provisório que ainda não respondeu "Você é
+ * fulano?". O backend trava TODA rota até lá (core/deps.py) — aqui só leva
+ * a pessoa de volta para a tela de confirmação, de qualquer página.
+ */
+function eIdentidadePendente(status, payload) {
+    return status === 403
+        && (payload?.erro === 'IDENTIDADE_PENDENTE' || payload?.detail === 'IDENTIDADE_PENDENTE');
+}
+
+function irParaConfirmacaoDeIdentidade() {
+    if (!window.location.pathname.endsWith(`/${PAGINA_CONFIRMAR_IDENTIDADE}`)) {
+        window.location.href = PAGINA_CONFIRMAR_IDENTIDADE;
+    }
 }
 
 /**
@@ -96,6 +115,11 @@ async function request(path, options = {}) {
         payload = await response.json();
     } catch {
         // Resposta sem corpo JSON (raro)
+    }
+
+    if (eIdentidadePendente(response.status, payload)) {
+        irParaConfirmacaoDeIdentidade();
+        throw new ApiError(403, 'Confirme sua identidade para continuar.', payload);
     }
 
     if (!response.ok) {
@@ -165,6 +189,11 @@ export async function apiUpload(path, formData) {
         payload = await response.json();
     } catch {
         // Resposta sem corpo JSON
+    }
+
+    if (eIdentidadePendente(response.status, payload)) {
+        irParaConfirmacaoDeIdentidade();
+        throw new ApiError(403, 'Confirme sua identidade para continuar.', payload);
     }
 
     if (!response.ok) {

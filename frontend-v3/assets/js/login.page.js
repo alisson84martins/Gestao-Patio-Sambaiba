@@ -8,7 +8,7 @@
 
 import { login, redirectIfAuthenticated, ApiError } from './auth.js';
 import { checkApiHealth } from './api.js';
-import { API_BASE_URL, IS_LOCAL, APP_VERSION } from './config.js';
+import { API_BASE_URL, IS_LOCAL, APP_VERSION, PAGINA_CONFIRMAR_IDENTIDADE } from './config.js';
 import { destinoAposLogin } from './sessao.js';
 
 // Se já tem sessão válida, redireciona antes mesmo de mostrar a tela
@@ -69,6 +69,12 @@ form.addEventListener('submit', async (e) => {
     setLoading(true);
     try {
         const user = await login(re, senha);
+        // Login provisório (motorista criado pelo sistema): antes de
+        // qualquer módulo, "Você é fulano?" — ver confirmar-identidade.html.
+        if (user.identidadePendente) {
+            window.location.href = PAGINA_CONFIRMAR_IDENTIDADE;
+            return;
+        }
         // Sucesso — mensagem rápida e redireciono
         showAlert(`Bem-vindo, ${user.nome.split(' ')[0]}.`, 'success');
         setTimeout(() => {
