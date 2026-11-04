@@ -75,19 +75,22 @@ def _problema(status_code, code):
 
 
 class _Fornecedor:
-    """Fornecedor simulado: conta chamadas e guarda os cabeçalhos recebidos."""
+    """Fornecedor simulado: conta chamadas e guarda os cabeçalhos recebidos.
+    `resposta` pode ser uma lista — uma por chamada, na ordem (a última se
+    repete se houver mais chamadas que itens)."""
 
     def __init__(self, resposta):
-        self.resposta = resposta
+        self.respostas = resposta if isinstance(resposta, list) else [resposta]
         self.chamadas: list[httpx.Request] = []
 
     def __call__(self, request: httpx.Request) -> httpx.Response:
         self.chamadas.append(request)
-        if isinstance(self.resposta, Exception):
-            raise self.resposta
-        if isinstance(self.resposta, httpx.Response):
-            return self.resposta
-        return httpx.Response(201, json=self.resposta)
+        resposta = self.respostas[min(len(self.chamadas), len(self.respostas)) - 1]
+        if isinstance(resposta, Exception):
+            raise resposta
+        if isinstance(resposta, httpx.Response):
+            return resposta
+        return httpx.Response(201, json=resposta)
 
 
 @pytest.fixture
@@ -134,14 +137,23 @@ def fornecedor(monkeypatch):
     """Instala o fornecedor simulado no httpx do serviço. Default: found."""
     atual = _Fornecedor(_corpo_found())
     cliente_real = httpx.Client
+    timeouts = []
+    esperas = []
 
     def _cliente(*args, **kwargs):
+        timeouts.append(kwargs.get("timeout"))
         kwargs["transport"] = httpx.MockTransport(lambda req: atual(req))
         return cliente_real(*args, **kwargs)
 
     monkeypatch.setattr(servico.httpx, "Client", _cliente)
+    # Nunca dorme de verdade nos testes — só registra quanto esperaria.
+    monkeypatch.setattr(servico, "_esperar", esperas.append)
 
     class _Controle:
+        def __init__(self):
+            self.timeouts = timeouts
+            self.esperas = esperas
+
         def responder(self, resposta):
             nonlocal atual
             atual = _Fornecedor(resposta)
@@ -361,6 +373,92 @@ def test_erros_nao_gravam(engine, config, fornecedor, resposta, situacao):
 def test_sem_saldo_mensagem(engine, config, fornecedor):
     fornecedor.responder(_problema(402, "insufficient_balance"))
     assert _consultar(engine).mensagem == "Saldo da consulta acabou — avise o Alisson. Preencha à mão."
+
+
+# ─── 2b. Timeout e retentativa idempotente (doc do fornecedor, seção 7) ─────
+# O comportamento ERRADO que isto impede: fornecedor lento cobra, o dado não
+# chega e o 2º clique do coordenador paga outra vez (chave nova = consulta nova).
+
+def _chaves_idempotencia(fornecedor):
+    return [r.headers["Idempotency-Key"] for r in fornecedor.chamadas]
+
+
+def test_timeout_do_cliente_e_30s(engine, config, fornecedor):
+    _consultar(engine)
+    assert fornecedor.timeouts == [30.0]
+
+
+def test_timeout_na_1a_retenta_com_a_mesma_chave_e_grava_uma_linha(engine, config, fornecedor):
+    fornecedor.responder([httpx.ReadTimeout("lento"), _corpo_found()])
+    r = _consultar(engine)
+    assert r.situacao == "ENCONTRADA"
+    chaves = _chaves_idempotencia(fornecedor)
+    assert len(chaves) == 2 and chaves[0] == chaves[1]
+    assert [json.loads(c.content) for c in fornecedor.chamadas] == [{"plate": "TST0001"}] * 2
+    assert len(_linhas(engine)) == 1
+
+
+def test_falha_de_rede_na_1a_retenta_com_a_mesma_chave(engine, config, fornecedor):
+    fornecedor.responder([httpx.ConnectError("caiu"), _corpo_not_found()])
+    assert _consultar(engine, "TST0002").situacao == "NAO_ENCONTRADA"
+    chaves = _chaves_idempotencia(fornecedor)
+    assert len(chaves) == 2 and chaves[0] == chaves[1]
+
+
+def test_5xx_sem_json_retenta_com_a_mesma_chave(engine, config, fornecedor):
+    fornecedor.responder([httpx.Response(502, text="<html>Bad Gateway</html>"), _corpo_found()])
+    assert _consultar(engine).situacao == "ENCONTRADA"
+    chaves = _chaves_idempotencia(fornecedor)
+    assert len(chaves) == 2 and chaves[0] == chaves[1]
+    assert fornecedor.esperas == []
+
+
+def test_409_em_andamento_espera_e_retenta_com_a_mesma_chave(engine, config, fornecedor):
+    fornecedor.responder([_problema(409, "idempotency_in_progress"), _corpo_found()])
+    assert _consultar(engine).situacao == "ENCONTRADA"
+    chaves = _chaves_idempotencia(fornecedor)
+    assert len(chaves) == 2 and chaves[0] == chaves[1]
+    assert fornecedor.esperas == [3.0]
+    assert len(_linhas(engine)) == 1
+
+
+@pytest.mark.parametrize("resposta", [
+    _problema(503, "service_unavailable"),
+    _problema(402, "insufficient_balance"),
+    _problema(401, "invalid_api_key"),
+    _problema(403, "test_plate_required"),
+    _problema(422, "validation_failed"),
+    _problema(429, "rate_limited"),
+])
+def test_respostas_guardadas_na_chave_nao_retentam(engine, config, fornecedor, resposta):
+    fornecedor.responder([resposta, _corpo_found()])
+    r = _consultar(engine)
+    assert r.situacao != "ENCONTRADA"
+    assert len(fornecedor.chamadas) == 1
+    assert _linhas(engine) == []
+
+
+@pytest.mark.parametrize("falha", [
+    httpx.ReadTimeout("lento"),
+    httpx.ConnectError("caiu"),
+    httpx.Response(504, text="gateway timeout"),
+    _problema(409, "idempotency_in_progress"),
+])
+def test_duas_falhas_seguidas_indisponivel_sem_gravar(engine, config, fornecedor, falha):
+    fornecedor.responder([falha, falha, _corpo_found()])
+    r = _consultar(engine)
+    assert r.situacao == "INDISPONIVEL"
+    assert len(fornecedor.chamadas) == 2
+    assert _linhas(engine) == []
+
+
+def test_log_da_retentativa_sem_chave(engine, config, fornecedor, caplog):
+    caplog.set_level(logging.DEBUG)
+    fornecedor.responder([httpx.ReadTimeout("lento"), _corpo_found()])
+    _consultar(engine)
+    assert "retentativa 1/1" in caplog.text
+    assert CHAVE not in caplog.text
+    assert "Uno Mille Economy" not in caplog.text
 
 
 # ─── 3. Endpoint ─────────────────────────────────────────────────────────────

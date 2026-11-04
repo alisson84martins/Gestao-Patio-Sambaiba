@@ -13,10 +13,22 @@ Decisões do Alisson (04/11/2026, ver PROMPT-consulta-placa-localidades):
 Grava UMA linha em coordenadoria.consulta_placa por consulta PAGA
 (found / not_found). 402, 429, 503, timeout e erro de chave não gravam.
 
+Timeout e retentativa (documentação do fornecedor, skill.md seção 7):
+- Timeout de 30 s no cliente, como o fornecedor recomenda.
+- UMA `Idempotency-Key` por chamada de `consultar()`. Se a 1ª tentativa
+  der timeout, falha de rede, 5xx sem JSON ou 409 `idempotency_in_progress`
+  (este espera 3 s antes), reenvia UMA vez com a MESMA chave e a MESMA
+  placa: o fornecedor devolve o resultado já guardado
+  (`Idempotent-Replayed: true`) e não cobra de novo. Sem isso, um
+  fornecedor lento cobrava, o dado não chegava e o 2º clique pagava outra vez.
+- ⛔ Não retenta 503 com JSON, 402, 401/403, 422 nem 429: essas respostas
+  ficam guardadas na chave, repetir não muda nada.
+
 ⛔ Nunca logar a chave nem o corpo cru da resposta (traz dado do veículo).
 Log só com situação, status HTTP, `code` e `request_id` do fornecedor.
 """
 import logging
+import time as _relogio
 from dataclasses import dataclass, field
 from datetime import datetime, time, timedelta, timezone
 from decimal import Decimal, InvalidOperation
@@ -34,8 +46,16 @@ from app.models.consulta_placa import ConsultaPlaca
 
 logger = logging.getLogger(__name__)
 
-# Pedido do Alisson: 10 s (o coordenador está na rua, esperando na tela).
-TIMEOUT_SEGUNDOS = 10.0
+# Recomendação do fornecedor (a resposta pode levar alguns segundos). O
+# botão do formulário já mostra "Consultando…" e trava durante a espera.
+TIMEOUT_SEGUNDOS = 30.0
+# 409 idempotency_in_progress: a doc pede 2–5 s antes de reenviar.
+ESPERA_EM_ANDAMENTO_SEGUNDOS = 3.0
+
+
+def _esperar(segundos: float) -> None:
+    """Separado para os testes trocarem (monkeypatch) e não dormirem."""
+    _relogio.sleep(segundos)
 
 # Situações devolvidas ao frontend.
 ENCONTRADA = "ENCONTRADA"
@@ -166,17 +186,55 @@ def _codigo_erro(resp: httpx.Response) -> tuple[Optional[str], Optional[str]]:
         return None, None
 
 
-def _chamar_api(placa: str, chave: str, url_base: str) -> httpx.Response:
+def _json_valido(resp: httpx.Response) -> bool:
+    try:
+        resp.json()
+        return True
+    except Exception:
+        return False
+
+
+def _chamar_api(placa: str, chave: str, url_base: str, idempotency_key: str) -> httpx.Response:
     headers = {
         "Authorization": f"Bearer {chave}",
         "Content-Type": "application/json",
         "Accept": "application/json",
-        # Novo por consulta — reaproveitar só valeria para retentar a MESMA
-        # consulta, e aqui não há retentativa automática.
-        "Idempotency-Key": str(uuid4()),
+        # Gerada uma vez em consultar() e repetida só na retentativa da
+        # MESMA consulta — é o que impede o fornecedor de cobrar duas vezes.
+        "Idempotency-Key": idempotency_key,
     }
     with httpx.Client(timeout=TIMEOUT_SEGUNDOS) as client:
         return client.post(f"{url_base.rstrip('/')}/lookups", json={"plate": placa}, headers=headers)
+
+
+def _chamar_com_retentativa(placa: str, chave: str, url_base: str) -> Optional[httpx.Response]:
+    """No máximo 2 tentativas com a MESMA Idempotency-Key. None = as duas
+    falharam sem resposta aproveitável (vira INDISPONIVEL)."""
+    idempotency_key = str(uuid4())
+    for tentativa in (1, 2):
+        espera = 0.0
+        try:
+            resp = _chamar_api(placa, chave, url_base, idempotency_key)
+        except httpx.TimeoutException:
+            motivo = f"timeout de {TIMEOUT_SEGUNDOS:.0f} s"
+        except Exception as exc:  # rede, DNS, TLS…
+            motivo = f"falha de rede ({type(exc).__name__})"
+        else:
+            if resp.status_code >= 500 and not _json_valido(resp):
+                motivo = f"{resp.status_code} sem JSON"
+            elif resp.status_code == 409 and _codigo_erro(resp)[0] == "idempotency_in_progress":
+                motivo = "409 idempotency_in_progress"
+                espera = ESPERA_EM_ANDAMENTO_SEGUNDOS
+            else:
+                return resp
+
+        if tentativa == 2:
+            logger.warning("Consulta de placa: %s também na retentativa — desistindo.", motivo)
+            return None
+        logger.warning("Consulta de placa: %s — retentativa 1/1 com a mesma Idempotency-Key.", motivo)
+        if espera:
+            _esperar(espera)
+    return None
 
 
 def consultar(db: Session, placa: Optional[str], funcionario_id: Optional[UUID]) -> ResultadoConsulta:
@@ -223,14 +281,9 @@ def consultar(db: Session, placa: Optional[str], funcionario_id: Optional[UUID])
     if feitas_hoje >= settings.consulta_placa_limite_diario:
         return _resultado(LIMITE_DIARIO)
 
-    # 5. Chama o fornecedor.
-    try:
-        resp = _chamar_api(placa_norm, chave, settings.consulta_placa_api_url)
-    except httpx.TimeoutException:
-        logger.warning("Consulta de placa: timeout de %.0f s no fornecedor.", TIMEOUT_SEGUNDOS)
-        return _resultado(INDISPONIVEL)
-    except Exception as exc:  # rede, DNS, TLS…
-        logger.warning("Consulta de placa: falha de rede (%s).", type(exc).__name__)
+    # 5. Chama o fornecedor (com no máximo 1 retentativa idempotente).
+    resp = _chamar_com_retentativa(placa_norm, chave, settings.consulta_placa_api_url)
+    if resp is None:
         return _resultado(INDISPONIVEL)
 
     # 6. Mapeia a resposta.
