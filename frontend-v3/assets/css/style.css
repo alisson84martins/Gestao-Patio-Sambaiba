@@ -195,8 +195,27 @@ body {
    valor (cadastro central ou ocorrência anterior). Cor separada da de
    mascara-invalida (accent2/vermelho) pra não parecer erro. Some no
    primeiro input do usuário naquele campo — ver marcarAutopreenchido(). */
-.form-input.oc-autopreenchido {
+.form-input.oc-autopreenchido,
+.form-select.oc-autopreenchido {
     border-left: 2px solid var(--accent4);
+}
+
+/* Consulta de placa (ocorrencia.form.js) — resultado em linha no card,
+   nunca alert. "consulta: X" ao lado de campo já digitado que diverge. */
+.oc-consulta-placa-status {
+    font-size: 12px;
+    margin-top: 4px;
+    min-height: 0;
+    color: var(--muted);
+}
+.oc-consulta-placa-status.ok { color: var(--accent4); }
+.oc-consulta-placa-status.erro { color: var(--accent2); }
+.oc-consulta-divergente {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--accent4);
+    margin-top: 4px;
+    overflow-wrap: anywhere;
 }
 
 /* Bloco da senha com botão "olho" pra mostrar/esconder */

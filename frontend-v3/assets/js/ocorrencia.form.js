@@ -21,10 +21,10 @@ import { ANALISE_GRUPOS, REGIOES_AVARIA, TIPOS_ANEXO, DANOS_VEICULO } from './oc
 import { imprimirOcorrencia } from './ocorrencia.imprimir.js';
 import { abrirMensagemSinistro } from './ocorrencia.sinistro.js';
 import { confirmarExclusaoOcorrencia } from './ocorrencia.excluir.js';
-import { aplicarMascara } from './mascaras.js';
+import { aplicarMascara, placaValida } from './mascaras.js';
 import { dataLocalISO } from './data.util.js';
 import { CORES_VEICULO, UFS } from './catalogos-veiculo.js';
-import { ligarSugestaoCidade } from './sugestao-cidade.js';
+import { chaveBusca, ligarSugestaoCidade, nomeOficialCidade } from './sugestao-cidade.js';
 
 if (!requireAuth()) {
     throw new Error('Sessão não autenticada — interrompendo carga da página');
@@ -59,6 +59,9 @@ const SELETOR_ANALISE =
 // ─── Estado ────────────────────────────────────────────────────────────────
 let catalogoTipos = [];
 let catalogoOrgaos = [];
+// Chave da consulta de placa configurada no servidor (GET /catalogos) —
+// sem ela o botão "Consultar placa" nem aparece.
+let consultaPlacaDisponivel = false;
 let dadosAtuais = null;
 let autosaveTimer = null;
 
@@ -304,7 +307,17 @@ function campoHtml(campo, valor) {
     if (campo.tipo === 'number') {
         return `<input type="number" class="form-input" data-campo="${campo.name}" value="${escapeHtml(String(val))}">`;
     }
-    return `<input type="text" class="form-input" data-campo="${campo.name}" value="${escapeHtml(String(val))}" ${campo.tamanho ? `maxlength="${campo.tamanho}"` : ''} ${campo.placeholder ? `placeholder="${escapeHtml(campo.placeholder)}"` : ''}>`;
+    const input = `<input type="text" class="form-input" data-campo="${campo.name}" value="${escapeHtml(String(val))}" ${campo.tamanho ? `maxlength="${campo.tamanho}"` : ''} ${campo.placeholder ? `placeholder="${escapeHtml(campo.placeholder)}"` : ''}>`;
+    if (campo.consultaPlaca && consultaPlacaDisponivel && !somenteLeitura) {
+        // Linha campo+botão (.campo-com-botao — mascaras.js ancora o aviso
+        // da máscara depois dela). Ligado em ligarConsultaPlaca().
+        return `<div class="campo-com-botao" style="display:flex;gap:8px;align-items:center">
+            ${input.replace('class="form-input"', 'class="form-input" style="flex:1"')}
+            <button type="button" class="btn btn-ghost oc-btn-consulta-placa" style="white-space:nowrap" disabled>Consultar placa</button>
+        </div>
+        <div class="oc-consulta-placa-status" aria-live="polite"></div>`;
+    }
+    return input;
 }
 
 function renderListaDinamica({ containerId, itens, campos, titulo, vazio, rerender, onChange }) {
@@ -382,7 +395,7 @@ const CAMPOS_VEICULO = [
     { name: 'modelo', label: 'Modelo' },
     { name: 'ano', label: 'Ano', tamanho: 9, mascara: 'ano' },
     { name: 'cor', label: 'Cor', tipo: 'select-catalogo', catalogo: CORES_VEICULO },
-    { name: 'placa', label: 'Placa', mascara: 'placa' },
+    { name: 'placa', label: 'Placa', mascara: 'placa', consultaPlaca: true },
     { name: 'cidade_placa', label: 'Cidade (placa)', tipo: 'cidade', ufDe: 'estado_placa' },
     { name: 'estado_placa', label: 'UF', tipo: 'select-catalogo', catalogo: UFS },
     { name: 'renavam', label: 'Renavam', mascara: 'renavam' },
@@ -460,6 +473,149 @@ function renderVeiculos() {
         vazio: 'Nenhum veículo de terceiro envolvido.',
         rerender: renderVeiculos,
     });
+    ligarConsultaPlaca();
+}
+
+// ─── Consulta de placa do veículo de terceiro ────────────────────────────
+// D3: ajuda, nunca trava — erro vira só a mensagem do backend em linha no
+// card (nunca alert/confirm). D4: preenche só campo vazio; o que já foi
+// digitado e diverge ganha "consulta: X" ao lado, para o coordenador
+// decidir. Cada clique pode custar dinheiro: botão trava durante a consulta.
+
+const CAMPOS_CONSULTA_PLACA = ['marca', 'modelo', 'ano', 'cor', 'estado_placa', 'cidade_placa'];
+const PALAVRAS_MINUSCULAS = new Set(['de', 'da', 'do', 'das', 'dos', 'e', 'd']);
+
+// Reserva para cidade que não bate exata com a base IBGE: "SAO JOSE DOS
+// CAMPOS" → "Sao Jose dos Campos" (melhor que tudo maiúsculo).
+function capitalizarCidade(texto) {
+    return (texto || '').toLowerCase().split(' ').filter(Boolean)
+        .map((p, i) => (i > 0 && PALAVRAS_MINUSCULAS.has(p)) ? p : p.charAt(0).toUpperCase() + p.slice(1))
+        .join(' ');
+}
+
+function avisoConsultaNoCampo(el, texto) {
+    const grupo = el.closest('.form-group');
+    if (!grupo) return;
+    const aviso = document.createElement('div');
+    aviso.className = 'oc-consulta-divergente';
+    aviso.textContent = texto;
+    grupo.appendChild(aviso);
+}
+
+async function aplicarConsultaPlaca(card, item, dados) {
+    const valores = { ...dados };
+    if (valores.cidade_placa) {
+        valores.cidade_placa = await nomeOficialCidade(valores.cidade_placa, valores.estado_placa)
+            || capitalizarCidade(valores.cidade_placa);
+    }
+
+    let mudou = false;
+    for (const nome of CAMPOS_CONSULTA_PLACA) {
+        const el = card.querySelector(`[data-campo="${nome}"]`);
+        const valor = valores[nome];
+        if (!el || !valor) continue;
+        const atual = el.value.trim();
+        if (!atual) {
+            el.value = valor;
+            item[nome] = valor;
+            marcarAutopreenchido(el, 'Preenchido pela consulta de placa');
+            mudou = true;
+        } else if (chaveBusca(atual) !== chaveBusca(valor)) {
+            avisoConsultaNoCampo(el, `consulta: ${valor}`);
+        }
+    }
+    // Cor que a lista DENATRAN não reconheceu: não chuta, mostra o texto.
+    if (!valores.cor && valores.cor_original) {
+        const elCor = card.querySelector('[data-campo="cor"]');
+        if (elCor) avisoConsultaNoCampo(elCor, `cor no documento: ${valores.cor_original}`);
+    }
+    return mudou;
+}
+
+// Itens de veículo com consulta em andamento — sobrevive a re-render do
+// card (adicionar/remover outro veículo no meio da espera), senão o botão
+// recriado voltaria habilitado e um segundo toque pagaria de novo.
+const consultasEmAndamento = new Set();
+
+async function consultarPlacaDoCard(item, btn) {
+    if (consultasEmAndamento.has(item)) return;
+    consultasEmAndamento.add(item);
+    const placa = item.placa || '';
+    const textoBotao = 'Consultar placa';
+    btn.disabled = true;
+    btn.textContent = 'Consultando…';
+
+    const cardAtual = () => {
+        const idx = veiculosTerceiro.indexOf(item);
+        return idx < 0 ? null : document.querySelector(`#lista-veiculos [data-idx="${idx}"]`);
+    };
+    const statusDoCard = card => card?.querySelector('.oc-consulta-placa-status');
+
+    const antes = cardAtual();
+    const statusAntes = statusDoCard(antes);
+    if (statusAntes) { statusAntes.textContent = ''; statusAntes.className = 'oc-consulta-placa-status'; }
+    antes?.querySelectorAll('.oc-consulta-divergente').forEach(el => el.remove());
+
+    let resposta = null;
+    let erro = null;
+    try {
+        resposta = await apiPost('/ocorrencias/consulta-placa', { placa });
+    } catch (err) {
+        erro = err;
+    } finally {
+        consultasEmAndamento.delete(item);
+    }
+
+    // O card pode ter sido removido ou re-renderizado durante a espera.
+    const card = cardAtual();
+    const botao = card?.querySelector('.oc-btn-consulta-placa') || btn;
+    botao.textContent = textoBotao;
+    botao.disabled = !placaValida(card?.querySelector('[data-campo="placa"]')?.value);
+    if (!card) return;
+
+    const status = statusDoCard(card);
+    if (erro) {
+        if (status) {
+            status.textContent = erro.message || 'Consulta de placa indisponível agora. Preencha à mão.';
+            status.className = 'oc-consulta-placa-status erro';
+        }
+        return;
+    }
+
+    if (resposta.situacao === 'ENCONTRADA' && resposta.dados) {
+        const mudou = await aplicarConsultaPlaca(card, item, resposta.dados);
+        if (status) {
+            status.textContent = resposta.origem === 'cache'
+                ? 'dados da consulta (já consultada antes) — confira com o documento'
+                : 'dados da consulta — confira com o documento';
+            status.className = 'oc-consulta-placa-status ok';
+        }
+        if (mudou) agendarAutosave();
+    } else if (status) {
+        status.textContent = resposta.mensagem;
+        status.className = 'oc-consulta-placa-status erro';
+    }
+}
+
+function ligarConsultaPlaca() {
+    if (!consultaPlacaDisponivel || somenteLeitura) return;
+    document.querySelectorAll('#lista-veiculos [data-idx]').forEach(card => {
+        const btn = card.querySelector('.oc-btn-consulta-placa');
+        const inputPlaca = card.querySelector('[data-campo="placa"]');
+        if (!btn || !inputPlaca) return;
+        const item = veiculosTerceiro[Number(card.dataset.idx)];
+        const atualizarBotao = () => {
+            if (consultasEmAndamento.has(item)) {
+                btn.disabled = true;
+                btn.textContent = 'Consultando…';
+                return;
+            }
+            btn.disabled = !placaValida(inputPlaca.value);
+        };
+        atualizarBotao();
+        inputPlaca.addEventListener('input', atualizarBotao);
+        btn.addEventListener('click', () => consultarPlacaDoCard(item, btn));
+    });
 }
 
 function renderTestemunhas() {
@@ -528,6 +684,7 @@ async function carregarCatalogosOcorrencia() {
     const dados = await apiGet('/ocorrencias/catalogos');
     catalogoTipos = dados.tipos || [];
     catalogoOrgaos = dados.orgaos || [];
+    consultaPlacaDisponivel = Boolean(dados.consulta_placa_disponivel);
 
     const selectTipo = document.getElementById('f-tipo');
     catalogoTipos.forEach(t => {
