@@ -17,6 +17,7 @@ from app.models.enums import (
     TipoEscalaEnum,
     TipoFilaEnum,
 )
+from app.models.consulta_placa import ConsultaPlaca
 from app.models.frota import AlocacaoPatio, Fila, Onibus
 from app.models.ocorrencia import (
     Ocorrencia, OcorrenciaAnalise, OcorrenciaAnexo, OcorrenciaAutoridade,
@@ -49,7 +50,7 @@ __all__ = [
     # Coordenadoria — ocorrências
     "TipoOcorrencia", "OrgaoAutoridade", "Ocorrencia", "OcorrenciaAnalise",
     "OcorrenciaVeiculoTerceiro", "OcorrenciaAvaria", "OcorrenciaVitima",
-    "OcorrenciaTestemunha", "OcorrenciaAutoridade", "OcorrenciaAnexo",
+    "OcorrenciaTestemunha", "OcorrenciaAutoridade", "OcorrenciaAnexo", "ConsultaPlaca",
     "PreOcorrenciaAutorizacao", "PreOcorrencia", "PreOcorrenciaAnexo",
     # Portaria — controle de acesso veicular
     "PortariaLocal", "PortariaSetor", "EmpresaTerceira", "VeiculoPortaria",

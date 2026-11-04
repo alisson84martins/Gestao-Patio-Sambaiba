@@ -86,6 +86,19 @@ class Settings(BaseSettings):
     # leitura_placa_ativa: sobe desligada, liga trocando o .env e reiniciando.
     auto_acesso_motorista_ocorrencia: bool = False
 
+    # Consulta de placa do veículo de terceiro (consultadeplaca.net, D1/D2
+    # de 04/11/2026). Paga por consulta (~R$ 0,07) — quem paga é o Alisson.
+    # ⛔ A chave vive SÓ no .env do servidor: nunca em código, log, resposta
+    # de endpoint ou frontend. Sem chave, o botão some e o coordenador
+    # digita à mão como sempre (D3: consulta ajuda, nunca trava).
+    consulta_placa_api_key: Optional[str] = None
+    consulta_placa_api_url: str = "https://consultadeplaca.net/api/v1"
+    # Consultas PAGAS por dia (dia civil de São Paulo), somando todos os
+    # coordenadores. Cache não conta.
+    consulta_placa_limite_diario: int = Field(default=30, ge=0)
+    # Placa já encontrada nos últimos N dias volta do nosso banco, sem pagar.
+    consulta_placa_cache_dias: int = Field(default=30, ge=0)
+
     # Escala de Fiscais (D-E, 24/09/2026) — horário PADRÃO de cada período,
     # "HH:MM-HH:MM". Usado só quando a planilha traz horário inválido,
     # invertido ou vazio: o posto entra com o padrão e o caso vai para o

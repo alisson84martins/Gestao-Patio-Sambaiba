@@ -50,6 +50,43 @@ class OcorrenciaCatalogos(BaseModel):
     tipos: list[TipoOcorrenciaRead]
     orgaos: list[OrgaoAutoridadeRead]
     regioes_avaria: list[str] = REGIOES_AVARIA
+    # Chave da consulta de placa configurada no servidor → o front mostra o
+    # botão "Consultar placa". ⛔ Só o booleano — a chave nunca sai daqui.
+    consulta_placa_disponivel: bool = False
+
+
+# ============================================================================
+# CONSULTA DE PLACA (veículo de terceiro) — services/consulta_placa.py
+# ============================================================================
+
+class ConsultaPlacaIn(BaseModel):
+    # Sem validar formato aqui (D10): placa fora do padrão volta como
+    # situacao=PLACA_INVALIDA com mensagem, nunca 422.
+    placa: str = Field(..., max_length=20)
+
+
+class ConsultaPlacaDados(BaseModel):
+    """Já no formato do card "Veículos de terceiro" (max_length iguais aos
+    de OcorrenciaVeiculoTerceiroIn). Sem roubo/furto e sem FIPE (D9)."""
+    marca: Optional[str] = None
+    modelo: Optional[str] = None
+    ano: Optional[str] = None
+    ano_fabricacao: Optional[int] = None
+    ano_modelo: Optional[int] = None
+    cor: Optional[str] = None
+    cor_original: Optional[str] = None
+    cidade_placa: Optional[str] = None
+    estado_placa: Optional[str] = None
+
+
+class ConsultaPlacaResponse(BaseModel):
+    situacao: Literal[
+        "ENCONTRADA", "NAO_ENCONTRADA", "PLACA_INVALIDA", "INDISPONIVEL_SEM_CHAVE",
+        "LIMITE_DIARIO", "SEM_SALDO", "LIMITE_FORNECEDOR", "ERRO_CHAVE", "INDISPONIVEL",
+    ]
+    origem: Optional[Literal["api", "cache"]] = None
+    dados: Optional[ConsultaPlacaDados] = None
+    mensagem: str
 
 
 # ============================================================================

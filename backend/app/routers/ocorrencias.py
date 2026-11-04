@@ -29,11 +29,13 @@ from app.models.ocorrencia import (
     OcorrenciaVitima, OrgaoAutoridade, TipoOcorrencia,
 )
 from app.schemas.ocorrencia import (
-    AutopreenchimentoPessoa, AutopreenchimentoVeiculo, MensagemSinistroResponse,
+    AutopreenchimentoPessoa, AutopreenchimentoVeiculo, ConsultaPlacaIn,
+    ConsultaPlacaResponse, MensagemSinistroResponse,
     OcorrenciaAnexoRead, OcorrenciaCatalogos, OcorrenciaCompleta, OcorrenciaCreate,
     OcorrenciaListaResponse, OcorrenciaRead, OcorrenciaResumo, OcorrenciaUpdate,
     OrigemPessoa,
 )
+from app.services import consulta_placa as servico_consulta_placa
 from app.services.acesso_motorista import criar_acesso
 from app.services.mensagem_sinistro import gerar_mensagem_sinistro
 from app.services.pre_cadastro import registrar_pessoa_vista
@@ -189,7 +191,33 @@ def catalogos(_: LeituraOcorrencia, db: Annotated[Session, Depends(get_db)]):
     orgaos = db.execute(
         select(OrgaoAutoridade).where(OrgaoAutoridade.ativo.is_(True)).order_by(OrgaoAutoridade.ordem)
     ).scalars().all()
-    return OcorrenciaCatalogos(tipos=tipos, orgaos=orgaos)
+    chave = (get_settings().consulta_placa_api_key or "").strip()
+    return OcorrenciaCatalogos(tipos=tipos, orgaos=orgaos, consulta_placa_disponivel=bool(chave))
+
+
+# ─── CONSULTA DE PLACA (deve vir ANTES de /{ocorrencia_id}) ───────────────────
+# D5: só aqui, com login e permissão de ESCRITA de ocorrência — ⛔ nunca na
+# pré-ocorrência pública (sem login, qualquer um com o link gastaria o saldo).
+
+@router.post(
+    "/consulta-placa",
+    response_model=ConsultaPlacaResponse,
+    summary="Consulta marca/modelo/ano/cor/cidade/UF da placa do veículo de terceiro",
+)
+def consulta_placa(
+    payload: ConsultaPlacaIn,
+    usuario: EscritaOcorrencia,
+    db: Annotated[Session, Depends(get_db)],
+):
+    """Sempre 200 com `situacao` + `mensagem` pronta para a tela — falha do
+    fornecedor nunca vira erro HTTP (D3: consulta ajuda, nunca trava)."""
+    resultado = servico_consulta_placa.consultar(db, payload.placa, usuario.id)
+    return ConsultaPlacaResponse(
+        situacao=resultado.situacao,
+        origem=resultado.origem,
+        dados=resultado.dados,
+        mensagem=resultado.mensagem,
+    )
 
 
 # ─── AUTOPREENCHIMENTO (deve vir ANTES de /{ocorrencia_id}) ───────────────────
