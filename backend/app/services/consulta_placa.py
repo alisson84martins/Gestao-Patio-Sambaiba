@@ -130,10 +130,10 @@ def _modelo_com_versao(modelo: Optional[str], versao: Optional[str]) -> Optional
 def _ano(veiculo: dict[str, Any]) -> Optional[str]:
     """A máscara `ano` de mascaras.js aceita só 4 dígitos (formatarAno corta
     em 4; anoValido exige ^\\d{4}$) — "2019/2020" seria marcado inválido e
-    cortado na primeira tecla. Vai o ano-modelo (o fab. só se faltar o
-    modelo); os dois seguem separados em `ano_fabricacao`/`ano_modelo`.
-    Ver _handoff-claude/DUVIDAS-consulta-placa.md."""
-    for chave in ("model_year", "manufacture_year"):
+    cortado na primeira tecla. Vai o ano de FABRICAÇÃO — é o que o BO usa
+    (decisão do Alisson, 04/11/2026); o ano-modelo só se faltar o de
+    fabricação. Os dois seguem separados em `ano_fabricacao`/`ano_modelo`."""
+    for chave in ("manufacture_year", "model_year"):
         ano = _ano_inteiro(veiculo.get(chave))
         if ano is not None:
             return str(ano)

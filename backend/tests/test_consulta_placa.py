@@ -271,7 +271,7 @@ def test_found_grava_uma_linha_com_dados_normalizados(engine, config, fornecedor
     assert r.dados == {
         "marca": "FIAT",
         "modelo": "Uno Mille Economy 1.0 Flex 4p",
-        "ano": "2013",
+        "ano": "2012",  # fabricação (o BO usa este), não o ano-modelo 2013
         "ano_fabricacao": 2012,
         "ano_modelo": 2013,
         "cor": "PRATA",
@@ -329,6 +329,20 @@ def test_modelo_sem_versao_quando_nao_cabe_em_60(engine, config, fornecedor):
 def test_modelo_junta_versao_que_nao_repete_o_modelo(engine, config, fornecedor):
     fornecedor.responder(_corpo_found(model="ONIX", version="LT 1.0 TURBO"))
     assert _consultar(engine).dados["modelo"] == "ONIX LT 1.0 TURBO"
+
+
+def test_ano_e_o_de_fabricacao(engine, config, fornecedor):
+    fornecedor.responder(_corpo_found(manufacture_year=2019, model_year=2020))
+    d = _consultar(engine).dados
+    assert d["ano"] == "2019"
+    assert (d["ano_fabricacao"], d["ano_modelo"]) == (2019, 2020)
+
+
+def test_sem_ano_de_fabricacao_usa_o_ano_modelo(engine, config, fornecedor):
+    fornecedor.responder(_corpo_found(manufacture_year=None, model_year=2020))
+    d = _consultar(engine).dados
+    assert d["ano"] == "2020"
+    assert d["ano_fabricacao"] is None
 
 
 def test_ano_igual_vai_um_so_e_uf_estranha_vira_none(engine, config, fornecedor):
