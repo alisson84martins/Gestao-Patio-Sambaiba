@@ -23,6 +23,8 @@ import { abrirMensagemSinistro } from './ocorrencia.sinistro.js';
 import { confirmarExclusaoOcorrencia } from './ocorrencia.excluir.js';
 import { aplicarMascara } from './mascaras.js';
 import { dataLocalISO } from './data.util.js';
+import { CORES_VEICULO, UFS } from './catalogos-veiculo.js';
+import { ligarSugestaoCidade } from './sugestao-cidade.js';
 
 if (!requireAuth()) {
     throw new Error('Sessão não autenticada — interrompendo carga da página');
@@ -269,6 +271,22 @@ function campoHtml(campo, valor) {
         const opts = campo.opcoes.map(([v, l]) => `<option value="${v}" ${v === val ? 'selected' : ''}>${l}</option>`).join('');
         return `<select class="form-select" data-campo="${campo.name}"><option value="">—</option>${opts}</select>`;
     }
+    if (campo.tipo === 'select-catalogo') {
+        // Lista fechada (cores DENATRAN, UFs) — mas valor gravado fora dela
+        // (ocorrência antiga: "Prata metálico") vira opção extra selecionada:
+        // abrir e salvar uma ocorrência antiga nunca pode apagar o dado.
+        const lista = campo.catalogo;
+        const extra = val !== '' && !lista.includes(val)
+            ? `<option value="${escapeHtml(String(val))}" selected>${escapeHtml(String(val))}</option>`
+            : '';
+        const opts = lista.map(v => `<option value="${v}" ${v === val ? 'selected' : ''}>${v}</option>`).join('');
+        return `<select class="form-select" data-campo="${campo.name}"><option value="">—</option>${extra}${opts}</select>`;
+    }
+    if (campo.tipo === 'cidade') {
+        // Texto livre + sugestão da base IBGE (ligada em renderListaDinamica
+        // via ligarSugestaoCidade). O wrapper ancora a lista de sugestões.
+        return `<div class="sug-cidade"><input type="text" class="form-input" data-campo="${campo.name}" value="${escapeHtml(String(val))}" maxlength="80" autocomplete="off"></div>`;
+    }
     if (campo.tipo === 'select-orgao') {
         const opts = catalogoOrgaos.map(o => `<option value="${o.id}" ${o.id === val ? 'selected' : ''}>${escapeHtml(o.nome)}</option>`).join('');
         return `<select class="form-select" data-campo="${campo.name}"><option value="">Selecione…</option>${opts}</select>`;
@@ -327,6 +345,12 @@ function renderListaDinamica({ containerId, itens, campos, titulo, vazio, rerend
         // o que vai pro estado — grava sempre o valor formatado, como
         // aparece na tela (nunca bloqueia o input, só avisa).
         if (campo.mascara) aplicarMascara(el, campo.mascara);
+        if (campo.tipo === 'cidade') {
+            // ufDe: nome do campo de UF no MESMO card (cidade_placa ↔
+            // estado_placa) — filtra a sugestão pela UF escolhida.
+            const ufEl = campo.ufDe ? card.querySelector(`[data-campo="${campo.ufDe}"]`) : null;
+            ligarSugestaoCidade(el, { uf: () => ufEl?.value, priorizarUf: 'SP' });
+        }
         const evento = el.tagName === 'SELECT' ? 'change' : 'input';
         el.addEventListener(evento, () => {
             let valor = el.value === '' ? null : el.value;
@@ -357,16 +381,16 @@ const CAMPOS_VEICULO = [
     { name: 'marca', label: 'Marca' },
     { name: 'modelo', label: 'Modelo' },
     { name: 'ano', label: 'Ano', tamanho: 9, mascara: 'ano' },
-    { name: 'cor', label: 'Cor' },
+    { name: 'cor', label: 'Cor', tipo: 'select-catalogo', catalogo: CORES_VEICULO },
     { name: 'placa', label: 'Placa', mascara: 'placa' },
-    { name: 'cidade_placa', label: 'Cidade (placa)' },
-    { name: 'estado_placa', label: 'UF', tamanho: 2, mascara: 'uf' },
+    { name: 'cidade_placa', label: 'Cidade (placa)', tipo: 'cidade', ufDe: 'estado_placa' },
+    { name: 'estado_placa', label: 'UF', tipo: 'select-catalogo', catalogo: UFS },
     { name: 'renavam', label: 'Renavam', mascara: 'renavam' },
     { name: 'proprietario', label: 'Proprietário/Motorista' },
     { name: 'fones', label: 'Telefones', mascara: 'telefone-multi' },
     { name: 'email', label: 'E-mail' },
     { name: 'endereco', label: 'Endereço', full: true },
-    { name: 'cidade', label: 'Cidade' },
+    { name: 'cidade', label: 'Cidade', tipo: 'cidade' },
     { name: 'rg', label: 'RG', mascara: 'rg' },
     { name: 'cpf', label: 'CPF', mascara: 'cpf' },
     { name: 'cnh', label: 'CNH', mascara: 'cnh' },
@@ -382,7 +406,7 @@ const CAMPOS_TESTEMUNHA = [
     { name: 'endereco', label: 'Endereço' },
     { name: 'numero', label: 'Nº' },
     { name: 'bairro', label: 'Bairro' },
-    { name: 'cidade', label: 'Cidade' },
+    { name: 'cidade', label: 'Cidade', tipo: 'cidade' },
     { name: 'fone1', label: 'Telefone 1', mascara: 'telefone' },
     { name: 'fone2', label: 'Telefone 2', mascara: 'telefone' },
 ];
@@ -396,7 +420,7 @@ const CAMPOS_VITIMA = [
     { name: 'endereco', label: 'Endereço' },
     { name: 'numero', label: 'Nº' },
     { name: 'bairro', label: 'Bairro' },
-    { name: 'cidade', label: 'Cidade' },
+    { name: 'cidade', label: 'Cidade', tipo: 'cidade' },
     { name: 'era_passageiro', label: 'Era passageiro do nosso ônibus?', tipo: 'bool3' },
     { name: 'destino_socorro', label: 'Socorrida para' },
     { name: 'contato_parentesco', label: 'Parentesco do contato' },
@@ -1115,6 +1139,10 @@ document.addEventListener('DOMContentLoaded', async () => {
     // Depois de preencherTudo — se estiver editando, o campo já vem com
     // valor e a máscara valida de cara, sem esperar o primeiro toque.
     initMascarasCapa();
+
+    // Cidade do local: padrão "São Paulo" (definido no HTML) e SP primeiro
+    // na sugestão — a maioria dos acidentes é na capital.
+    if (!somenteLeitura) ligarSugestaoCidade(document.getElementById('f-cidade'), { priorizarUf: 'SP' });
 
     ligarAutosaveGenerico();
 });

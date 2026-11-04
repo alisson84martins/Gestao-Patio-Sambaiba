@@ -2858,6 +2858,42 @@ body.modal-open {
 
 .oc-vazio { color: var(--muted); font-size: 0.85rem; padding: 8px 0; }
 
+/* Sugestão de cidade (sugestao-cidade.js) — lista própria, não <datalist>:
+   o do Chrome Android não ignora acento. Itens com 44px de alvo de toque;
+   altura limitada porque o teclado do celular ocupa a metade de baixo. */
+.sug-cidade { position: relative; }
+.sug-cidade .form-input { scroll-margin-top: 90px; }
+.sug-cidade-lista {
+    position: absolute;
+    top: calc(100% + 2px);
+    left: 0;
+    right: 0;
+    z-index: 30;
+    margin: 0;
+    padding: 4px 0;
+    list-style: none;
+    max-height: min(240px, 40vh);
+    overflow-y: auto;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+}
+.sug-cidade-lista li {
+    min-height: 44px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 0 14px;
+    font-size: 15px;
+    color: var(--text);
+    cursor: pointer;
+}
+.sug-cidade-lista li.ativo,
+.sug-cidade-lista li:hover { background: var(--surface2); }
+.sug-cidade-uf { font-family: var(--mono); font-size: 11px; color: var(--muted); }
+
 /* Ações por linha na lista de ocorrências (imprimir/sinistro/excluir) —
    alvo de toque de 44px, sem depender de hover (é usado no celular,
    em pé, no pátio). */
