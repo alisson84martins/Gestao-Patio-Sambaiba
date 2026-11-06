@@ -940,6 +940,12 @@ class AvariaHistoricoItem(BaseModel):
     registrado_por_re: Optional[str] = None
     registrado_por_nome: Optional[str] = None
     linha_codigo: Optional[str] = None
+    # 06/11/2026 — só ACRÉSCIMO (o Módulo Manutenção também lê esta rota):
+    # motorista da MESMA primeira constatação, e o dia de serviço. A tela
+    # agrupa por prefixo+motorista+controlador+data_servico = uma marcação.
+    motorista_re: Optional[str] = None
+    motorista_nome: Optional[str] = None
+    data_servico: Optional[date] = None
 
 
 class AvariaContestarRequest(BaseModel):

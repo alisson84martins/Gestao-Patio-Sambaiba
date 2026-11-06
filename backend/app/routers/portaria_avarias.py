@@ -139,6 +139,18 @@ def _resolver_re_nome_em_lote(db: Session, funcionario_ids) -> dict:
     return {linha.id: (linha.re, linha.nome) for linha in linhas}
 
 
+def _resolver_nome_por_re_em_lote(db: Session, res) -> dict:
+    """Mesmo cuidado do _resolver_re_nome_em_lote (uma consulta só, ⛔ nunca
+    N+1), mas pelo RE do motorista digitado na constatação. RE que não
+    existe em Funcionario simplesmente não volta — regra número um, nunca
+    erro. Devolve {re: nome}."""
+    chaves = {r for r in res if r}
+    if not chaves:
+        return {}
+    linhas = db.execute(select(Funcionario.re, Funcionario.nome).where(Funcionario.re.in_(chaves))).all()
+    return {linha.re: linha.nome for linha in linhas}
+
+
 def _linha_do_dia(db: Session, prefixo: str) -> tuple[Optional[str], Optional[str]]:
     """🟢 Autopreenchimento pela escala do dia (pedido do Alisson, 16/09) —
     simplificado em relação a
@@ -497,6 +509,11 @@ def historico_avarias(
         primeira_por_avaria.setdefault(c.avaria_id, c)
 
     nomes = _resolver_re_nome_em_lote(db, [c.registrado_por for c in primeira_por_avaria.values()])
+    # 06/11/2026 — motorista da primeira constatação; nome do snapshot, ou
+    # resolvido em lote pelo RE quando o snapshot veio vazio.
+    nomes_motorista = _resolver_nome_por_re_em_lote(
+        db, [c.motorista_re for c in primeira_por_avaria.values() if not c.motorista_nome]
+    )
 
     itens = []
     for avaria in avarias:
@@ -509,6 +526,11 @@ def historico_avarias(
             vezes_vista=avaria.vezes_vista, encerrada_em=avaria.encerrada_em, encerramento=avaria.encerramento,
             registrado_por_re=re, registrado_por_nome=nome,
             linha_codigo=primeira.linha_codigo if primeira else None,
+            motorista_re=primeira.motorista_re if primeira else None,
+            motorista_nome=(
+                (primeira.motorista_nome or nomes_motorista.get(primeira.motorista_re)) if primeira else None
+            ),
+            data_servico=avaria.data_servico,
         ))
     return itens
 

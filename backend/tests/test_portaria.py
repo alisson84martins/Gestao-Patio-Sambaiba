@@ -2383,6 +2383,76 @@ def test_042_mesmo_post_outro_re_acrescenta_constatacao_nao_cria_avaria(ambiente
         assert len(db.execute(select(AvariaConstatacao)).scalars().all()) == 2
 
 
+# ─── Histórico traz motorista e data de serviço (06/11/2026) ────────────────
+# A tela agrupa avarias por marcação (prefixo + motorista + controlador +
+# data_servico) e mostra o motorista — os campos vêm da PRIMEIRA constatação,
+# a mesma que já fornece linha_codigo e registrado_por_*. Só acréscimo.
+
+def _historico_do_carro(ambiente, prefixo):
+    resp = ambiente["http"].get("/portaria/avarias/historico", params={"prefixo": prefixo})
+    assert resp.status_code == 200, resp.text
+    return resp.json()
+
+
+def test_historico_avaria_traz_motorista_cadastrado_e_data_servico(ambiente):
+    _como(ambiente, "CONTROLADOR")
+    post = ambiente["http"].post("/portaria/avarias", json={
+        "prefixo": "1721", "zona_codigo": "PARACHOQUE_DIANT", "tipo_codigo": "AMASSADO",
+        "motorista_re": _DONO_A.re,
+    })
+    assert post.status_code == 201, post.text
+    [item] = _historico_do_carro(ambiente, "1721")
+    assert item["motorista_re"] == _DONO_A.re
+    assert item["motorista_nome"] == _DONO_A.nome
+    assert item["data_servico"] is not None
+    with Session(ambiente["engine"]) as db:
+        avaria = db.get(AvariaSaida, UUID(post.json()["id"]))
+    assert item["data_servico"] == avaria.data_servico.isoformat()
+
+
+def test_historico_avaria_resolve_nome_em_lote_quando_snapshot_vazio(ambiente):
+    """Constatação com RE mas sem motorista_nome (snapshot vazio): o nome sai
+    do cadastro de Funcionario, resolvido em lote."""
+    _como(ambiente, "CONTROLADOR")
+    post = ambiente["http"].post("/portaria/avarias", json={
+        "prefixo": "1721", "zona_codigo": "PARACHOQUE_DIANT", "tipo_codigo": "AMASSADO",
+        "motorista_re": _DONO_A.re,
+    })
+    assert post.status_code == 201, post.text
+    with Session(ambiente["engine"]) as db:
+        for c in db.execute(select(AvariaConstatacao)).scalars().all():
+            c.motorista_nome = None
+        db.commit()
+    [item] = _historico_do_carro(ambiente, "1721")
+    assert item["motorista_re"] == _DONO_A.re
+    assert item["motorista_nome"] == _DONO_A.nome
+
+
+def test_historico_avaria_re_inexistente_nao_da_erro_e_nome_fica_nulo(ambiente):
+    _como(ambiente, "CONTROLADOR")
+    post = ambiente["http"].post("/portaria/avarias", json={
+        "prefixo": "1721", "zona_codigo": "PARACHOQUE_DIANT", "tipo_codigo": "AMASSADO",
+        "motorista_re": "99999",
+    })
+    assert post.status_code == 201, post.text
+    [item] = _historico_do_carro(ambiente, "1721")
+    assert item["motorista_re"] == "99999"
+    assert item["motorista_nome"] is None
+
+
+def test_historico_avaria_mostra_motorista_da_primeira_constatacao(ambiente):
+    _como(ambiente, "CONTROLADOR")
+    payload = {"prefixo": "1721", "zona_codigo": "PARACHOQUE_DIANT", "tipo_codigo": "AMASSADO"}
+    primeiro = ambiente["http"].post("/portaria/avarias", json={**payload, "motorista_re": _DONO_A.re})
+    segundo = ambiente["http"].post("/portaria/avarias", json={**payload, "motorista_re": "4338"})
+    assert primeiro.status_code == 201, primeiro.text
+    assert segundo.status_code == 200, segundo.text
+    [item] = _historico_do_carro(ambiente, "1721")
+    assert item["vezes_vista"] == 2
+    assert item["motorista_re"] == _DONO_A.re
+    assert item["motorista_nome"] == _DONO_A.nome
+
+
 # ─── Carrinho da tela de avaria (06/11/2026) ────────────────────────────────
 # portaria-avaria.page.js passou a mandar VÁRIAS POSTs seguidas no mesmo carro
 # (uma por item do carrinho, em sequência, mesmo RE). Estes testes travam o
