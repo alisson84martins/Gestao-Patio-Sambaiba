@@ -3858,6 +3858,53 @@ body.modal-open {
     margin-bottom: 8px;
 }
 
+/* Uma marcação (um FINALIZAR) = um bloco, no turno e no Histórico
+   (06/11/2026). .portaria-item é linha flex; aqui vira coluna, e quem
+   recebe o toque são as linhas de avaria, não o bloco. */
+.portaria-item.avaria-marcacao {
+    display: block;
+    cursor: default;
+    margin-bottom: 8px;
+}
+
+.portaria-item.avaria-marcacao:hover,
+.portaria-item.avaria-marcacao:active {
+    border-color: var(--border);
+}
+
+.avaria-marcacao-topo {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 10px;
+}
+
+.avaria-marcacao .portaria-item-sub {
+    overflow-wrap: anywhere;
+}
+
+.avaria-marcacao-linha {
+    display: block;
+    width: 100%;
+    min-height: 44px;
+    margin-top: 8px;
+    padding: 10px 12px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--text);
+    font-family: var(--display);
+    font-size: 14px;
+    text-align: left;
+    overflow-wrap: anywhere;
+    cursor: pointer;
+}
+
+.avaria-marcacao-linha:hover,
+.avaria-marcacao-linha:active {
+    border-color: var(--muted);
+}
+
 /* ============================================================
    SELETOR DE LINHAS DO CATÁLOGO (linhas.seletor.js) — compartilhado
    entre fiscal.html (cadastro de ponto, várias linhas) e

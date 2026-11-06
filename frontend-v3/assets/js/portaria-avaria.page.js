@@ -106,15 +106,6 @@ function initHeader() {
 }
 
 // ─── Formatação de data (só exibição) ──────────────────────────────────
-function _dataBr(iso) {
-    if (!iso) return '—';
-    try {
-        return new Date(iso).toLocaleDateString('pt-BR');
-    } catch {
-        return iso;
-    }
-}
-
 function _dataHoraBr(iso) {
     if (!iso) return '—';
     try {
@@ -684,30 +675,124 @@ async function finalizar() {
     }
 }
 
-// ─── Suas avarias do turno — filtro no SQL (?minhas=true), não no JS ───
+// ─── Marcação = um FINALIZAR (06/11/2026) ───────────────────────────────
+// Teste em campo do Alisson (06/11, ~02h): o carrinho gravou 2 avarias do
+// carro 1721 num FINALIZAR só, mas o turno mostrava um cartão 1721 por avaria
+// e o Histórico, dois chips dentro do cartão 1721 — parecia que o carro tinha
+// sido marcado duas vezes, e nenhuma das listas dizia QUEM dirigia nem a
+// linha. Regra dele: carro que sai com várias avarias marcadas naquele
+// momento é UMA marcação = UM bloco, com motorista, linha e as avarias dentro.
+//
+// Chave = prefixo + motorista_re + RE de quem anotou + data_servico — é
+// exatamente o que um FINALIZAR produz. motorista_re nulo conta como valor
+// (JSON distingue null de "14249"), então "sem RE" nunca se junta com RE
+// preenchido. ⛔ Esta é a ÚNICA definição de marcação na tela.
+function _chaveMarcacao(item) {
+    return JSON.stringify([
+        item.prefixo,
+        item.motorista_re ?? null,
+        item.registrado_por_re ?? null,
+        item.data_servico ?? null,
+    ]);
+}
+
+// Hora da marcação = quando a avaria foi vista pela 1ª vez (não muda quando
+// alguém confirma de novo, ao contrário de ultima_vez_em).
+function _instanteMarcacao(item) {
+    return new Date(item.primeira_vez_em || item.ultima_vez_em || 0).getTime();
+}
+
+// Blocos e avarias dentro deles: do mais recente pro mais antigo.
+function _agruparPorMarcacao(itens) {
+    const porChave = new Map();
+    for (const item of itens) {
+        const chave = _chaveMarcacao(item);
+        if (!porChave.has(chave)) porChave.set(chave, []);
+        porChave.get(chave).push(item);
+    }
+    const blocos = [...porChave.values()].map((avarias) => {
+        avarias.sort((a, b) => _instanteMarcacao(b) - _instanteMarcacao(a));
+        return avarias;
+    });
+    blocos.sort((a, b) => _instanteMarcacao(b[0]) - _instanteMarcacao(a[0]));
+    return blocos;
+}
+
+// Um .portaria-item por marcação; cada avaria é uma LINHA de texto dentro
+// dele (⛔ não um chip separado), tocável, abrindo o detalhe daquela avaria —
+// o acesso às constatações não se perde.
+function _blocoMarcacao(avarias) {
+    const base = avarias[0];
+    const n = avarias.length;
+    const maisAntiga = avarias.reduce((min, a) => (_instanteMarcacao(a) < _instanteMarcacao(min) ? a : min), base);
+
+    let motorista = 'Motorista não identificado';
+    if (base.motorista_re) {
+        motorista = `Motorista RE ${base.motorista_re}${base.motorista_nome ? ' — ' + base.motorista_nome : ''}`;
+    }
+    if (base.linha_codigo) motorista += ` · Linha ${base.linha_codigo}`;
+
+    // 🔴 "qual controlador marcou" vem pronto do backend
+    // (registrado_por_re/registrado_por_nome), ⛔ nunca resolvido no cliente.
+    const quem = base.registrado_por_nome
+        ? `${base.registrado_por_nome}${base.registrado_por_re ? ' (RE ' + base.registrado_por_re + ')' : ''}`
+        : null;
+    const quando = _dataHoraBr(maisAntiga.primeira_vez_em) + (quem ? ` · anotado por ${quem}` : '');
+
+    const bloco = document.createElement('div');
+    bloco.className = 'portaria-item avaria-marcacao';
+    bloco.innerHTML = `
+        <div class="avaria-marcacao-topo">
+            <div class="portaria-item-placa">${escapeHtml(base.prefixo)}</div>
+            <div class="portaria-item-hora">${n} ${n === 1 ? 'avaria' : 'avarias'}</div>
+        </div>
+        <div class="portaria-item-sub">${escapeHtml(motorista)}</div>
+        <div class="portaria-item-sub">${escapeHtml(quando)}</div>
+    `;
+    for (const a of avarias) {
+        const statusTxt = a.status === 'ABERTA'
+            ? 'aberta'
+            : `encerrada${a.encerramento ? ' — ' + a.encerramento.toLowerCase() : ''}`;
+        const linha = document.createElement('button');
+        linha.type = 'button';
+        linha.className = 'avaria-marcacao-linha';
+        linha.dataset.avariaId = a.id;
+        linha.textContent = `${_nomeZona(a.zona_codigo)} — ${_nomeTipo(a.tipo_codigo)} · vista ${a.vezes_vista}x · ${statusTxt}`;
+        linha.addEventListener('click', () => abrirDetalhe(a.id));
+        bloco.appendChild(linha);
+    }
+    return bloco;
+}
+
+// ─── Suas avarias do turno — mesmos dados e desenho do Histórico ────────
+// 06/11/2026: lê /avarias/historico (motorista e linha vêm prontos) filtrado
+// por quem anotou + dia de serviço (dataServicoISO respeita o turno que vira
+// a meia-noite). Sem RE do usuário na sessão, cai no ?minhas=true antigo —
+// sem linha nem RE de quem anotou, mas agrupado do mesmo jeito. Aqui SEM
+// cartão por carro: lista direta de blocos, no máximo 8.
+const TURNO_MAX_MARCACOES = 8;
+
+async function _avariasDoTurno() {
+    const user = getCurrentUser();
+    const re = user && user.re ? String(user.re).trim() : '';
+    if (re) {
+        return apiGet(`/portaria/avarias/historico?desde=${encodeURIComponent(dataServicoISO())}`
+            + `&registrado_por=${encodeURIComponent(re)}`);
+    }
+    return apiGet('/portaria/avarias?minhas=true');
+}
+
 async function carregarUltimas() {
     const el = document.getElementById('av-lista-turno');
     try {
-        const minhas = await apiGet('/portaria/avarias?minhas=true');
-        if (minhas.length === 0) {
+        const itens = await _avariasDoTurno();
+        if (itens.length === 0) {
             el.innerHTML = '<div class="oc-vazio">Nenhuma avaria registrada ainda.</div>';
             return;
         }
         el.innerHTML = '';
-        for (const a of minhas.slice(0, 8)) {
-            const zona = catalogo.zonas.find((z) => z.codigo === a.zona_codigo);
-            const tipo = catalogo.tipos.find((t) => t.codigo === a.tipo_codigo);
-            const div = document.createElement('div');
-            div.className = 'portaria-item';
-            div.style.marginBottom = '8px';
-            div.style.cursor = 'default';
-            div.innerHTML = `
-                <div>
-                    <div class="portaria-item-placa">${escapeHtml(a.prefixo)}</div>
-                    <div class="portaria-item-sub">${escapeHtml(zona ? zona.nome : a.zona_codigo)} — ${escapeHtml(tipo ? tipo.nome : a.tipo_codigo)}</div>
-                </div>
-            `;
-            el.appendChild(div);
+        for (const marcacao of _agruparPorMarcacao(itens).slice(0, TURNO_MAX_MARCACOES)) {
+            el.appendChild(_blocoMarcacao(marcacao));
         }
     } catch (err) {
         if (err instanceof ApiError && err.status === 401) return;
@@ -792,6 +877,8 @@ function _agruparPorCarro(itens) {
 // Cartão nasce sempre EXPANDIDO — nada de accordion (o controlador precisa
 // ver tudo de uma vez). Reusa o padrão .oc-card/.oc-card-header já usado em
 // ocorrencia.form.js, ⛔ não inventa CSS novo.
+// 06/11/2026: o cartão por carro fica (17/09, item [2]), mas dentro dele vai
+// UM BLOCO POR MARCAÇÃO (_blocoMarcacao), não um chip por avaria.
 function _cartaoCarro({ prefixo, avarias }) {
     const abertas = avarias.filter((a) => a.status === 'ABERTA').length;
     const card = document.createElement('div');
@@ -802,35 +889,10 @@ function _cartaoCarro({ prefixo, avarias }) {
             <div class="portaria-item-hora">${abertas} aberta${abertas === 1 ? '' : 's'}</div>
         </div>
     `;
-    for (const item of avarias) {
-        card.appendChild(_linhaHistorico(item));
+    for (const marcacao of _agruparPorMarcacao(avarias)) {
+        card.appendChild(_blocoMarcacao(marcacao));
     }
     return card;
-}
-
-function _linhaHistorico(item) {
-    const zona = catalogo.zonas.find((z) => z.codigo === item.zona_codigo);
-    const tipo = catalogo.tipos.find((t) => t.codigo === item.tipo_codigo);
-    // 🔴 "qual controlador marcou" é o dado que o Alisson quer ver — visível
-    // na LISTA, não só no detalhe (§4 do prompt). Vem pronto do backend
-    // (registrado_por_re/registrado_por_nome), ⛔ nunca resolvido no cliente.
-    const quem = item.registrado_por_nome
-        ? `${item.registrado_por_nome}${item.registrado_por_re ? ' (RE ' + item.registrado_por_re + ')' : ''}`
-        : null;
-    const statusTxt = item.status === 'ABERTA'
-        ? 'aberta'
-        : `encerrada${item.encerramento ? ' — ' + item.encerramento.toLowerCase() : ''}`;
-    const div = document.createElement('div');
-    div.className = 'portaria-item';
-    div.style.marginBottom = '8px';
-    div.innerHTML = `
-        <div>
-            <div class="portaria-item-placa">${escapeHtml(zona ? zona.nome : item.zona_codigo)} — ${escapeHtml(tipo ? tipo.nome : item.tipo_codigo)}</div>
-            <div class="portaria-item-sub">Marcada em ${_dataBr(item.primeira_vez_em)}${quem ? ' por ' + escapeHtml(quem) : ''} · vista ${item.vezes_vista}x · ${escapeHtml(statusTxt)}</div>
-        </div>
-    `;
-    div.addEventListener('click', () => abrirDetalhe(item.id));
-    return div;
 }
 
 async function abrirDetalhe(id) {
