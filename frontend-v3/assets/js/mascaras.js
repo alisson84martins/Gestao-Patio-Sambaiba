@@ -189,6 +189,16 @@ export function formatarRG(valor) {
     return (valor || '').toUpperCase();
 }
 
+// ─── Maiúscula — busca livre (placa, RE ou nome) ───────────────────────────
+// #portaria-busca (06/11/2026): o campo busca placa, RE E nome ("Joathan
+// Nunes"), então ⛔ nada de 'placa'/'placa-parcial'/'re' — elas apagam
+// espaço e acento. Esta só põe em maiúscula: mantém espaço, acento e
+// tamanho, não corta nada e nunca avisa.
+
+export function formatarMaiuscula(valor) {
+    return (valor || '').toUpperCase();
+}
+
 // ─── Motor genérico ─────────────────────────────────────────────────────────
 // Cada tipo: formatar (sempre roda), validar (opcional — sem validar, nunca
 // mostra aviso, caso do RG) e a mensagem curta quando validar() der falso.
@@ -206,6 +216,7 @@ const TIPOS = {
     rg: { formatar: formatarRG, validar: null, mensagem: '' },
     re: { formatar: formatarRE, validar: reSoNumero, mensagem: 'RE com letra — confira. Letra só existe em RE da alta gestão e do administrativo PJ.' },
     're-numerico': { formatar: formatarRENumerico, validar: null, mensagem: '' },
+    maiuscula: { formatar: formatarMaiuscula, validar: null, mensagem: '' },
 };
 
 function garantirAvisoAoLado(el) {
@@ -246,11 +257,12 @@ export function aplicarMascara(el, tipo) {
     if (!config || !el) return;
 
     el.addEventListener('input', () => {
-        if (tipo === 're' || tipo === 're-numerico') {
+        if (tipo === 're' || tipo === 're-numerico' || tipo === 'maiuscula') {
             // Sem separador nenhum pra inserir — só caractere removido ou
             // maiusculizado. Cursor acompanha formatando o trecho antes dele
             // e medindo o que sobrou (contar dígito não serve mais pro tipo
-            // 're', que também aceita letra).
+            // 're', que também aceita letra). 'maiuscula' entra aqui pra
+            // corrigir uma letra no meio do nome sem o cursor pular pro fim.
             const cursor = el.selectionStart;
             const tamanhoAntes = config.formatar(el.value.slice(0, cursor)).length;
             el.value = config.formatar(el.value);

@@ -1517,6 +1517,9 @@ function startPolling() {
 
 // ─── Bootstrap ───────────────────────────────────────────────────────────
 initHeader();
+// Maiúscula ANTES de initBusca(): o listener da máscara roda primeiro e a
+// busca já lê o valor em maiúscula (06/11/2026).
+aplicarMascara(document.getElementById('portaria-busca'), 'maiuscula');
 initBusca();
 initConfirmacao();
 initEntradaAvulsa();
