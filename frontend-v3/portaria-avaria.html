@@ -92,16 +92,22 @@
             <div id="av-selecionado" class="portaria-ficha-linha"></div>
         </div>
 
-        <div id="av-ja-marcada" class="avaria-mapa-painel" style="display:none"></div>
-
+        <!-- 06/11/2026 — carrinho: várias zonas e vários tipos no mesmo envio.
+             Cada item tem a própria observação (o POST é por avaria) e a
+             etiqueta "já estava marcada" substitui a antiga caixa
+             #av-ja-marcada + "CONFIRMAR QUE JÁ ESTAVA". -->
         <div class="recolhida-campo">
-            <label class="form-label" for="av-observacao">Observação (opcional)</label>
-            <textarea class="form-input form-textarea" id="av-observacao" rows="1"></textarea>
+            <label class="form-label">Escolhidas</label>
+            <div id="av-carrinho" class="avaria-carrinho"></div>
         </div>
 
-        <div id="av-erro" style="display:none;color:var(--accent);font-size:0.85rem;margin-bottom:10px"></div>
-
-        <button type="button" class="btn btn-primary btn-full" id="btn-registrar-avaria">REGISTRAR</button>
+        <!-- Rodapé sticky: FINALIZAR não some atrás do teclado do Android
+             (mesmo padrão de .modal-acoes / .fis-escolha-barra). -->
+        <div class="avaria-rodape">
+            <div id="av-erro" style="display:none;color:var(--accent);font-size:0.85rem;margin-bottom:8px"></div>
+            <div id="av-resultado" class="avaria-resultado" style="display:none"></div>
+            <button type="button" class="btn btn-primary btn-full" id="btn-finalizar-avaria" disabled>FINALIZAR (0)</button>
+        </div>
 
         <section class="portaria-secao" style="margin-top:24px">
             <div class="portaria-secao-titulo">Suas avarias do turno</div>

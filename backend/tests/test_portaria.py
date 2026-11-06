@@ -2383,6 +2383,58 @@ def test_042_mesmo_post_outro_re_acrescenta_constatacao_nao_cria_avaria(ambiente
         assert len(db.execute(select(AvariaConstatacao)).scalars().all()) == 2
 
 
+# ─── Carrinho da tela de avaria (06/11/2026) ────────────────────────────────
+# portaria-avaria.page.js passou a mandar VÁRIAS POSTs seguidas no mesmo carro
+# (uma por item do carrinho, em sequência, mesmo RE). Estes testes travam o
+# contrato que a tela assume: o upsert junta por zona+TIPO, nunca só por zona.
+
+def _abertas_do_carro(ambiente, prefixo):
+    with Session(ambiente["engine"]) as db:
+        return db.execute(
+            select(AvariaSaida).where(AvariaSaida.prefixo == prefixo, AvariaSaida.status == "ABERTA")
+        ).scalars().all()
+
+
+def test_avaria_carrinho_zonas_diferentes_no_mesmo_carro_viram_duas_abertas(ambiente):
+    _como(ambiente, "CONTROLADOR")
+    base = {"prefixo": "1173", "tipo_codigo": "AMASSADO", "motorista_re": "14249"}
+    a = ambiente["http"].post("/portaria/avarias", json={**base, "zona_codigo": "PARACHOQUE_DIANT"})
+    b = ambiente["http"].post("/portaria/avarias", json={**base, "zona_codigo": "RETROVISOR_ESQ"})
+    assert a.status_code == 201, a.text
+    assert b.status_code == 201, b.text
+    assert a.json()["id"] != b.json()["id"]
+    assert len(_abertas_do_carro(ambiente, "1173")) == 2
+
+
+def test_avaria_carrinho_tipos_diferentes_na_mesma_zona_viram_duas_abertas(ambiente):
+    """Falha se o upsert passar a juntar só por zona, ignorando o tipo."""
+    _como(ambiente, "CONTROLADOR")
+    base = {"prefixo": "1173", "zona_codigo": "PARACHOQUE_DIANT", "motorista_re": "14249"}
+    a = ambiente["http"].post("/portaria/avarias", json={**base, "tipo_codigo": "AMASSADO"})
+    b = ambiente["http"].post("/portaria/avarias", json={**base, "tipo_codigo": "RALADO"})
+    assert a.status_code == 201, a.text
+    assert b.status_code == 201, b.text
+    assert b.json()["ja_existia"] is False
+    abertas = _abertas_do_carro(ambiente, "1173")
+    assert len(abertas) == 2
+    assert {x.tipo_codigo for x in abertas} == {"AMASSADO", "RALADO"}
+
+
+def test_avaria_carrinho_mesma_zona_e_tipo_duas_vezes_soma_vezes_vista(ambiente):
+    """O que a etiqueta "já estava marcada · vista Nx" promete: reenviar o
+    mesmo par (mesmo RE, como a tela manda) não cria avaria nova."""
+    _como(ambiente, "CONTROLADOR")
+    payload = {"prefixo": "1173", "zona_codigo": "PARACHOQUE_DIANT", "tipo_codigo": "AMASSADO",
+               "motorista_re": "14249"}
+    a = ambiente["http"].post("/portaria/avarias", json=payload)
+    b = ambiente["http"].post("/portaria/avarias", json=payload)
+    assert a.status_code == 201, a.text
+    assert b.status_code == 200, b.text
+    assert b.json()["id"] == a.json()["id"]
+    assert b.json()["vezes_vista"] == 2
+    assert len(_abertas_do_carro(ambiente, "1173")) == 1
+
+
 def test_042_piorou_sem_observacao_e_422_com_observacao_sobe_severidade(ambiente):
     _como(ambiente, "CONTROLADOR")
     payload = {"prefixo": "1173", "zona_codigo": "PARACHOQUE_DIANT", "tipo_codigo": "AMASSADO"}

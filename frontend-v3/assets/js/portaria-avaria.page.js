@@ -20,7 +20,8 @@
  * 🔴 Regra número um: POST /portaria/avarias nunca recusa — RE que não
  * resolve não bloqueia, prefixo não cadastrado não bloqueia, linha fora do
  * catálogo não bloqueia. O que esta TELA barra (decisão de operação, não do
- * backend): RE vazio (o motorista está na frente) e avaria não escolhida.
+ * backend): carro vazio, RE vazio (o motorista está na frente) e carrinho
+ * vazio.
  *
  * ⛔ av-motorista-re / -status / -nome não mudam — cópia deliberada de
  * portaria-recolhida.html (ver histórico do módulo).
@@ -31,6 +32,19 @@
  * existe em /avarias/historico e /avarias/{id}, e buscar isso aqui violaria
  * o "não precisa de chamada nova" do prompt. Fica só no HISTÓRICO
  * compartilhado (aba), que é onde o Alisson pediu esse dado.
+ *
+ * 06/11/2026 — decisão do Alisson: um ônibus de até 23 m tem várias
+ * avarias, e repetir Local → Zona → Tipo → REGISTRAR pra cada uma deixava o
+ * motorista esperando. Agora é um CARRINHO: vários TIPOS na mesma zona e
+ * várias ZONAS no mesmo carro, tudo num envio só (FINALIZAR). O 3º toque
+ * liga/desliga o par zona+tipo; trocar local/zona não apaga nada. A caixa
+ * "já marcada" + "CONFIRMAR QUE JÁ ESTAVA" virou etiqueta no item ("já
+ * estava marcada · vista Nx"), com o mesmo significado: enviar o item é a
+ * confirmação (o upsert soma vezes_vista). O envio é UM POR UM, em
+ * sequência, com o mesmo POST /portaria/avarias de antes — ⛔ não
+ * Promise.all: são várias escritas no mesmo carro e o upsert por zona+tipo
+ * não deve concorrer consigo mesmo. Falhou algum? Os gravados saem do
+ * carrinho e só os que falharam ficam pra TENTAR DE NOVO.
  */
 
 import { requireAuth, getCurrentUser, logout } from './auth.js';
@@ -62,6 +76,8 @@ const VISTA_ORDEM = ['FRENTE', 'TRASEIRA', 'LATERAL_ESQ', 'LATERAL_DIR'];
 // PRÓPRIO no 1º nível (item 3b), fora do agrupamento por vista, pulando
 // direto pro TIPO (não tem 2º nível: é uma zona só).
 const ZONA_ESCAPE_CODIGO = 'OUTRO';
+// Chave do chip "Outro" no 1º nível — não é uma vista do catálogo.
+const LOCAL_OUTRO = '__OUTRO__';
 
 let catalogo = { zonas: [], tipos: [] };
 let linhasCache = [];
@@ -69,8 +85,11 @@ let linhaSelecionada = null;      // { codigo, nome }
 let linhaEscolhidaManualmente = false;
 let avariasAbertas = [];          // GET /avarias/mapa — só ABERTA, deste carro
 let vistaAtual = null;
-let zonaAtual = null;
-let tipoAtual = null;
+let zonaAtual = null;             // zona com os tipos abertos agora (não é o carrinho)
+// Carrinho (06/11/2026): pares zona+tipo escolhidos e ainda não gravados.
+// { zona, tipo, observacao, estado: 'novo'|'gravando'|'ok'|'erro', erro }
+let carrinho = [];
+let enviando = false;
 let histPeriodo = 'hoje';
 
 // ─── Header ─────────────────────────────────────────────────────────────
@@ -222,6 +241,9 @@ async function carregarMapaCarro() {
     if (!prefixo) {
         avariasAbertas = [];
         limparSelecaoAvaria();
+        // ⛔ O carrinho fica (o controlador pode ter errado o carro); só as
+        // etiquetas "já estava marcada" somem.
+        renderCarrinho();
         return;
     }
     try {
@@ -233,10 +255,13 @@ async function carregarMapaCarro() {
         if (resp.linha_sugerida_codigo) {
             await aplicarSugestaoLinha(resp.linha_sugerida_codigo, resp.linha_sugerida_nome);
         }
-        if (zonaAtual && tipoAtual) avaliarEstado();
+        // Prefixo trocado com itens no carrinho: os itens ficam e as
+        // etiquetas "já estava marcada" são recalculadas pro carro novo.
+        renderCarrinho();
     } catch (err) {
         if (err instanceof ApiError && err.status === 401) return;
         avariasAbertas = [];
+        renderCarrinho();
     }
 }
 
@@ -274,7 +299,8 @@ function renderLocais() {
         const btn = document.createElement('button');
         btn.type = 'button';
         btn.className = 'recolhida-chip';
-        btn.textContent = VISTA_LABELS[vista] || vista;
+        btn.dataset.local = vista;
+        btn.dataset.rotulo = VISTA_LABELS[vista] || vista;
         btn.addEventListener('click', () => selecionarVista(vista, btn));
         el.appendChild(btn);
     }
@@ -282,22 +308,24 @@ function renderLocais() {
         const btn = document.createElement('button');
         btn.type = 'button';
         btn.className = 'recolhida-chip';
-        btn.textContent = 'Outro';
+        btn.dataset.local = LOCAL_OUTRO;
+        btn.dataset.rotulo = 'Outro';
         btn.addEventListener('click', () => selecionarLocalOutro(btn));
         el.appendChild(btn);
     }
+    atualizarContadores();
 }
 
 function selecionarVista(vista, btnAtivo) {
+    if (enviando) return;
     vistaAtual = vista;
     document.querySelectorAll('#av-locais .recolhida-chip').forEach((b) => b.classList.remove('active'));
     btnAtivo.classList.add('active');
 
+    // Trocar de local fecha a zona aberta, mas ⛔ nunca mexe no carrinho.
     zonaAtual = null;
-    tipoAtual = null;
     document.getElementById('av-tipos').innerHTML = '';
     atualizarSelecionadoTexto();
-    mostrarRegistrarNormal();
 
     renderZonas();
 }
@@ -305,15 +333,14 @@ function selecionarVista(vista, btnAtivo) {
 // ─── Item 3b — "Outro" é chip próprio no 1º nível, sem 2º nível (a zona já
 // é uma só: ZONA_ESCAPE_CODIGO). Pula direto pro TIPO.
 function selecionarLocalOutro(btnAtivo) {
+    if (enviando) return;
     vistaAtual = null;
     document.querySelectorAll('#av-locais .recolhida-chip').forEach((b) => b.classList.remove('active'));
     btnAtivo.classList.add('active');
     document.getElementById('av-zonas').innerHTML = '';
 
     zonaAtual = ZONA_ESCAPE_CODIGO;
-    tipoAtual = null;
     atualizarSelecionadoTexto();
-    mostrarRegistrarNormal();
     renderTipos();
 }
 
@@ -327,19 +354,20 @@ function renderZonas() {
         const btn = document.createElement('button');
         btn.type = 'button';
         btn.className = 'recolhida-chip';
-        btn.textContent = zona.nome;
+        btn.dataset.zona = zona.codigo;
+        btn.dataset.rotulo = zona.nome;
         btn.addEventListener('click', () => selecionarZona(zona.codigo, btn));
         el.appendChild(btn);
     }
+    atualizarContadores();
 }
 
 function selecionarZona(codigo, btnAtivo) {
+    if (enviando) return;
     zonaAtual = codigo;
-    tipoAtual = null;
     document.querySelectorAll('#av-zonas .recolhida-chip').forEach((b) => b.classList.remove('active'));
     btnAtivo.classList.add('active');
     atualizarSelecionadoTexto();
-    mostrarRegistrarNormal();
     renderTipos();
 }
 
@@ -350,103 +378,217 @@ function renderTipos() {
         const btn = document.createElement('button');
         btn.type = 'button';
         btn.className = 'recolhida-chip';
+        btn.dataset.tipo = tipo.codigo;
         btn.textContent = tipo.nome;
-        btn.addEventListener('click', () => selecionarTipo(tipo.codigo, btn));
+        btn.addEventListener('click', () => alternarTipo(tipo.codigo));
         el.appendChild(btn);
     }
-}
-
-function selecionarTipo(codigo, btnAtivo) {
-    tipoAtual = codigo;
-    document.querySelectorAll('#av-tipos .recolhida-chip').forEach((b) => b.classList.remove('active'));
-    btnAtivo.classList.add('active');
-    atualizarSelecionadoTexto();
-    avaliarEstado();
+    atualizarTiposAtivos();
 }
 
 function atualizarSelecionadoTexto() {
     const el = document.getElementById('av-selecionado');
-    if (!zonaAtual) {
-        el.textContent = '';
-        return;
-    }
-    const zona = catalogo.zonas.find((z) => z.codigo === zonaAtual);
-    let texto = zona ? zona.nome : zonaAtual;
-    if (tipoAtual) {
-        const tipo = catalogo.tipos.find((t) => t.codigo === tipoAtual);
-        texto += ' — ' + (tipo ? tipo.nome : tipoAtual);
-    }
-    el.textContent = texto;
+    el.textContent = zonaAtual ? _nomeZona(zonaAtual) : '';
 }
 
 function limparSelecaoAvaria() {
     vistaAtual = null;
     zonaAtual = null;
-    tipoAtual = null;
     document.querySelectorAll('#av-locais .recolhida-chip').forEach((b) => b.classList.remove('active'));
     document.getElementById('av-zonas').innerHTML = '';
     document.getElementById('av-tipos').innerHTML = '';
     atualizarSelecionadoTexto();
-    mostrarRegistrarNormal();
 }
 
-// ─── §3 do prompt — o coração da frente: já existe ABERTA nessa zona+tipo? ──
-// Decide só com avariasAbertas (já veio do GET /avarias/mapa no blur do
-// prefixo) — ⛔ nenhuma chamada nova aqui.
-function avaliarEstado() {
-    if (!zonaAtual || !tipoAtual) {
-        mostrarRegistrarNormal();
+// ─── Carrinho (06/11/2026) ─────────────────────────────────────────────
+function _nomeZona(codigo) {
+    const zona = catalogo.zonas.find((z) => z.codigo === codigo);
+    return zona ? zona.nome : codigo;
+}
+
+function _nomeTipo(codigo) {
+    const tipo = catalogo.tipos.find((t) => t.codigo === codigo);
+    return tipo ? tipo.nome : codigo;
+}
+
+function _itemDoCarrinho(zona, tipo) {
+    return carrinho.find((i) => i.zona === zona && i.tipo === tipo);
+}
+
+// 3º toque liga/desliga o par zona+tipo — ⛔ o mesmo par nunca entra duas
+// vezes (o upsert do backend é por zona+tipo: duplicar só contaria 2x).
+function alternarTipo(codigo) {
+    if (enviando || !zonaAtual) return;
+    const existente = _itemDoCarrinho(zonaAtual, codigo);
+    if (existente) {
+        carrinho = carrinho.filter((i) => i !== existente);
+    } else {
+        carrinho.push({ zona: zonaAtual, tipo: codigo, observacao: '', estado: 'novo', erro: null });
+    }
+    limparResultado();
+    atualizarCarrinho();
+}
+
+function removerDoCarrinho(item) {
+    if (enviando) return;
+    carrinho = carrinho.filter((i) => i !== item);
+    limparResultado();
+    atualizarCarrinho();
+}
+
+function atualizarCarrinho() {
+    atualizarTiposAtivos();
+    atualizarContadores();
+    renderCarrinho();
+    atualizarBotao();
+}
+
+function atualizarTiposAtivos() {
+    document.querySelectorAll('#av-tipos .recolhida-chip').forEach((b) => {
+        b.classList.toggle('active', !!_itemDoCarrinho(zonaAtual, b.dataset.tipo));
+    });
+}
+
+function _rotularChip(btn, quantidade) {
+    btn.textContent = btn.dataset.rotulo;
+    if (quantidade > 0) {
+        const contador = document.createElement('span');
+        contador.className = 'avaria-chip-contador';
+        contador.textContent = ` · ${quantidade}`;
+        btn.appendChild(contador);
+    }
+    btn.classList.toggle('avaria-chip-com-itens', quantidade > 0);
+}
+
+// Contador no chip de LOCAL e de ZONA (ex.: "Para-choque · 2").
+function atualizarContadores() {
+    document.querySelectorAll('#av-locais .recolhida-chip').forEach((btn) => {
+        const local = btn.dataset.local;
+        const n = carrinho.filter((i) => {
+            if (local === LOCAL_OUTRO) return i.zona === ZONA_ESCAPE_CODIGO;
+            if (i.zona === ZONA_ESCAPE_CODIGO) return false;
+            const zona = catalogo.zonas.find((z) => z.codigo === i.zona);
+            return !!zona && zona.vista === local;
+        }).length;
+        _rotularChip(btn, n);
+    });
+    document.querySelectorAll('#av-zonas .recolhida-chip').forEach((btn) => {
+        _rotularChip(btn, carrinho.filter((i) => i.zona === btn.dataset.zona).length);
+    });
+}
+
+// "já estava marcada" decide só com avariasAbertas (já veio do GET
+// /avarias/mapa no blur do prefixo) — ⛔ nenhuma chamada nova aqui. Enviar
+// o item É a confirmação: o upsert soma vezes_vista.
+function renderCarrinho() {
+    const el = document.getElementById('av-carrinho');
+    el.innerHTML = '';
+    if (carrinho.length === 0) {
+        el.innerHTML = '<div class="oc-vazio">Nenhuma avaria escolhida ainda.</div>';
         return;
     }
-    const existente = avariasAbertas.find((a) => a.zona_codigo === zonaAtual && a.tipo_codigo === tipoAtual);
-    if (existente) mostrarJaMarcada(existente);
-    else mostrarRegistrarNormal();
+    for (const item of carrinho) {
+        const div = document.createElement('div');
+        div.className = 'avaria-carrinho-item';
+        if (item.estado === 'erro') div.classList.add('avaria-carrinho-erro');
+        if (item.estado === 'ok') div.classList.add('avaria-carrinho-ok');
+
+        const cabeca = document.createElement('div');
+        cabeca.className = 'avaria-carrinho-cabeca';
+        const textos = document.createElement('div');
+        textos.className = 'avaria-carrinho-textos';
+        const titulo = document.createElement('div');
+        titulo.className = 'avaria-carrinho-titulo';
+        titulo.textContent = `${item.estado === 'ok' ? '✓ ' : ''}${_nomeZona(item.zona)} — ${_nomeTipo(item.tipo)}`;
+        textos.appendChild(titulo);
+        const aberta = avariasAbertas.find((a) => a.zona_codigo === item.zona && a.tipo_codigo === item.tipo);
+        if (aberta) {
+            const etiqueta = document.createElement('div');
+            etiqueta.className = 'avaria-carrinho-etiqueta';
+            etiqueta.textContent = `já estava marcada · vista ${aberta.vezes_vista}x`;
+            textos.appendChild(etiqueta);
+        }
+        cabeca.appendChild(textos);
+
+        const remover = document.createElement('button');
+        remover.type = 'button';
+        remover.className = 'avaria-carrinho-remover';
+        remover.textContent = '✕';
+        remover.setAttribute('aria-label', 'Remover');
+        remover.disabled = enviando;
+        remover.addEventListener('click', () => removerDoCarrinho(item));
+        cabeca.appendChild(remover);
+        div.appendChild(cabeca);
+
+        const obs = document.createElement('input');
+        obs.type = 'text';
+        obs.className = 'form-input avaria-carrinho-obs';
+        obs.autocomplete = 'off';
+        obs.placeholder = item.zona === ZONA_ESCAPE_CODIGO ? 'Descreva o dano' : 'Observação (opcional)';
+        obs.value = item.observacao;
+        obs.readOnly = enviando;
+        obs.addEventListener('input', () => { item.observacao = obs.value; });
+        div.appendChild(obs);
+
+        if (item.estado === 'erro' && item.erro) {
+            const msg = document.createElement('div');
+            msg.className = 'avaria-carrinho-msg-erro';
+            msg.textContent = item.erro;
+            div.appendChild(msg);
+        }
+        el.appendChild(div);
+    }
 }
 
-function mostrarJaMarcada(avaria) {
-    const box = document.getElementById('av-ja-marcada');
-    const zona = catalogo.zonas.find((z) => z.codigo === avaria.zona_codigo);
-    const tipo = catalogo.tipos.find((t) => t.codigo === avaria.tipo_codigo);
-    box.style.display = 'block';
-    box.innerHTML = '';
-
-    const aviso = document.createElement('div');
-    aviso.className = 'avaria-mapa-painel-aviso';
-    aviso.innerHTML = `⚠️ <strong>ESSA AVARIA JÁ ESTÁ MARCADA</strong><br>` +
-        `${escapeHtml(zona ? zona.nome : avaria.zona_codigo)} — ${escapeHtml(tipo ? tipo.nome : avaria.tipo_codigo)}<br>` +
-        `Marcada em ${_dataBr(avaria.primeira_vez_em)} · vista ${avaria.vezes_vista}x`;
-    box.appendChild(aviso);
-
-    const acoes = document.createElement('div');
-    acoes.className = 'avaria-mapa-acoes';
-
-    const btnConfirmar = document.createElement('button');
-    btnConfirmar.type = 'button';
-    btnConfirmar.className = 'btn btn-primary';
-    btnConfirmar.textContent = 'CONFIRMAR QUE JÁ ESTAVA';
-    btnConfirmar.addEventListener('click', () => gravar(btnConfirmar));
-    acoes.appendChild(btnConfirmar);
-
-    box.appendChild(acoes);
-    document.getElementById('btn-registrar-avaria').style.display = 'none';
+function atualizarBotao() {
+    if (enviando) return;
+    const btn = document.getElementById('btn-finalizar-avaria');
+    const n = carrinho.length;
+    const temErro = carrinho.some((i) => i.estado === 'erro');
+    btn.textContent = temErro ? `TENTAR DE NOVO (${n})` : `FINALIZAR (${n})`;
+    btn.disabled = n === 0;
 }
 
-function mostrarRegistrarNormal() {
-    const box = document.getElementById('av-ja-marcada');
-    box.style.display = 'none';
-    box.innerHTML = '';
-    document.getElementById('btn-registrar-avaria').style.display = '';
+function travarChips(travar) {
+    document.querySelectorAll('#av-locais button, #av-zonas button, #av-tipos button')
+        .forEach((b) => { b.disabled = travar; });
 }
 
-// ─── Gravação — upsert único (POST /portaria/avarias) pros dois caminhos ──
-// (registrar avaria nova / confirmar uma já marcada). PIOROU e "não vi mais
-// essa" saíram desta tela (decisão do Alisson, 17/09): quem dá baixa numa
-// avaria é a funilaria, não o controlador — ver item [4] do módulo
-// Manutenção. /contestar e o "piorou" do backend continuam existindo, só
-// não têm mais gatilho aqui.
-async function gravar(btnEl) {
+function limparResultado() {
+    const el = document.getElementById('av-resultado');
+    el.textContent = '';
+    el.style.display = 'none';
+}
+
+function mostrarResultado(msg) {
+    const el = document.getElementById('av-resultado');
+    el.textContent = msg;
+    el.style.display = 'block';
+}
+
+function _diaMes(iso) {
+    if (!iso) return '—';
+    try {
+        return new Date(iso).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' });
+    } catch {
+        return iso;
+    }
+}
+
+// ─── Gravação — upsert único (POST /portaria/avarias), um item por vez ──
+// PIOROU e "não vi mais essa" saíram desta tela (decisão do Alisson, 17/09):
+// quem dá baixa numa avaria é a funilaria, não o controlador — ver item [4]
+// do módulo Manutenção. /contestar e o "piorou" do backend continuam
+// existindo, só não têm mais gatilho aqui.
+//
+// 06/11/2026 — ⛔ nada de Promise.all: são várias escritas no MESMO carro e
+// o upsert por zona+tipo não deve concorrer consigo mesmo. Sequencial, e
+// mapa/turno recarregados UMA vez no fim, não a cada item.
+async function finalizar() {
+    if (enviando) return;
     const erro = document.getElementById('av-erro');
     erro.style.display = 'none';
+    limparResultado();
 
     const prefixo = document.getElementById('av-prefixo').value.trim();
     const motoristaRe = document.getElementById('av-motorista-re').value.trim();
@@ -462,41 +604,83 @@ async function gravar(btnEl) {
         erro.style.display = 'block';
         return;
     }
-    if (!zonaAtual || !tipoAtual) {
-        erro.textContent = 'Escolha a avaria.';
+    if (carrinho.length === 0) {
+        erro.textContent = 'Escolha ao menos uma avaria.';
         erro.style.display = 'block';
         return;
     }
-    const observacao = document.getElementById('av-observacao').value.trim();
+    const linhaCodigo = linhaSelecionada ? linhaSelecionada.codigo : null;
 
-    const payload = {
-        prefixo,
-        zona_codigo: zonaAtual,
-        tipo_codigo: tipoAtual,
-        motorista_re: motoristaRe,
-        linha_codigo: linhaSelecionada ? linhaSelecionada.codigo : null,
-        observacao: observacao || null,
-    };
+    const btn = document.getElementById('btn-finalizar-avaria');
+    const fila = [...carrinho];
+    const ciclos = [];
+    let gravados = 0;
+    let sessaoExpirou = false;
 
-    if (btnEl) btnEl.disabled = true;
+    enviando = true;
+    btn.disabled = true;
+    travarChips(true);
     try {
-        const resp = await apiPost('/portaria/avarias', payload);
-        document.getElementById('av-observacao').value = '';
-        limparSelecaoAvaria();
+        for (let i = 0; i < fila.length; i++) {
+            const item = fila[i];
+            btn.textContent = `Gravando ${i + 1} de ${fila.length}…`;
+            item.estado = 'gravando';
+            item.erro = null;
+            renderCarrinho();
+            try {
+                const resp = await apiPost('/portaria/avarias', {
+                    prefixo,
+                    zona_codigo: item.zona,
+                    tipo_codigo: item.tipo,
+                    motorista_re: motoristaRe,
+                    linha_codigo: linhaCodigo,
+                    observacao: item.observacao.trim() || null,
+                });
+                item.estado = 'ok';
+                gravados++;
+                if (resp.ciclo_anterior) ciclos.push({ item, ciclo: resp.ciclo_anterior });
+            } catch (err) {
+                if (err instanceof ApiError && err.status === 401) {
+                    sessaoExpirou = true;
+                    item.estado = 'novo';
+                    break;
+                }
+                item.estado = 'erro';
+                item.erro = err.message;
+            }
+        }
+    } finally {
+        enviando = false;
+        travarChips(false);
+    }
+
+    // Gravados saem; só fica o que falhou (ou nem chegou a ir, no 401).
+    carrinho = carrinho.filter((i) => i.estado !== 'ok');
+    atualizarCarrinho();
+    if (sessaoExpirou) return;
+
+    if (gravados > 0) {
+        // Carro, RE e linha ficam — o mesmo ônibus pode receber mais.
         await carregarMapaCarro();
         await carregarUltimas();
-        if (resp.ciclo_anterior) {
-            const status = document.getElementById('av-prefixo-status');
-            const quando = _dataBr(resp.ciclo_anterior.encerrada_em);
-            const motivo = resp.ciclo_anterior.encerramento === 'REPARADA' ? 'reparado' : 'encerrado';
-            status.textContent += (status.textContent ? ' · ' : '') + `este carro já teve esse dano antes (${motivo} em ${quando}).`;
-        }
-    } catch (err) {
-        if (err instanceof ApiError && err.status === 401) return;
-        erro.textContent = err.message;
+    }
+
+    if (carrinho.length === 0) {
+        mostrarResultado(`${gravados} ${gravados === 1 ? 'avaria gravada' : 'avarias gravadas'} no carro ${prefixo}.`);
+    } else {
+        const falhas = carrinho.length;
+        erro.textContent = (gravados > 0 ? `${gravados} gravada(s). ` : '')
+            + `${falhas} não ${falhas === 1 ? 'gravou' : 'gravaram'} — confira em vermelho e toque em TENTAR DE NOVO.`;
         erro.style.display = 'block';
-    } finally {
-        if (btnEl) btnEl.disabled = false;
+    }
+
+    if (ciclos.length > 0) {
+        const status = document.getElementById('av-prefixo-status');
+        const partes = ciclos.map(({ item, ciclo }) => {
+            const motivo = ciclo.encerramento === 'REPARADA' ? 'reparado' : 'encerrado';
+            return `${_nomeZona(item.zona)} — ${_nomeTipo(item.tipo)} (${motivo} em ${_diaMes(ciclo.encerrada_em)})`;
+        });
+        status.textContent += (status.textContent ? ' · ' : '') + `este carro já teve antes: ${partes.join('; ')}.`;
     }
 }
 
@@ -683,10 +867,15 @@ function fecharDetalhe() {
     document.getElementById('av-modal-detalhe').classList.remove('open');
 }
 
-// ─── Registrar ───────────────────────────────────────────────────────────
-function initRegistrar() {
-    document.getElementById('btn-registrar-avaria').addEventListener('click', (e) => {
-        gravar(e.currentTarget);
+// ─── Finalizar ───────────────────────────────────────────────────────────
+function initFinalizar() {
+    document.getElementById('btn-finalizar-avaria').addEventListener('click', finalizar);
+    // Sair (← Voltar, fechar aba) com item NÃO gravado pede confirmação.
+    // Fora isso, nenhum aviso.
+    window.addEventListener('beforeunload', (e) => {
+        if (!carrinho.some((i) => i.estado !== 'ok')) return;
+        e.preventDefault();
+        e.returnValue = '';
     });
 }
 
@@ -697,7 +886,7 @@ async function bootstrap() {
     initHistorico();
     initLinha();
     initIdentificacao();
-    initRegistrar();
+    initFinalizar();
     document.getElementById('av-prefixo').addEventListener('blur', carregarMapaCarro);
 
     try {
@@ -707,6 +896,7 @@ async function bootstrap() {
         catalogo = { zonas: [], tipos: [] };
     }
     renderLocais();
+    atualizarCarrinho();
 
     try {
         linhasCache = await apiGet('/portaria/catalogo/linhas');
