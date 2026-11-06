@@ -329,6 +329,21 @@ async function iniciarSaidaDaLista(mov) {
 }
 
 // ─── Busca (placa/RE/nome) ──────────────────────────────────────────────
+// Resposta atrasada (06/11/2026, reproduzido pelo Alisson): cadastrado
+// FOO9G98, digitado foo9g96. O controlador para em "foo9g9" por mais de
+// 250 ms e a busca FOO9G9 sai; digita o "6", a tela esconde os resultados e
+// agenda FOO9G96 — mas a resposta VELHA de FOO9G9 chega depois e desenhava
+// FOO9G98 na lista; logo em seguida a de FOO9G96 (vazia) abria "Veículo não
+// cadastrado". Parecia que o match exato do backend estava quebrado — não
+// estava. Cada busca agora leva um número (buscaSeq) e só a última pinta a
+// tela; toda digitação também avança o número, invalidando a que estiver em
+// voo mesmo quando nenhuma busca nova sai (campo apagado).
+let buscaSeq = 0;
+
+function _termoDoCampoBusca() {
+    return document.getElementById('portaria-busca').value.trim();
+}
+
 function initBusca() {
     const input = document.getElementById('portaria-busca');
     let handle = null;
@@ -338,10 +353,11 @@ function initBusca() {
         origemProximaConfirmacao = 'MANUAL';
         placaLidaBrutaAtual = null;
         clearTimeout(handle);
-        const termo = input.value.trim();
+        buscaSeq++;
+        const termo = _termoDoCampoBusca();
         esconderResultadosBusca();
         if (termo.length < 1) return;
-        handle = setTimeout(() => executarBusca(termo), 250);
+        handle = setTimeout(() => executarBusca(termo, { conferirCampo: true }), 250);
     });
 }
 
@@ -356,9 +372,18 @@ function limparBusca() {
     esconderResultadosBusca();
 }
 
-async function executarBusca(termo) {
+// conferirCampo: só a busca digitada confere o texto do #portaria-busca —
+// a leitura por câmera (confirmarPlacaLida) chama esta mesma função com a
+// placa lida, que não está no campo, e não pode ser descartada por isso.
+async function executarBusca(termo, { conferirCampo = false } = {}) {
+    const minhaSeq = ++buscaSeq;
+    // Descarte silencioso: chegou depois de outra busca ou de nova
+    // digitação, ou o campo já não diz mais o termo que gerou esta busca.
+    const obsoleta = () => minhaSeq !== buscaSeq
+        || (conferirCampo && _termoDoCampoBusca() !== termo);
     try {
         const resp = await apiGet(`/portaria/buscar?q=${encodeURIComponent(termo)}`);
+        if (obsoleta()) return;
         if (resp.exato && resp.candidatos.length === 1) {
             abrirConfirmacaoParaCandidato(resp.candidatos[0]);
             return;
@@ -374,6 +399,8 @@ async function executarBusca(termo) {
         renderCandidatos(resp.candidatos);
     } catch (err) {
         if (err instanceof ApiError && err.status === 401) return;
+        // Erro de busca velha segue a mesma regra: não mostra nada.
+        if (obsoleta()) return;
         mostrarErroTopo('Erro na busca: ' + err.message);
     }
 }
