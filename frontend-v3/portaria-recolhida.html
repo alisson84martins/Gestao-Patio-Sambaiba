@@ -88,14 +88,27 @@
         <div id="rec-defeito-selecionado" class="portaria-ficha-linha"></div>
     </div>
 
+    <!-- 08/11/2026 — carrinho de defeitos, mesmo padrão da avaria
+         (portaria-avaria.html): vários defeitos, observação por defeito.
+         Diferente da avaria, o FINALIZAR grava UMA recolhida com a lista
+         (migration 052) — 1 RA na fila, 1 ficha por defeito. -->
+    <div class="recolhida-campo" id="rec-carrinho-campo">
+        <label class="form-label">Escolhidos</label>
+        <div id="rec-carrinho" class="avaria-carrinho"></div>
+    </div>
+
     <div class="recolhida-campo">
         <label class="form-label" for="rec-relato">Relato (opcional)</label>
         <textarea class="form-input form-textarea" id="rec-relato" rows="1"></textarea>
     </div>
 
-    <div id="rec-erro" style="display:none;color:var(--accent);font-size:0.85rem;margin-bottom:10px"></div>
-
-    <button type="button" class="btn btn-primary btn-full" id="btn-registrar-recolhida">REGISTRAR</button>
+    <!-- Rodapé sticky: FINALIZAR não some atrás do teclado do Android
+         (mesmo .avaria-rodape da tela de avaria). -->
+    <div class="avaria-rodape">
+        <div id="rec-erro" style="display:none;color:var(--accent);font-size:0.85rem;margin-bottom:8px"></div>
+        <div id="rec-resultado" class="avaria-resultado" style="display:none"></div>
+        <button type="button" class="btn btn-primary btn-full" id="btn-registrar-recolhida" disabled>FINALIZAR (0)</button>
+    </div>
 
     <section class="portaria-secao" style="margin-top:24px">
         <div class="portaria-secao-titulo">Suas últimas recolhidas</div>

@@ -41,6 +41,7 @@ def abrir_ficha_de_recolhida(
     motorista_id: Optional[UUID],
     tipo_defeito_codigo: str,
     relato: Optional[str],
+    observacao: Optional[str] = None,
 ) -> tuple[Optional[UUID], Optional[str]]:
     """Devolve (ficha_id, motivo_falha). Nunca propaga exceção — falhou por
     qualquer motivo, devolve (None, motivo) e quem chamou segue salvando a
@@ -58,7 +59,10 @@ def abrir_ficha_de_recolhida(
             if tipo_defeito is None:
                 raise ValueError(f"Tipo de defeito '{tipo_defeito_codigo}' não encontrado no catálogo.")
 
-            descricao = "[Recolhida anormal]" + (f" {relato}" if relato else "")
+            # Migration 052: a observação é DESTE defeito; o relato é da
+            # recolhida inteira (vai em todas as fichas dela).
+            partes = [p for p in (observacao, relato) if p]
+            descricao = "[Recolhida anormal]" + (f" {' — '.join(partes)}" if partes else "")
             ficha = FichaManutencao(
                 onibus_id=onibus_id,
                 motorista_id=motorista_id,

@@ -49,7 +49,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from app.core.config import FUSO_OPERACAO
 from app.core.database import get_db
@@ -58,7 +58,7 @@ from app.core.registro import normalizar_re
 from app.models.cadastro import Funcionario
 from app.models.operacoes import Escala
 from app.models.pessoas import Motorista
-from app.models.portaria import RecolhidaAnormal
+from app.models.portaria import RecolhidaAnormal, RecolhidaDefeito
 from app.schemas.portaria import (
     ContagemPendentesResponse, RecolhidaAnaliseItem, RecolhidaAnaliseResponse,
     RecolhidaAvaliacaoRequest, RecolhidaCreate, RecolhidaEncerramentoRequest,
@@ -205,6 +205,7 @@ _STATUS_PENDENTES = ("AGUARDANDO", "AVALIADA")
 def listar_pendentes(usuario: LeituraTratativa, db: Annotated[Session, Depends(get_db)]):
     return db.execute(
         select(RecolhidaAnormal)
+        .options(selectinload(RecolhidaAnormal.defeitos))
         .where(RecolhidaAnormal.status.in_(_STATUS_PENDENTES))
         .order_by(RecolhidaAnormal.momento.desc())
     ).scalars().all()
@@ -233,7 +234,7 @@ def listar_gerencial(
     status_filtro: Optional[StatusRecolhida] = Query(None, alias="status"),
     data: Optional[date] = None,
 ):
-    stmt = select(RecolhidaAnormal)
+    stmt = select(RecolhidaAnormal).options(selectinload(RecolhidaAnormal.defeitos))
     if status_filtro:
         stmt = stmt.where(RecolhidaAnormal.status == status_filtro)
     if data:
@@ -253,7 +254,7 @@ def analise_recolhidas(
     data_inicio: Optional[date] = None,
     data_fim: Optional[date] = None,
 ):
-    stmt = select(RecolhidaAnormal)
+    stmt = select(RecolhidaAnormal).options(selectinload(RecolhidaAnormal.defeitos))
     if data_inicio:
         stmt = stmt.where(RecolhidaAnormal.data_referencia >= data_inicio)
     if data_fim:
@@ -274,7 +275,14 @@ def analise_recolhidas(
     por_motorista = Counter(
         f"{r.motorista_re} · {r.motorista_nome}" for r in linhas if r.motorista_re
     )
-    por_tipo_defeito = Counter(r.tipo_defeito_codigo for r in linhas if r.tipo_defeito_codigo)
+    # Migration 052: conta cada defeito da recolhida (carro com elétrica E
+    # pneu soma 1 em cada). Recolhida antiga sem linha filha usa o campo único.
+    por_tipo_defeito = Counter()
+    for r in linhas:
+        if r.defeitos:
+            por_tipo_defeito.update(d.tipo_defeito_codigo for d in r.defeitos)
+        elif r.tipo_defeito_codigo:
+            por_tipo_defeito[r.tipo_defeito_codigo] += 1
     por_faixa_horario = Counter(_faixa_horario(r.momento) for r in linhas)
     # Bloco G — separa problema de frota (DEFEITO/COLISAO) de problema de
     # escala (FALTA_MOTORISTA/FALTA_COBRADOR).
@@ -335,14 +343,32 @@ def registrar_recolhida(
     # 🔧 Bloco G: só motivo=DEFEITO abre ficha de manutenção automática —
     # os demais (colisão, falta de motorista/cobrador, outro) não são
     # ordem de serviço; isso não é falha, é o comportamento correto.
+    #
+    # Migration 052 (08/11/2026): UMA ficha POR DEFEITO — elétrica e pneu
+    # podem ir pra equipes diferentes. Cada ficha falha sozinha (regra
+    # número um): a que não nasceu fica com o motivo na própria linha.
+    defeitos: list[RecolhidaDefeito] = []
     if payload.motivo == "DEFEITO":
-        ficha_id, ficha_falhou_motivo = abrir_ficha_de_recolhida(
-            db,
-            onibus_id=onibus.id if onibus is not None else None,
-            motorista_id=motorista_id_para_ficha,
-            tipo_defeito_codigo=payload.tipo_defeito_codigo,
-            relato=payload.relato,
-        )
+        for ordem, item in enumerate(payload.defeitos, start=1):
+            fid, falha = abrir_ficha_de_recolhida(
+                db,
+                onibus_id=onibus.id if onibus is not None else None,
+                motorista_id=motorista_id_para_ficha,
+                tipo_defeito_codigo=item.tipo_defeito_codigo,
+                relato=payload.relato,
+                observacao=item.observacao,
+            )
+            defeitos.append(RecolhidaDefeito(
+                ordem=ordem,
+                tipo_defeito_codigo=item.tipo_defeito_codigo,
+                observacao=item.observacao,
+                ficha_id=fid,
+                ficha_falhou_motivo=falha,
+            ))
+        # Compatibilidade: o 1º defeito também mora nos campos únicos.
+        ficha_id = defeitos[0].ficha_id
+        falhas = [f"{d.tipo_defeito_codigo}: {d.ficha_falhou_motivo}" for d in defeitos if d.ficha_falhou_motivo]
+        ficha_falhou_motivo = " | ".join(falhas) if falhas else None
     else:
         ficha_id, ficha_falhou_motivo = None, f"motivo {payload.motivo} — não gera ordem de serviço."
 
@@ -362,6 +388,7 @@ def registrar_recolhida(
         ficha_id=ficha_id,
         ficha_falhou_motivo=ficha_falhou_motivo,
         registrado_por=usuario.id,
+        defeitos=defeitos,
     )
     db.add(nova)
 
@@ -393,7 +420,7 @@ def listar_recolhidas(
     status_filtro: Optional[StatusRecolhida] = Query(None, alias="status"),
     data: Optional[date] = None,
 ):
-    stmt = select(RecolhidaAnormal)
+    stmt = select(RecolhidaAnormal).options(selectinload(RecolhidaAnormal.defeitos))
     if status_filtro:
         stmt = stmt.where(RecolhidaAnormal.status == status_filtro)
     if data:
@@ -458,9 +485,17 @@ def encerrar_recolhida(
             status.HTTP_409_CONFLICT, detail=f"Recolhida está {recolhida.status}, não pode ser encerrada.",
         )
 
-    ficha_falhou_motivo = encerrar_ficha_de_recolhida(
-        db, ficha_id=recolhida.ficha_id, desfecho=payload.desfecho,
-    )
+    # Migration 052: fecha a ficha de CADA defeito. Recolhida antiga sem
+    # linha filha cai no ficha_id único, como antes.
+    fichas = [d.ficha_id for d in recolhida.defeitos if d.ficha_id] if recolhida.defeitos else []
+    if not fichas and recolhida.ficha_id:
+        fichas = [recolhida.ficha_id]
+    falhas_encerramento = [
+        f for f in (
+            encerrar_ficha_de_recolhida(db, ficha_id=fid, desfecho=payload.desfecho) for fid in fichas
+        ) if f
+    ]
+    ficha_falhou_motivo = " | ".join(falhas_encerramento) if falhas_encerramento else None
     # Regra número um: nada do lado da ficha impede o encerramento da RA —
     # só sobrescreve ficha_falhou_motivo quando a atualização falhou de
     # verdade; sucesso ou ficha_id nulo (encerrar_ficha_de_recolhida

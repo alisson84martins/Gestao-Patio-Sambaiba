@@ -14,6 +14,16 @@
  * 🔧 Bloco G: motivo vem antes do defeito — só motivo=DEFEITO mostra a
  * seção de categoria/tipo de defeito.
  *
+ * 08/11/2026 — decisão do Alisson: carro que recolhe com elétrica E pneu
+ * não pode perder um dos dois. Mesmo princípio do carrinho da avaria
+ * (portaria-avaria.page.js): o 2º toque (tipo) liga/desliga o defeito,
+ * trocar de categoria não apaga nada, chip de categoria mostra contador,
+ * cada defeito tem observação própria, FINALIZAR (N) no rodapé sticky e
+ * aviso ao sair com defeito não gravado. ⛔ Diferença deliberada da
+ * avaria: aqui é UM POST com a lista (`defeitos`, migration 052) — o carro
+ * recolheu uma vez, então é 1 recolhida (1 RA na fila da Manutenção, 1 na
+ * conta do motorista) com N defeitos, e o backend abre 1 ficha por defeito.
+ *
  * 🔴 Regra número um: POST /portaria/recolhidas sempre registra (201) —
  * prefixo não cadastrado, sem escala, ficha que não nasceu, nada disso
  * bloqueia o registro.
@@ -48,7 +58,11 @@ const MOTIVOS = [
 
 let tiposDefeitoCache = null;
 let linhasCache = null;
-let tipoSelecionado = null;    // { codigo, nome } do catálogo tipo_defeito
+let categoriaAtual = null;     // categoria com os tipos abertos agora (não é o carrinho)
+// Carrinho (08/11/2026): defeitos escolhidos e ainda não gravados.
+// { codigo, nome, categoria, observacao }
+let carrinho = [];
+let enviando = false;
 let linhaSelecionada = null;   // { codigo, nome } do catálogo linha
 let motivoSelecionado = 'DEFEITO';
 
@@ -195,6 +209,7 @@ function renderMotivos() {
 }
 
 function selecionarMotivo(codigo, btnAtivo) {
+    if (enviando) return;
     motivoSelecionado = codigo;
     document.querySelectorAll('#rec-motivos .recolhida-chip').forEach((b) => b.classList.remove('active'));
     btnAtivo.classList.add('active');
@@ -202,11 +217,15 @@ function selecionarMotivo(codigo, btnAtivo) {
 }
 
 function atualizarVisibilidadeDefeito() {
-    document.getElementById('rec-defeito-campo').style.display =
-        motivoSelecionado === 'DEFEITO' ? 'block' : 'none';
+    const ehDefeito = motivoSelecionado === 'DEFEITO';
+    document.getElementById('rec-defeito-campo').style.display = ehDefeito ? 'block' : 'none';
+    // ⛔ O carrinho NÃO é apagado ao trocar de motivo (o controlador pode ter
+    // tocado errado) — só fica escondido e não vai no envio.
+    document.getElementById('rec-carrinho-campo').style.display = ehDefeito ? 'block' : 'none';
+    atualizarBotao();
 }
 
-// ─── Defeito — dois toques: categoria, depois tipo ──────────────────────
+// ─── Defeito — CATEGORIA (1º toque) → TIPO (2º toque liga/desliga) ──────
 function renderCategorias() {
     const el = document.getElementById('rec-categorias');
     el.innerHTML = '';
@@ -214,40 +233,180 @@ function renderCategorias() {
         const btn = document.createElement('button');
         btn.type = 'button';
         btn.className = 'recolhida-chip';
-        btn.textContent = cat.label;
+        btn.dataset.categoria = cat.codigo;
+        btn.dataset.rotulo = cat.label;
         btn.addEventListener('click', () => selecionarCategoria(cat.codigo, btn));
         el.appendChild(btn);
     }
+    atualizarContadores();
 }
 
 function selecionarCategoria(codigo, btnAtivo) {
+    if (enviando) return;
+    categoriaAtual = codigo;
     document.querySelectorAll('#rec-categorias .recolhida-chip').forEach((b) => b.classList.remove('active'));
     btnAtivo.classList.add('active');
-
-    tipoSelecionado = null;
+    // Trocar de categoria fecha os tipos abertos, mas ⛔ nunca mexe no carrinho.
     atualizarDefeitoSelecionado();
+    renderTipos();
+}
 
+function renderTipos() {
     const el = document.getElementById('rec-tipos');
     el.innerHTML = '';
-    const tipos = (tiposDefeitoCache || []).filter((t) => t.categoria === codigo && t.ativo);
+    if (!categoriaAtual) return;
+    const tipos = (tiposDefeitoCache || []).filter((t) => t.categoria === categoriaAtual && t.ativo);
     for (const tipo of tipos) {
         const btn = document.createElement('button');
         btn.type = 'button';
         btn.className = 'recolhida-chip';
+        btn.dataset.tipo = tipo.codigo;
         btn.textContent = tipo.nome;
-        btn.addEventListener('click', () => {
-            tipoSelecionado = tipo;
-            atualizarDefeitoSelecionado();
-            el.querySelectorAll('.recolhida-chip').forEach((b) => b.classList.remove('active'));
-            btn.classList.add('active');
-        });
+        btn.addEventListener('click', () => alternarTipo(tipo));
         el.appendChild(btn);
     }
+    atualizarTiposAtivos();
+}
+
+function _labelCategoria(codigo) {
+    const cat = CATEGORIAS.find((c) => c.codigo === codigo);
+    return cat ? cat.label : codigo;
+}
+
+function _nomeTipo(codigo) {
+    const tipo = (tiposDefeitoCache || []).find((t) => t.codigo === codigo);
+    return tipo ? tipo.nome : codigo;
 }
 
 function atualizarDefeitoSelecionado() {
     document.getElementById('rec-defeito-selecionado').textContent =
-        tipoSelecionado ? tipoSelecionado.nome : '';
+        categoriaAtual ? _labelCategoria(categoriaAtual) : '';
+}
+
+// ─── Carrinho (08/11/2026) — mesmo comportamento da avaria ─────────────
+// 2º toque liga/desliga o defeito — ⛔ o mesmo defeito nunca entra duas
+// vezes (o banco tem uq_recolhida_defeito_tipo).
+function alternarTipo(tipo) {
+    if (enviando) return;
+    const existente = carrinho.find((i) => i.codigo === tipo.codigo);
+    if (existente) {
+        carrinho = carrinho.filter((i) => i !== existente);
+    } else {
+        carrinho.push({ codigo: tipo.codigo, nome: tipo.nome, categoria: tipo.categoria, observacao: '' });
+    }
+    limparResultado();
+    atualizarCarrinho();
+}
+
+function removerDoCarrinho(item) {
+    if (enviando) return;
+    carrinho = carrinho.filter((i) => i !== item);
+    limparResultado();
+    atualizarCarrinho();
+}
+
+function atualizarCarrinho() {
+    atualizarTiposAtivos();
+    atualizarContadores();
+    renderCarrinho();
+    atualizarBotao();
+}
+
+function atualizarTiposAtivos() {
+    document.querySelectorAll('#rec-tipos .recolhida-chip').forEach((b) => {
+        b.classList.toggle('active', carrinho.some((i) => i.codigo === b.dataset.tipo));
+    });
+}
+
+// Contador no chip de CATEGORIA (ex.: "Elétrica · 2") — mesmas classes da avaria.
+function atualizarContadores() {
+    document.querySelectorAll('#rec-categorias .recolhida-chip').forEach((btn) => {
+        const n = carrinho.filter((i) => i.categoria === btn.dataset.categoria).length;
+        btn.textContent = btn.dataset.rotulo;
+        if (n > 0) {
+            const contador = document.createElement('span');
+            contador.className = 'avaria-chip-contador';
+            contador.textContent = ` · ${n}`;
+            btn.appendChild(contador);
+        }
+        btn.classList.toggle('avaria-chip-com-itens', n > 0);
+    });
+}
+
+function renderCarrinho() {
+    const el = document.getElementById('rec-carrinho');
+    el.innerHTML = '';
+    if (carrinho.length === 0) {
+        el.innerHTML = '<div class="oc-vazio">Nenhum defeito escolhido ainda.</div>';
+        return;
+    }
+    for (const item of carrinho) {
+        const div = document.createElement('div');
+        div.className = 'avaria-carrinho-item';
+
+        const cabeca = document.createElement('div');
+        cabeca.className = 'avaria-carrinho-cabeca';
+        const textos = document.createElement('div');
+        textos.className = 'avaria-carrinho-textos';
+        const titulo = document.createElement('div');
+        titulo.className = 'avaria-carrinho-titulo';
+        titulo.textContent = `${_labelCategoria(item.categoria)} — ${item.nome}`;
+        textos.appendChild(titulo);
+        cabeca.appendChild(textos);
+
+        const remover = document.createElement('button');
+        remover.type = 'button';
+        remover.className = 'avaria-carrinho-remover';
+        remover.textContent = '✕';
+        remover.setAttribute('aria-label', 'Remover');
+        remover.disabled = enviando;
+        remover.addEventListener('click', () => removerDoCarrinho(item));
+        cabeca.appendChild(remover);
+        div.appendChild(cabeca);
+
+        const obs = document.createElement('input');
+        obs.type = 'text';
+        obs.className = 'form-input avaria-carrinho-obs';
+        obs.autocomplete = 'off';
+        obs.placeholder = item.categoria === 'outros' ? 'Descreva o defeito' : 'Observação (opcional)';
+        obs.value = item.observacao;
+        obs.readOnly = enviando;
+        obs.addEventListener('input', () => { item.observacao = obs.value; });
+        div.appendChild(obs);
+
+        el.appendChild(div);
+    }
+}
+
+// Motivo DEFEITO: FINALIZAR (N), travado com carrinho vazio. Outros motivos
+// não têm defeito: FINALIZAR liberado.
+function atualizarBotao() {
+    if (enviando) return;
+    const btn = document.getElementById('btn-registrar-recolhida');
+    if (motivoSelecionado === 'DEFEITO') {
+        btn.textContent = `FINALIZAR (${carrinho.length})`;
+        btn.disabled = carrinho.length === 0;
+    } else {
+        btn.textContent = 'FINALIZAR';
+        btn.disabled = false;
+    }
+}
+
+function travarChips(travar) {
+    document.querySelectorAll('#rec-motivos button, #rec-categorias button, #rec-tipos button')
+        .forEach((b) => { b.disabled = travar; });
+}
+
+function limparResultado() {
+    const el = document.getElementById('rec-resultado');
+    el.textContent = '';
+    el.style.display = 'none';
+}
+
+function mostrarResultado(msg) {
+    const el = document.getElementById('rec-resultado');
+    el.textContent = msg;
+    el.style.display = 'block';
 }
 
 async function carregarCatalogos() {
@@ -263,6 +422,8 @@ async function carregarCatalogos() {
         linhasCache = linhasCache || [];
     }
     renderCategorias();
+    renderTipos();
+    renderCarrinho();
 }
 
 // ─── Registrar ───────────────────────────────────────────────────────────
@@ -271,8 +432,10 @@ function initRegistrar() {
 }
 
 async function registrar() {
+    if (enviando) return;
     const erro = document.getElementById('rec-erro');
     erro.style.display = 'none';
+    limparResultado();
 
     const prefixo = document.getElementById('rec-prefixo').value.trim();
     if (!prefixo) {
@@ -280,34 +443,54 @@ async function registrar() {
         erro.style.display = 'block';
         return;
     }
-    if (motivoSelecionado === 'DEFEITO' && !tipoSelecionado) {
-        erro.textContent = 'Escolha o defeito.';
+    const ehDefeito = motivoSelecionado === 'DEFEITO';
+    if (ehDefeito && carrinho.length === 0) {
+        erro.textContent = 'Escolha ao menos um defeito.';
         erro.style.display = 'block';
         return;
     }
 
     const btn = document.getElementById('btn-registrar-recolhida');
+    const n = carrinho.length;
+    enviando = true;
     btn.disabled = true;
+    btn.textContent = 'Gravando…';
+    travarChips(true);
+    renderCarrinho();
     try {
+        // UM POST só com a lista — 1 recolhida, N defeitos (migration 052).
         await apiPost('/portaria/recolhidas', {
             prefixo,
             linha_codigo: linhaSelecionada ? linhaSelecionada.codigo : null,
             motivo: motivoSelecionado,
-            tipo_defeito_codigo: motivoSelecionado === 'DEFEITO' ? tipoSelecionado.codigo : null,
+            defeitos: ehDefeito
+                ? carrinho.map((i) => ({ tipo_defeito_codigo: i.codigo, observacao: i.observacao.trim() || null }))
+                : [],
             relato: document.getElementById('rec-relato').value.trim() || null,
             motorista_re: document.getElementById('rec-motorista-re').value.trim() || null,
             motorista_nome: document.getElementById('rec-motorista-nome').value.trim() || null,
             cobrador_re: document.getElementById('rec-cobrador-re').value.trim() || null,
             cobrador_nome: document.getElementById('rec-cobrador-nome').value.trim() || null,
         });
+        enviando = false;
+        travarChips(false);
         limparFormulario();
+        mostrarResultado(ehDefeito
+            ? `Recolhida do carro ${prefixo} registrada com ${n} ${n === 1 ? 'defeito' : 'defeitos'}.`
+            : `Recolhida do carro ${prefixo} registrada.`);
         await carregarUltimas();
     } catch (err) {
+        enviando = false;
+        travarChips(false);
+        renderCarrinho();
         if (err instanceof ApiError && err.status === 401) return;
-        erro.textContent = err.message;
+        // ⛔ Nada sai do carrinho: tudo continua na tela pra TENTAR DE NOVO.
+        erro.textContent = `Não gravou: ${err.message}`;
         erro.style.display = 'block';
+        atualizarBotao();
+        if (ehDefeito) btn.textContent = `TENTAR DE NOVO (${n})`;
     } finally {
-        btn.disabled = false;
+        enviando = false;
     }
 }
 
@@ -330,8 +513,10 @@ function limparFormulario() {
     renderMotivos();
     document.querySelectorAll('#rec-categorias .recolhida-chip').forEach((b) => b.classList.remove('active'));
     document.getElementById('rec-tipos').innerHTML = '';
-    tipoSelecionado = null;
+    categoriaAtual = null;
+    carrinho = [];
     atualizarDefeitoSelecionado();
+    atualizarCarrinho();
     document.getElementById('rec-relato').value = '';
     document.getElementById('rec-prefixo').focus();
 }
@@ -362,7 +547,12 @@ async function carregarUltimas() {
             div.className = 'portaria-item';
             div.style.marginBottom = '8px';
             div.style.cursor = 'default';
-            const sub = [r.motivo, r.tipo_defeito_codigo, r.linha_codigo].filter(Boolean).join(' · ');
+            // Migration 052: todos os defeitos; recolhida antiga cai no campo único.
+            const codigos = (r.defeitos && r.defeitos.length)
+                ? r.defeitos.map((d) => d.tipo_defeito_codigo)
+                : [r.tipo_defeito_codigo].filter(Boolean);
+            const defeitosTxt = codigos.map(_nomeTipo).join(', ');
+            const sub = [r.motivo, defeitosTxt, r.linha_codigo].filter(Boolean).join(' · ');
             div.innerHTML = `
                 <div>
                     <div class="portaria-item-placa">${escapeHtml(r.prefixo)}</div>
@@ -378,8 +568,18 @@ async function carregarUltimas() {
     }
 }
 
+// Aviso ao sair com defeito escolhido e não gravado (mesmo da avaria).
+function initAvisoSaida() {
+    window.addEventListener('beforeunload', (e) => {
+        if (carrinho.length === 0) return;
+        e.preventDefault();
+        e.returnValue = '';
+    });
+}
+
 // ─── Bootstrap ───────────────────────────────────────────────────────────
 initHeader();
+initAvisoSaida();
 initPrefixo();
 initIdentificacao();
 initLinha();

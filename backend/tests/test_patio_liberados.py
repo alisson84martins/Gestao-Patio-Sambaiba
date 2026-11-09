@@ -35,7 +35,7 @@ from app.models.catalogos import TipoDefeito
 from app.models.enums import StatusFichaEnum, TipoFilaEnum
 from app.models.frota import AlocacaoPatio, Fila
 from app.models.operacoes import FichaManutencao
-from app.models.portaria import RecolhidaAnormal
+from app.models.portaria import RecolhidaAnormal, RecolhidaDefeito
 from app.routers import patio as patio_router_mod
 from app.routers.patio import _inicio_ciclo_servico
 from app.routers.alocacoes import get_data_servico
@@ -52,7 +52,7 @@ _TABELAS = [
     AlocacaoPatio.__table__,
     TipoDefeito.__table__,
     FichaManutencao.__table__,
-    RecolhidaAnormal.__table__,
+    RecolhidaAnormal.__table__, RecolhidaDefeito.__table__,
 ]
 
 # onibus.setor é coluna gerada no PostgreSQL — o create_all do SQLite não

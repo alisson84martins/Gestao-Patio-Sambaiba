@@ -9,7 +9,7 @@ from datetime import date, datetime
 from typing import Literal, Optional
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from app.core.placa import PlacaNormalizada, PlacaNormalizadaOpcional
 from app.core.registro import ReNormalizado, ReNormalizadoObrigatorio
@@ -554,6 +554,35 @@ OrigemIdentificacaoRecolhida = Literal["PORTARIA", "ESCALA", "NAO_INFORMADO"]
 MotivoRecolhida = Literal["DEFEITO", "COLISAO", "FALTA_MOTORISTA", "FALTA_COBRADOR", "OUTRO"]
 
 
+class RecolhidaDefeitoCreate(BaseModel):
+    """Um item do carrinho de defeitos da recolhida (migration 052)."""
+
+    tipo_defeito_codigo: str = Field(..., min_length=1, max_length=20)
+    observacao: Optional[str] = None
+
+    @field_validator("tipo_defeito_codigo")
+    @classmethod
+    def _limpa_codigo(cls, v: str) -> str:
+        v = v.strip()
+        if not v:
+            raise ValueError("tipo_defeito_codigo vazio.")
+        return v
+
+    @field_validator("observacao")
+    @classmethod
+    def _limpa_obs(cls, v: Optional[str]) -> Optional[str]:
+        v = (v or "").strip()
+        return v or None
+
+
+class RecolhidaDefeitoRead(ORMBase):
+    ordem: int
+    tipo_defeito_codigo: str
+    observacao: Optional[str] = None
+    ficha_id: Optional[UUID] = None
+    ficha_falhou_motivo: Optional[str] = None
+
+
 class RecolhidaCreate(BaseModel):
     """POST /portaria/recolhidas.
 
@@ -568,6 +597,12 @@ class RecolhidaCreate(BaseModel):
 
     tipo_defeito_codigo só é obrigatório quando motivo=DEFEITO (Bloco G).
 
+    Migration 052 (08/11/2026): `defeitos` traz VÁRIOS defeitos numa
+    recolhida só, cada um com observação própria (tela em carrinho, igual à
+    avaria). `tipo_defeito_codigo` sozinho continua aceito (cliente antigo)
+    e vira uma lista de um. O validador normaliza os dois jeitos: depois
+    dele, `defeitos` é a fonte e `tipo_defeito_codigo` é o 1º da lista.
+
     🔑 §5.2b: SEM local_codigo — recolhida anormal é sempre de coletivo
     (prefixo/frota), e coletivo sempre entra pelo mesmo portão. O portão é
     consequência de o veículo ser coletivo, não uma classificação própria.
@@ -577,6 +612,7 @@ class RecolhidaCreate(BaseModel):
     linha_codigo: Optional[str] = Field(None, max_length=20)
     motivo: MotivoRecolhida = "DEFEITO"
     tipo_defeito_codigo: Optional[str] = Field(None, max_length=20)
+    defeitos: list[RecolhidaDefeitoCreate] = Field(default_factory=list, max_length=20)
     relato: Optional[str] = None
 
     motorista_re: ReNormalizado = Field(None, max_length=20)
@@ -586,8 +622,26 @@ class RecolhidaCreate(BaseModel):
 
     @model_validator(mode="after")
     def _tipo_defeito_obrigatorio_quando_defeito(self) -> "RecolhidaCreate":
-        if self.motivo == "DEFEITO" and not (self.tipo_defeito_codigo or "").strip():
-            raise ValueError("tipo_defeito_codigo é obrigatório quando motivo=DEFEITO.")
+        if self.motivo != "DEFEITO":
+            # Colisão/falta/outro não têm defeito — descarta o que vier.
+            self.tipo_defeito_codigo = None
+            self.defeitos = []
+            return self
+
+        # Mesmo defeito duas vezes não entra (uq_recolhida_defeito_tipo).
+        vistos: set[str] = set()
+        lista: list[RecolhidaDefeitoCreate] = []
+        for d in self.defeitos:
+            if d.tipo_defeito_codigo not in vistos:
+                vistos.add(d.tipo_defeito_codigo)
+                lista.append(d)
+        legado = (self.tipo_defeito_codigo or "").strip()
+        if not lista and legado:
+            lista = [RecolhidaDefeitoCreate(tipo_defeito_codigo=legado)]
+        if not lista:
+            raise ValueError("Escolha ao menos um defeito quando motivo=DEFEITO.")
+        self.defeitos = lista
+        self.tipo_defeito_codigo = lista[0].tipo_defeito_codigo
         return self
 
 
@@ -602,6 +656,8 @@ class RecolhidaRead(ORMBase):
     linha_codigo: Optional[str] = None
     motivo: MotivoRecolhida
     tipo_defeito_codigo: Optional[str] = None
+    # Migration 052 — lista completa; o 1º é o mesmo de tipo_defeito_codigo.
+    defeitos: list[RecolhidaDefeitoRead] = Field(default_factory=list)
     relato: Optional[str] = None
     ficha_id: Optional[UUID] = None
     ficha_falhou_motivo: Optional[str] = None

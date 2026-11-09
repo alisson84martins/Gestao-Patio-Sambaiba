@@ -33,6 +33,28 @@ const MOTIVO_LABEL = {
     OUTRO: 'Outro',
 };
 
+// Migration 052 (08/11/2026) — a recolhida pode ter VÁRIOS defeitos, cada
+// um com observação e ficha próprias. Recolhida antiga (sem a lista) cai no
+// campo único tipo_defeito_codigo.
+function _defeitos(r) {
+    if (r.defeitos && r.defeitos.length) return r.defeitos;
+    return r.tipo_defeito_codigo ? [{ tipo_defeito_codigo: r.tipo_defeito_codigo, ficha_id: r.ficha_id }] : [];
+}
+
+// Lista curta: "ELE_PAINEL, PNEU_FURADO".
+function _defeitosCurto(r) {
+    return _defeitos(r).map((d) => d.tipo_defeito_codigo).join(', ');
+}
+
+// Modal: "Defeito — ELE_PAINEL (Painel apagou); PNEU_FURADO".
+function _defeitosModal(r) {
+    const motivo = MOTIVO_LABEL[r.motivo] || r.motivo;
+    const lista = _defeitos(r)
+        .map((d) => d.tipo_defeito_codigo + (d.observacao ? ` (${d.observacao})` : ''))
+        .join('; ');
+    return lista ? `${motivo} — ${lista}` : motivo;
+}
+
 // Migration 032 — rótulos em português corrido na tela, nunca os códigos.
 const DESFECHO_LABEL = {
     SEM_DEFEITO: 'Sem defeito',
@@ -112,7 +134,7 @@ function renderAbertas(itens) {
         btn.type = 'button';
         btn.className = 'portaria-item';
         btn.style.marginBottom = '8px';
-        const sub = [MOTIVO_LABEL[r.motivo] || r.motivo, r.tipo_defeito_codigo, r.linha_codigo]
+        const sub = [MOTIVO_LABEL[r.motivo] || r.motivo, _defeitosCurto(r), r.linha_codigo]
             .filter(Boolean).join(' · ');
         const situacao = r.status === 'AGUARDANDO' ? 'Falta avaliar' : 'Falta encerrar';
         btn.innerHTML = `
@@ -149,7 +171,7 @@ function renderEncerradas(itens) {
         return;
     }
     el.innerHTML = itens.map((r) => {
-        const sub = [MOTIVO_LABEL[r.motivo] || r.motivo, r.tipo_defeito_codigo, r.linha_codigo]
+        const sub = [MOTIVO_LABEL[r.motivo] || r.motivo, _defeitosCurto(r), r.linha_codigo]
             .filter(Boolean).join(' · ');
         const desfecho = DESFECHO_LABEL[r.desfecho] || r.desfecho || '—';
         return `
@@ -177,13 +199,19 @@ function abrirAvaliacao(recolhida) {
 
     document.getElementById('aval-prefixo').textContent = recolhida.prefixo;
     document.getElementById('aval-linha').textContent = recolhida.linha_codigo ? `Linha ${recolhida.linha_codigo}` : '';
-    document.getElementById('aval-defeito').textContent = recolhida.tipo_defeito_codigo
-        ? `${MOTIVO_LABEL[recolhida.motivo] || recolhida.motivo} — ${recolhida.tipo_defeito_codigo}`
-        : (MOTIVO_LABEL[recolhida.motivo] || recolhida.motivo);
+    document.getElementById('aval-defeito').textContent = _defeitosModal(recolhida);
     document.getElementById('aval-relato').textContent = recolhida.relato || '';
-    document.getElementById('aval-ficha').textContent = recolhida.ficha_id
-        ? 'Ficha de manutenção aberta.'
-        : (recolhida.ficha_falhou_motivo || 'Ficha não foi aberta automaticamente.');
+    const nFichas = _defeitos(recolhida).filter((d) => d.ficha_id).length;
+    document.getElementById('aval-ficha').textContent = recolhida.ficha_falhou_motivo && nFichas === 0
+        ? recolhida.ficha_falhou_motivo
+        : nFichas > 1
+            ? `${nFichas} fichas de manutenção abertas (uma por defeito).`
+            : nFichas === 1
+                ? 'Ficha de manutenção aberta.'
+                : (recolhida.ficha_falhou_motivo || 'Ficha não foi aberta automaticamente.');
+    if (nFichas > 0 && recolhida.ficha_falhou_motivo) {
+        document.getElementById('aval-ficha').textContent += ` Falhou: ${recolhida.ficha_falhou_motivo}`;
+    }
 
     document.getElementById('aval-prazo-wrap').style.display = 'none';
     document.getElementById('aval-prazo-input').style.display = 'none';
@@ -270,9 +298,7 @@ function abrirEncerramento(recolhida) {
 
     document.getElementById('enc-prefixo').textContent = recolhida.prefixo;
     document.getElementById('enc-linha').textContent = recolhida.linha_codigo ? `Linha ${recolhida.linha_codigo}` : '';
-    document.getElementById('enc-defeito').textContent = recolhida.tipo_defeito_codigo
-        ? `${MOTIVO_LABEL[recolhida.motivo] || recolhida.motivo} — ${recolhida.tipo_defeito_codigo}`
-        : (MOTIVO_LABEL[recolhida.motivo] || recolhida.motivo);
+    document.getElementById('enc-defeito').textContent = _defeitosModal(recolhida);
 
     // O que a avaliação disse — visível pro mecânico não encerrar às cegas.
     const avaliacaoTexto = recolhida.avaliacao === 'LIBERADO'

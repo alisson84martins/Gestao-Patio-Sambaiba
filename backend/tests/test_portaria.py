@@ -44,7 +44,7 @@ from app.models.operacoes import Escala, FichaManutencao, ImportacaoEscala
 from app.models.pessoas import Motorista, Usuario
 from app.models.portaria import (
     AvariaConstatacao, AvariaContestacao, AvariaSaida, AvariaTipo, AvariaZona, Credencial, EmpresaTerceira,
-    MovimentoPortaria, PortariaLocal, PortariaSetor, RecolhidaAnormal, VeiculoPortaria, VeiculoSituacaoHist,
+    MovimentoPortaria, PortariaLocal, PortariaSetor, RecolhidaAnormal, RecolhidaDefeito, VeiculoPortaria, VeiculoSituacaoHist,
 )
 from app.models.pre_cadastro import PessoaPreCadastro
 from app.routers import portaria as portaria_router_mod
@@ -78,7 +78,7 @@ _DONO_B = Funcionario(id=uuid4(), re="60011", nome="Dono B")
 _TABELAS = [
     Funcionario.__table__, PortariaLocal.__table__, PortariaSetor.__table__, EmpresaTerceira.__table__,
     VeiculoPortaria.__table__, VeiculoSituacaoHist.__table__, MovimentoPortaria.__table__,
-    Credencial.__table__, RecolhidaAnormal.__table__, AvariaSaida.__table__,
+    Credencial.__table__, RecolhidaAnormal.__table__, RecolhidaDefeito.__table__, AvariaSaida.__table__,
     # Migration 042 (Fase 1) — catálogos e as duas tabelas de ciclo de vida.
     AvariaZona.__table__, AvariaTipo.__table__, AvariaConstatacao.__table__, AvariaContestacao.__table__,
     Motorista.__table__, Linha.__table__, TipoDefeito.__table__,
@@ -3557,3 +3557,143 @@ def test_listar_setores_filtra_ativos_por_padrao(ambiente):
 
     todos = ambiente["http"].get("/portaria/setores", params={"apenas_ativos": False})
     assert "DESATIVADO_041" in [s["codigo"] for s in todos.json()]
+
+
+# ============================================================================
+# Migration 052 (08/11/2026) — recolhida com VÁRIOS defeitos. Decisão do
+# Alisson: 1 recolhida (1 RA na fila, 1 recolhida na conta do motorista),
+# N defeitos, 1 ficha de manutenção POR defeito.
+# ============================================================================
+
+def _tipos_defeito(ambiente, *codigos):
+    with Session(ambiente["engine"]) as db:
+        for codigo in codigos:
+            db.add(TipoDefeito(id=uuid4(), codigo=codigo, nome=f"Tipo {codigo}", categoria="mecanica", ativo=True))
+        db.commit()
+
+
+def test_varios_defeitos_viram_uma_recolhida_e_uma_ficha_por_defeito(ambiente):
+    onibus_id = _criar_onibus(ambiente["engine"], numero_frota=1760)
+    _tipos_defeito(ambiente, "ELE_PAINEL", "PNEU_FURADO")
+
+    _como(ambiente, "CONTROLADOR")
+    resp = ambiente["http"].post("/portaria/recolhidas", json={
+        "prefixo": "1760",
+        "defeitos": [
+            {"tipo_defeito_codigo": "ELE_PAINEL", "observacao": "Painel apagou"},
+            {"tipo_defeito_codigo": "PNEU_FURADO"},
+        ],
+        "relato": "Recolheu da linha 1726",
+    })
+    assert resp.status_code == 201, resp.text
+    corpo = resp.json()
+
+    assert [d["tipo_defeito_codigo"] for d in corpo["defeitos"]] == ["ELE_PAINEL", "PNEU_FURADO"]
+    assert [d["ordem"] for d in corpo["defeitos"]] == [1, 2]
+    # Compatibilidade: o 1º defeito também nos campos únicos.
+    assert corpo["tipo_defeito_codigo"] == "ELE_PAINEL"
+    assert corpo["ficha_id"] == corpo["defeitos"][0]["ficha_id"]
+    assert corpo["ficha_falhou_motivo"] is None
+
+    fichas = [UUID(d["ficha_id"]) for d in corpo["defeitos"]]
+    assert len(set(fichas)) == 2
+    with Session(ambiente["engine"]) as db:
+        assert db.execute(select(RecolhidaAnormal)).scalars().all().__len__() == 1
+        f1, f2 = (db.get(FichaManutencao, f) for f in fichas)
+    assert f1.onibus_id == onibus_id and f2.onibus_id == onibus_id
+    assert "Painel apagou" in f1.descricao and "Recolheu da linha 1726" in f1.descricao
+    assert "Painel apagou" not in f2.descricao and "Recolheu da linha 1726" in f2.descricao
+
+
+def test_cliente_antigo_com_tipo_unico_vira_lista_de_um(ambiente):
+    _criar_onibus(ambiente["engine"], numero_frota=1761)
+    _tipos_defeito(ambiente, "MEC_MOTOR")
+    _como(ambiente, "CONTROLADOR")
+    resp = ambiente["http"].post("/portaria/recolhidas", json={
+        "prefixo": "1761", "tipo_defeito_codigo": "MEC_MOTOR",
+    })
+    assert resp.status_code == 201, resp.text
+    corpo = resp.json()
+    assert len(corpo["defeitos"]) == 1
+    assert corpo["defeitos"][0]["tipo_defeito_codigo"] == "MEC_MOTOR"
+    assert corpo["defeitos"][0]["ficha_id"] == corpo["ficha_id"]
+
+
+def test_defeito_sem_nenhum_tipo_recusa_422(ambiente):
+    _como(ambiente, "CONTROLADOR")
+    resp = ambiente["http"].post("/portaria/recolhidas", json={"prefixo": "1762", "defeitos": []})
+    assert resp.status_code == 422, resp.text
+
+
+def test_mesmo_defeito_duas_vezes_entra_uma_so(ambiente):
+    _como(ambiente, "CONTROLADOR")
+    resp = ambiente["http"].post("/portaria/recolhidas", json={
+        "prefixo": "1763",
+        "defeitos": [{"tipo_defeito_codigo": "MEC_MOTOR"}, {"tipo_defeito_codigo": "MEC_MOTOR"}],
+    })
+    assert resp.status_code == 201, resp.text
+    assert len(resp.json()["defeitos"]) == 1
+
+
+def test_ficha_que_falha_nao_derruba_a_outra(ambiente):
+    _criar_onibus(ambiente["engine"], numero_frota=1764)
+    _tipos_defeito(ambiente, "MEC_FREIO")
+    _como(ambiente, "CONTROLADOR")
+    resp = ambiente["http"].post("/portaria/recolhidas", json={
+        "prefixo": "1764",
+        "defeitos": [{"tipo_defeito_codigo": "COD_INEXISTENTE"}, {"tipo_defeito_codigo": "MEC_FREIO"}],
+    })
+    assert resp.status_code == 201, resp.text
+    falho, bom = resp.json()["defeitos"]
+    assert falho["ficha_id"] is None and falho["ficha_falhou_motivo"]
+    assert bom["ficha_id"] is not None and bom["ficha_falhou_motivo"] is None
+    assert "COD_INEXISTENTE" in resp.json()["ficha_falhou_motivo"]
+
+
+def test_motivo_sem_defeito_descarta_lista(ambiente):
+    _como(ambiente, "CONTROLADOR")
+    resp = ambiente["http"].post("/portaria/recolhidas", json={
+        "prefixo": "1765", "motivo": "FALTA_MOTORISTA",
+        "defeitos": [{"tipo_defeito_codigo": "MEC_MOTOR"}],
+    })
+    assert resp.status_code == 201, resp.text
+    assert resp.json()["defeitos"] == []
+    assert resp.json()["tipo_defeito_codigo"] is None
+    assert resp.json()["ficha_id"] is None
+
+
+def test_encerrar_fecha_a_ficha_de_cada_defeito(ambiente):
+    _criar_onibus(ambiente["engine"], numero_frota=1766)
+    _tipos_defeito(ambiente, "ELE_PAINEL", "PNEU_FURADO")
+    _como(ambiente, "CONTROLADOR")
+    criada = ambiente["http"].post("/portaria/recolhidas", json={
+        "prefixo": "1766",
+        "defeitos": [{"tipo_defeito_codigo": "ELE_PAINEL"}, {"tipo_defeito_codigo": "PNEU_FURADO"}],
+    }).json()
+
+    _como(ambiente, "MECANICO")
+    assert ambiente["http"].patch(
+        f"/portaria/recolhidas/{criada['id']}/avaliacao",
+        json={"avaliacao": "RETIDO"},
+    ).status_code == 200
+    resp = ambiente["http"].patch(
+        f"/portaria/recolhidas/{criada['id']}/encerramento",
+        json={"desfecho": "SERVICO_EXECUTADO"},
+    )
+    assert resp.status_code == 200, resp.text
+    with Session(ambiente["engine"]) as db:
+        for d in criada["defeitos"]:
+            assert db.get(FichaManutencao, UUID(d["ficha_id"])).status == StatusFichaEnum.CONCLUIDA
+
+
+def test_analise_conta_cada_defeito_e_uma_recolhida(ambiente):
+    _como(ambiente, "CONTROLADOR")
+    ambiente["http"].post("/portaria/recolhidas", json={
+        "prefixo": "1767",
+        "defeitos": [{"tipo_defeito_codigo": "ELE_PAINEL"}, {"tipo_defeito_codigo": "PNEU_FURADO"}],
+    })
+    _como(ambiente, "ENCARREGADO")
+    corpo = ambiente["http"].get("/portaria/recolhidas/analise").json()
+    por_tipo = {i["chave"]: i["total"] for i in corpo["por_tipo_defeito"]}
+    assert por_tipo == {"ELE_PAINEL": 1, "PNEU_FURADO": 1}
+    assert {i["chave"]: i["total"] for i in corpo["por_prefixo"]}["1767"] == 1

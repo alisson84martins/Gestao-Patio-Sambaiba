@@ -39,7 +39,7 @@ from app.models.fiscalizacao import (
 )
 from app.models.enums import SetorEnum
 from app.models.escala_fiscais import EscalaFiscalPontoFinal, EscalaFiscalPosto, EscalaFiscalPostoLinha
-from app.models.portaria import RecolhidaAnormal
+from app.models.portaria import RecolhidaAnormal, RecolhidaDefeito
 from app.routers import fiscalizacao as fiscalizacao_router_mod
 from app.services.fechamento_fiscal import calcular_fechamento_linha, montar_fechamento
 from app.services.importacao_escala_fiscal import _classificar_periodo, _parse_aba, _parse_limites_periodo
@@ -65,7 +65,7 @@ _TABELAS = [
     Funcionario.__table__, Funcao.__table__, FuncionarioFuncao.__table__,
     Turno.__table__, TurnoLinha.__table__, TurnoPosto.__table__,
     PartidaProgramada.__table__, RegistroPartida.__table__, EventoTurno.__table__, ObservacaoTurno.__table__,
-    Baita.__table__, RecolhidaAnormal.__table__, LinhaCoordenador.__table__, Linha.__table__,
+    Baita.__table__, RecolhidaAnormal.__table__, RecolhidaDefeito.__table__, LinhaCoordenador.__table__, Linha.__table__,
     EscalaFiscalPontoFinal.__table__, EscalaFiscalPosto.__table__, EscalaFiscalPostoLinha.__table__,
 ]
 

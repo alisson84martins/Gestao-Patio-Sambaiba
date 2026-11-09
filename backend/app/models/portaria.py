@@ -19,7 +19,7 @@ from sqlalchemy import (
     text,
 )
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
 
 from app.core.database import Base
@@ -356,6 +356,48 @@ class RecolhidaAnormal(Base):
     registrado_por: Mapped[UUID] = mapped_column(
         PG_UUID(as_uuid=True), ForeignKey("funcionario.id"), nullable=False
     )
+    criado_em: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+    # Migration 052 (08/11/2026) — vários defeitos na mesma recolhida. O 1º
+    # também fica em tipo_defeito_codigo/ficha_id (compatibilidade).
+    # lazy="select" de propósito: só carrega quando a resposta serializa.
+    defeitos: Mapped[list["RecolhidaDefeito"]] = relationship(
+        "RecolhidaDefeito",
+        order_by="RecolhidaDefeito.ordem",
+        cascade="all, delete-orphan",
+    )
+
+
+class RecolhidaDefeito(Base):
+    """Um defeito de uma recolhida anormal (migration 052).
+
+    Decisão do Alisson, 08/11/2026: carro que recolhe com elétrica E pneu é
+    UMA recolhida (uma RA na fila da Manutenção, uma recolhida na conta do
+    motorista) com DOIS defeitos — e cada defeito abre a PRÓPRIA ficha de
+    manutenção, porque podem ir pra equipes diferentes."""
+
+    __tablename__ = "recolhida_defeito"
+    __table_args__ = (
+        UniqueConstraint("recolhida_id", "tipo_defeito_codigo", name="uq_recolhida_defeito_tipo"),
+        {"schema": SCHEMA},
+    )
+
+    id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True, default=uuid4)
+    recolhida_id: Mapped[UUID] = mapped_column(
+        PG_UUID(as_uuid=True),
+        ForeignKey(f"{SCHEMA}.recolhida_anormal.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    ordem: Mapped[int] = mapped_column(SmallInteger, nullable=False, default=1)
+    # Texto, não FK — mesmo princípio de RecolhidaAnormal.tipo_defeito_codigo.
+    tipo_defeito_codigo: Mapped[str] = mapped_column(String(20), nullable=False)
+    observacao: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    ficha_id: Mapped[Optional[UUID]] = mapped_column(
+        PG_UUID(as_uuid=True), ForeignKey("ficha_manutencao.id"), nullable=True
+    )
+    ficha_falhou_motivo: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     criado_em: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
