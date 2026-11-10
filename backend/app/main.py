@@ -11,7 +11,7 @@ from app.core.config import get_settings
 from app.core.exception_handlers import register_exception_handlers
 from app.routers import (
     alertas, alocacoes, auth, escala_fiscais, escalas, filas, fiscalizacao, funcoes, funcionarios,
-    health, identidade, importacao, linhas, manutencao, motoristas, ocorrencias, onibus,
+    health, identidade, importacao, linhas, manutencao, monitoramento, motoristas, ocorrencias, onibus,
     painel_gerencial, patio, permissoes, portaria, portaria_avarias, portaria_recolhidas, portaria_veiculos,
     pre_cadastro, pre_ocorrencias, pre_ocorrencias_publico, tipos_defeito, usuarios,
 )
@@ -68,6 +68,7 @@ tags_metadata = [
     {"name": "fiscalização", "description": "Turnos do fiscal, registro de partidas, contadores e fechamento — o app que escreve sozinho a mensagem de WhatsApp de fim de turno"},
     {"name": "escala de fiscais", "description": "Coordenadoria — cadastros da escala dos fiscais (quadro, coordenadores, pontos finais, postos, modelos, ausências, trocas) e importação dos modelos da planilha"},
     {"name": "painel gerencial", "description": "Só leitura — tudo que Portaria e Pátio registram, ao vivo e histórico, com exportação CSV"},
+    {"name": "monitoramento", "description": "Monitoramento ao vivo da linha — posições do SIM SPTrans enviadas pelo robô, cerca virtual e telas do fiscal e da coordenação"},
 ]
 
 app = FastAPI(
@@ -182,3 +183,6 @@ app.include_router(escala_fiscais.router)
 # Painel Gerencial (migration 046) — só leitura sobre vw_painel_evento;
 # nenhum router da Portaria/Pátio muda por causa dele.
 app.include_router(painel_gerencial.router)
+# Monitoramento ao vivo da linha (migration 053). POST /leituras é do robô
+# (X-Monitor-Token, sem JWT); as leituras para as telas usam exige_qualquer.
+app.include_router(monitoramento.router)

@@ -107,6 +107,12 @@ class Settings(BaseSettings):
     escala_fiscal_padrao_periodo_1: str = Field(default="05:00-14:00", pattern=r"^\d{2}:\d{2}-\d{2}:\d{2}$")
     escala_fiscal_padrao_periodo_2: str = Field(default="14:00-23:00", pattern=r"^\d{2}:\d{2}-\d{2}:\d{2}$")
 
+    # Monitoramento ao vivo da linha (migration 053, 10/11/2026) — token que
+    # o robô (extensão no SIM SPTrans) manda no header X-Monitor-Token do
+    # POST /monitoramento/leituras. Vazio = recebimento DESLIGADO (503).
+    # ⛔ Só no .env do servidor e na extensão — nunca em código ou commit.
+    monitor_ingest_token: str = ""
+
     @property
     def cors_origins_list(self) -> list[str]:
         """Retorna a lista de origens permitidas para CORS."""
