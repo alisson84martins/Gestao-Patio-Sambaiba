@@ -19,6 +19,7 @@ from app.models.enums import (
 )
 from app.models.consulta_placa import ConsultaPlaca
 from app.models.frota import AlocacaoPatio, Fila, Onibus
+from app.models.monitoramento import Coleta, LeituraVeiculo
 from app.models.ocorrencia import (
     Ocorrencia, OcorrenciaAnalise, OcorrenciaAnexo, OcorrenciaAutoridade,
     OcorrenciaAvaria, OcorrenciaTestemunha, OcorrenciaVeiculoTerceiro,
@@ -57,4 +58,6 @@ __all__ = [
     "VeiculoSituacaoHist", "MovimentoPortaria", "Credencial", "RecolhidaAnormal", "RecolhidaDefeito",
     # Pré-cadastro de pessoas (Bloco H)
     "PessoaPreCadastro",
+    # Monitoramento ao vivo da linha (migration 053)
+    "LeituraVeiculo", "Coleta",
 ]
