@@ -5,6 +5,10 @@ POST /monitoramento/leituras — o robô (extensão do Chrome no PC da
   autentica pelo header X-Monitor-Token (MONITOR_INGEST_TOKEN do .env).
   Token vazio na config = recebimento DESLIGADO (503). Sem CORS: o robô
   envia pelo service worker da extensão.
+
+GET /monitoramento/linhas, /linhas/{codigo}/tracado, /linhas/{codigo}/ao-vivo
+e /linhas/{codigo}/carros/{prefixo}/rastro — telas do fiscal (recurso
+`fiscalizacao`) e da coordenação (`fiscalizacao_painel`).
 """
 import json
 import logging
@@ -12,7 +16,7 @@ import secrets
 from datetime import datetime, timedelta, timezone
 from typing import Annotated, Any, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, ValidationError, field_validator
 from sqlalchemy import delete
@@ -20,12 +24,20 @@ from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.core.database import get_db
+from app.core.deps import exige_qualquer
+from app.models.cadastro import Funcionario
 from app.models.monitoramento import Coleta, LeituraVeiculo
-from app.services.monitoramento_linhas import linha_do_sim
+from app.services import monitoramento_ao_vivo as ao_vivo
+from app.services.monitoramento_linhas import (
+    LinhaMonitorada, linha_do_sim, linhas_monitoradas, obter_linha,
+)
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/monitoramento", tags=["monitoramento"])
+
+# Fiscal tem `fiscalizacao`; coordenador tem `fiscalizacao_painel`.
+Leitura = Annotated[Funcionario, Depends(exige_qualquer("fiscalizacao", "fiscalizacao_painel"))]
 
 LIMITE_CORPO_BYTES = 2 * 1024 * 1024
 LIMITE_VEICULOS = 2000
@@ -145,6 +157,9 @@ def _gravar(db: Session, payload: PayloadLeituras) -> dict:
         if chave in vistos:  # duplicado dentro do mesmo envio
             continue
         vistos.add(chave)
+        # Mesmo instante da coleta: é o que a tela usa para saber se o carro
+        # "sumiu" da consulta do SIM.
+        linha["recebido_em"] = agora
         linhas.append(linha)
 
     gravados = _insert_ignorando_duplicado(db, linhas)
@@ -204,3 +219,44 @@ async def receber_leituras(request: Request, db: Annotated[Session, Depends(get_
 
     # Banco é síncrono: fora do event loop.
     return await run_in_threadpool(_gravar, db, payload)
+
+
+# ─── Leitura para as telas ───────────────────────────────────────────────────
+
+def _linha_ou_404(linha_codigo: str) -> LinhaMonitorada:
+    linha = obter_linha(linha_codigo)
+    if linha is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, f"A linha {linha_codigo} não é monitorada ao vivo")
+    return linha
+
+
+@router.get("/linhas", summary="Linhas monitoradas ao vivo")
+def listar_linhas(_: Leitura):
+    return [ao_vivo.resumo_linha(linha) for linha in linhas_monitoradas().values()]
+
+
+@router.get("/linhas/{linha_codigo}/tracado", summary="Traçado, terminais e G3 da linha (estático)")
+def tracado(linha_codigo: str, response: Response, _: Leitura):
+    linha = _linha_ou_404(linha_codigo)
+    response.headers["Cache-Control"] = "private, max-age=3600"
+    return ao_vivo.montar_tracado(linha)
+
+
+@router.get("/linhas/{linha_codigo}/ao-vivo", summary="Carros, alertas e ocorrências da linha (últimas 4 h)")
+def ao_vivo_linha(linha_codigo: str, _: Leitura, db: Annotated[Session, Depends(get_db)]):
+    linha = _linha_ou_404(linha_codigo)
+    return ao_vivo.ao_vivo_com_cache(db, linha)
+
+
+@router.get("/linhas/{linha_codigo}/carros/{prefixo}/rastro", summary="Rastro de um carro (padrão: 90 min)")
+def rastro(
+    linha_codigo: str,
+    prefixo: str,
+    _: Leitura,
+    db: Annotated[Session, Depends(get_db)],
+    minutos: int = Query(90, ge=1, le=ao_vivo.RASTRO_MAX_MIN),
+):
+    linha = _linha_ou_404(linha_codigo)
+    if not prefixo.isdigit() or len(prefixo) > 10:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Prefixo inválido")
+    return ao_vivo.montar_rastro(db, linha, prefixo, minutos)

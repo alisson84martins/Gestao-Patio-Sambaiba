@@ -87,7 +87,7 @@ def _linha_1726() -> LinhaMonitorada:
 def linhas_monitoradas() -> dict[str, LinhaMonitorada]:
     """Linhas monitoradas por código canônico (carregado uma vez por processo)."""
     linhas = [_linha_1726()]
-    return {l.codigo: l for l in linhas}
+    return {linha.codigo: linha for linha in linhas}
 
 
 def obter_linha(codigo) -> Optional[LinhaMonitorada]:
@@ -98,7 +98,7 @@ def obter_linha(codigo) -> Optional[LinhaMonitorada]:
 
 @lru_cache
 def _por_sim() -> dict[int, LinhaMonitorada]:
-    return {li: l for l in linhas_monitoradas().values() for li in l.codigos_sim}
+    return {li: linha for linha in linhas_monitoradas().values() for li in linha.codigos_sim}
 
 
 def linha_do_sim(li) -> Optional[LinhaMonitorada]:
