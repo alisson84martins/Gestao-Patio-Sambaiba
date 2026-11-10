@@ -5244,3 +5244,231 @@ body.modal-open {
     text-align: center;
     text-decoration: none;
 }
+
+/* ============================================================
+   AO VIVO DA LINHA (ao-vivo.html, migration 053)
+   Celular primeiro: mapa em cima (~55% da tela), lista embaixo;
+   no PC, lista à direita. Só os chips do mapa fogem dos tokens:
+   cor = sentido (1: TP → TS azul royal | 2: TS → TP laranja).
+   ============================================================ */
+.av-main {
+    padding: 10px 12px 24px;
+}
+
+.av-status {
+    padding: 10px 12px;
+    border-radius: 8px;
+    font-size: 16px;
+    font-weight: 700;
+    margin-bottom: 8px;
+    border: 1px solid transparent;
+}
+.av-status-ok { background: rgba(16, 185, 129, 0.12); color: var(--accent3); border-color: rgba(16, 185, 129, 0.35); }
+.av-status-aviso { background: rgba(250, 204, 21, 0.12); color: #facc15; border-color: rgba(250, 204, 21, 0.4); }
+.av-status-erro { background: rgba(239, 68, 68, 0.15); color: var(--accent2); border-color: rgba(239, 68, 68, 0.5); }
+
+.av-erro {
+    color: var(--accent2);
+    font-size: 14px;
+    margin-bottom: 8px;
+}
+
+.av-tela {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.av-mapa {
+    height: 55vh;
+    height: 55dvh;
+    min-height: 260px;
+    border-radius: 10px;
+    border: 1px solid var(--border);
+    background: var(--surface2);
+    z-index: 0; /* panes do Leaflet ficam abaixo de modal/nav */
+}
+
+.av-painel {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.av-linha-nome {
+    font-size: 20px;
+    font-weight: 800;
+    letter-spacing: 0.02em;
+}
+
+.av-legenda,
+.av-contadores {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 12px;
+    font-size: 14px;
+    color: var(--muted);
+    margin-top: 4px;
+}
+.av-legenda > span { display: inline-flex; align-items: center; gap: 6px; }
+.av-contadores span {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 3px 8px;
+    color: var(--text);
+}
+
+.av-bolinha {
+    display: inline-block;
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    flex: none;
+}
+.av-s1 { background: #1F4FD8; }
+.av-s2 { background: #EF6C00; }
+
+.av-secao-titulo {
+    font-size: 14px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--muted);
+    margin: 12px 0 6px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.av-pilula {
+    background: var(--accent);
+    color: #fff;
+    border-radius: 10px;
+    padding: 0 8px;
+    font-size: 13px;
+    letter-spacing: 0;
+}
+.av-pilula-zero { background: var(--border); color: var(--muted); }
+
+.av-grupo {
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--muted);
+    margin: 10px 0 4px;
+}
+
+.av-cartao {
+    display: block;
+    width: 100%;
+    text-align: left;
+    font-family: var(--display);
+    color: var(--text);
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-left: 6px solid var(--accent3);
+    border-radius: 8px;
+    padding: 8px 10px;
+    margin-bottom: 6px;
+    cursor: pointer;
+    min-height: 48px; /* alvo de toque */
+}
+.av-cartao-topo { display: flex; align-items: center; gap: 6px; }
+.av-cartao b { font-family: var(--mono); font-size: 18px; }
+.av-cartao small { color: var(--muted); font-family: var(--mono); font-size: 12px; }
+.av-cartao-texto { display: block; font-size: 15px; margin-top: 2px; }
+.av-cartao-terminal { border-left-color: #a855f7; }
+.av-cartao-garagem { border-left-color: #9ca3af; }
+.av-cartao-atencao { border-left-color: #facc15; background: rgba(250, 204, 21, 0.06); }
+.av-cartao-alerta { border-left-color: var(--accent2); background: rgba(239, 68, 68, 0.08); }
+.av-cartao-sumiu { border-left-color: var(--border); opacity: 0.7; }
+.av-cartao-sel { outline: 2px solid var(--accent4); }
+
+.av-log {
+    display: block;
+    width: 100%;
+    text-align: left;
+    font-family: var(--display);
+    font-size: 14px;
+    color: var(--text);
+    background: none;
+    border: none;
+    border-bottom: 1px solid var(--border);
+    padding: 7px 2px;
+    cursor: pointer;
+}
+.av-log-info { color: var(--muted); }
+.av-log-hora { font-family: var(--mono); color: var(--muted); }
+
+.av-vazio { font-size: 14px; color: var(--muted); padding: 4px 0; }
+.av-rodape { font-size: 13px; color: var(--muted); margin-top: 14px; }
+
+/* Chips do mapa — cor = sentido, sempre com o número do carro (4 dígitos). */
+.av-chip {
+    display: inline-block;
+    border: 2px solid #fff;
+    border-radius: 6px;
+    padding: 1px 6px;
+    font-family: var(--mono);
+    font-weight: 800;
+    font-size: 13px;
+    white-space: nowrap;
+    color: #fff;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.6);
+}
+.av-chip-s1 { background: #1F4FD8; }
+.av-chip-s2 { background: #EF6C00; }
+.av-chip-alerta { border-color: #c62828; box-shadow: 0 0 0 3px #c62828, 0 1px 3px rgba(0, 0, 0, 0.6); }
+.av-chip-atencao { border-color: #f9a825; box-shadow: 0 0 0 3px #f9a825, 0 1px 3px rgba(0, 0, 0, 0.6); }
+.av-chip-sumiu { opacity: 0.45; }
+.av-chip-sel { outline: 3px solid #fff; outline-offset: 2px; }
+
+/* Controles do Leaflet no tema escuro */
+.av-mapa .leaflet-control-attribution { font-size: 11px; }
+.av-mapa .leaflet-bar a { color: #111; }
+
+@media (min-width: 900px) {
+    .av-tela {
+        display: grid;
+        grid-template-columns: 1fr 400px;
+        align-items: start;
+    }
+    .av-mapa {
+        height: calc(100vh - 190px);
+        height: calc(100dvh - 190px);
+        position: sticky;
+        top: 10px;
+    }
+    .av-painel {
+        max-height: calc(100dvh - 190px);
+        overflow-y: auto;
+        padding-right: 4px;
+    }
+}
+
+/* Botão "🛰 Ao vivo" nas telas do fiscal e da coordenação */
+.av-entradas {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin: 8px 0;
+}
+.av-entrada {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    min-height: 44px;
+    padding: 8px 14px;
+    border-radius: 8px;
+    border: 1px solid var(--accent4);
+    background: rgba(59, 130, 246, 0.12);
+    color: var(--text);
+    font-family: var(--display);
+    font-size: 17px;
+    font-weight: 700;
+    text-decoration: none;
+}
+.av-entrada:hover { background: rgba(59, 130, 246, 0.22); }
+/* `hidden` precisa vencer o display das classes acima */
+.av-entradas[hidden],
+#fp-sim-ao-vivo-secao[hidden] { display: none; }

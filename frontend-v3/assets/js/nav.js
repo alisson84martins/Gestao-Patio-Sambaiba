@@ -46,6 +46,10 @@ const PAGINAS = {
     'escala-fiscais-impressao.html': { modulo: 'COORDENADORIA', ativo: 'escala-fiscais.html' },
     'fiscal-painel.html':          { modulo: 'FISCALIZACAO' },
     'fiscal.html':                 { modulo: 'FISCALIZACAO' },
+    // Migration 053 (10/11/2026) — ao vivo da linha (SIM SPTrans). Abre pelo
+    // botão "🛰 Ao vivo" de fiscal.html e fiscal-painel.html, sem link de
+    // barra próprio. 🔴 Sem esta entrada a barra cai no "mostra tudo".
+    'ao-vivo.html':                { modulo: 'FISCALIZACAO' },
     'portaria.html':               { modulo: 'PORTARIA' },
     'portaria-veiculos.html':      { modulo: 'PORTARIA' },
     'portaria-consulta.html':      { modulo: 'PORTARIA' },

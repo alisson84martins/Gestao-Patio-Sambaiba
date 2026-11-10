@@ -27,6 +27,7 @@ import { escapeHtml } from './escape.js';
 import { dataLocalISO } from './data.util.js';
 import { imprimirPlacarLinha } from './fiscal-placar.imprimir.js';
 import { criarSeletorLinhas } from './linhas.seletor.js';
+import { renderEntradasAoVivo } from './ao-vivo.entradas.js';
 
 if (!requireAuth()) {
     throw new Error('Sessão não autenticada — interrompendo carga da página');
@@ -574,6 +575,11 @@ function aplicarPermissaoEscrita() {
 async function iniciar() {
     initHeader();
     aplicarPermissaoEscrita();
+    // Migration 053 — sem await: a seção só aparece se houver linha monitorada.
+    const entradasSim = document.getElementById('fp-sim-ao-vivo');
+    renderEntradasAoVivo(entradasSim).then(() => {
+        document.getElementById('fp-sim-ao-vivo-secao').hidden = entradasSim.hidden;
+    });
     document.getElementById('fp-data').value = dataLocalISO();
 
     document.getElementById('fp-data').addEventListener('change', carregarTudo);

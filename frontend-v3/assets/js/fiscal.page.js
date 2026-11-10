@@ -24,6 +24,7 @@
 import { requireAuth, getCurrentUser, logout } from './auth.js';
 import { apiGet, apiPatch, apiPost, apiPut, ApiError } from './api.js';
 import { escapeHtml } from './escape.js';
+import { renderEntradasAoVivo } from './ao-vivo.entradas.js';
 
 if (!requireAuth()) {
     throw new Error('Sessão não autenticada — interrompendo carga da página');
@@ -351,6 +352,8 @@ async function entrarNoTurno() {
     document.getElementById('fis-abertura').style.display = 'none';
     document.getElementById('fis-turno').style.display = '';
     abaAtiva = null;
+    // Migration 053 — sem await: nunca atrasa nem derruba a abertura do turno.
+    renderEntradasAoVivo(document.getElementById('fis-ao-vivo'), turnoAtual.linhas);
     await recarregarPartidas();
     await atualizarProntidao();
 }
