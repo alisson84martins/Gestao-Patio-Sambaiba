@@ -21,6 +21,12 @@ Tipos novos:
 5. nao_contabilizada — NIMER `done` e o SIM não viu saída no mesmo sentido
    em ±15 min (afeta o ICV oficial).
 6. Os da fase 1 continuam (desvio, virada, retorno, parado, sem transmissão).
+7. nao_liberar_antes (11/11, regra do IPP) — partida em HORÁRIO CHEIO
+   (07:00, 08:00…) com o carro programado parado no terminal de origem, a
+   partir de 5 min antes: aviso de atenção "Não liberar antes das HH:00"
+   (sair antes perde o ICV da faixa HH).
+8. saiu_adiantado — a partida do horário cheio saiu antes da hora (NIMER
+   ou SIM): alerta "saiu adiantado (perde ICV da faixa HH)", por 30 min.
 
 Cada alerta leva o RE de motorista/cobrador COMO ESCALADO NO NIMER — não é
 prova de quem faltou.
@@ -30,7 +36,14 @@ from collections import defaultdict
 from datetime import datetime, timedelta
 from typing import Optional
 
-from app.services.fiscalizacao_tempo_real import RAIO_TERMINAL_M, _distancia, _origem, hora_local
+from app.core.config import FUSO_OPERACAO as FUSO
+from app.services.fiscalizacao_tempo_real import (
+    RAIO_TERMINAL_M,
+    _distancia,
+    _origem,
+    hora_local,
+    horario_cheio,
+)
 
 SEM_MOTORISTA_ANTECEDENCIA = timedelta(minutes=60)
 SEM_MOTORISTA_URGENTE = timedelta(minutes=15)
@@ -43,6 +56,8 @@ BURACO_FATOR = 1.5
 BURACO_GRAVE = 2.0
 BURACO_JANELA = timedelta(minutes=60)
 JANELA_ALERTA_ENCERRADO = timedelta(minutes=20)
+NAO_LIBERAR_ANTECEDENCIA = timedelta(minutes=5)
+SAIU_ADIANTADO_JANELA = timedelta(minutes=30)
 
 ACAO = {
     "sem_motorista": "Acionar a escala/plantão para cobrir a tabela antes da 1ª partida.",
@@ -57,6 +72,8 @@ ACAO = {
     "parado": "Verificar o carro parado fora do terminal (quebra? trânsito? acidente?).",
     "semtx": "Verificar o GPS/validador do carro.",
     "terminal": "Verificar o carro parado no terminal.",
+    "nao_liberar_antes": "Segurar o carro no terminal até o horário cheio.",
+    "saiu_adiantado": "Orientar terminal e motorista: no horário cheio o carro não sai antes da hora.",
 }
 NIVEL_FASE1 = {"desvio": "alerta", "virada": "alerta", "retorno": "alerta",
                "parado": "atencao", "semtx": "atencao", "terminal": "atencao", "recolhida": "atencao"}
@@ -149,6 +166,37 @@ def _partida_atrasada(linha, viagens, leituras_por_carro, agora) -> list[dict]:
             texto = (f"Partida das {hora_local(prog)} (tabela {v.get('tabela')}) atrasada {minutos} min — "
                      f"carro {v['carro']} parado no {linha.nomes_terminais.get(origem, origem)}")
             saida.append(_alerta("partida_atrasada", "alerta", linha.codigo, prog, texto, viagem=v))
+    return saida
+
+
+# ─── 2b. Horário cheio: não liberar antes / saiu adiantado ───────────────────
+
+def _horario_cheio(linha, viagens, leituras_por_carro, agora) -> list[dict]:
+    saida = []
+    for v in viagens:
+        prog = v.get("prog_inicio")
+        if prog is None or v.get("duplicada") or not horario_cheio(prog):
+            continue
+        faixa = f"{prog.astimezone(FUSO).hour:02d}h"
+        real = v.get("real_inicio") if v["status_efetivo"] == "done" else None
+        sim = v["saida_sim"].em if v.get("saida_sim") is not None else None
+        saiu = real or sim
+        if saiu is not None:
+            if saiu < prog and agora - saiu <= SAIU_ADIANTADO_JANELA:
+                fonte = "NIMER" if real else "SIM"
+                texto = (f"Carro {v.get('carro') or '—'} (tabela {v.get('tabela')}) saiu adiantado às {hora_local(saiu)} "
+                         f"({fonte}) — a partida das {hora_local(prog)} perde o ICV da faixa {faixa}")
+                saida.append(_alerta("saiu_adiantado", "alerta", linha.codigo, saiu, texto, viagem=v))
+            continue
+        if not linha.tem_mapa or not v.get("carro") or not (prog - NAO_LIBERAR_ANTECEDENCIA <= agora < prog):
+            continue
+        origem = _origem(linha.destino, v.get("sentido"))
+        centros = linha.terminais.get(origem) if origem else None
+        if centros and _parado_no_terminal(leituras_por_carro.get(v["carro"], []), centros,
+                                           agora - timedelta(minutes=PARADO_MIN_LEITURAS), agora):
+            texto = (f"Não liberar antes das {hora_local(prog)} — carro {v['carro']} (tabela {v.get('tabela')}) "
+                     f"no {linha.nomes_terminais.get(origem, origem)}: sair antes perde o ICV da faixa {faixa}")
+            saida.append(_alerta("nao_liberar_antes", "atencao", linha.codigo, prog, texto, viagem=v))
     return saida
 
 
@@ -276,6 +324,7 @@ def calcular_alertas(linha, resultado: dict, *, leituras_por_carro: dict[str, li
     alertas = (
         _sem_motorista(linha, viagens, agora)
         + _partida_atrasada(linha, viagens, leituras_por_carro, agora)
+        + _horario_cheio(linha, viagens, leituras_por_carro, agora)
         + _carro_trocado_linha(linha, viagens, leituras_outras_linhas, agora)
         + _buraco_intervalo(linha, viagens, resultado["saidas_sim"], agora)
         + _nao_contabilizada(linha, viagens)

@@ -197,3 +197,31 @@ def test_endpoint_detecta_carro_trocado_entre_duas_linhas_monitoradas(monkeypatc
         app.dependency_overrides.pop(checker, None)
     assert [x["tipo"] for x in a] == ["carro_trocado_linha"] and "8012-10" in a[0]["texto"]
     assert b == []
+
+
+# ─── 7/8. Horário cheio: não liberar antes / saiu adiantado (11/11) ────────
+# cenario_tempo_real: minuto 0 = 09:00 SP; minuto 60 = 10:00 (horário cheio)
+
+def test_nao_liberar_antes_da_hora_cheia_com_o_carro_no_terminal():
+    viagens = [viagem("032104", 1, 60, "future", carro="2412")]
+    assert _tipos(_alertas(viagens, parado("2412", 1, TP, 40, 54), agora_min=54)) == []   # 6 min antes: cedo
+    (a,) = _alertas(viagens, parado("2412", 1, TP, 40, 56), agora_min=56)                 # 4 min antes
+    assert a["tipo"] == "nao_liberar_antes" and a["nivel"] == "atencao"
+    assert a["texto"].startswith("Não liberar antes das 10:00 — carro 2412") and "faixa 10h" in a["texto"]
+
+
+def test_fora_do_horario_cheio_nao_avisa_para_segurar():
+    viagens = [viagem("032104", 1, 70, "future", carro="2412")]                           # 10:10
+    assert _tipos(_alertas(viagens, parado("2412", 1, TP, 50, 67), agora_min=67)) == []
+
+
+def test_saiu_adiantado_no_horario_cheio():
+    viagens = [viagem("032104", 1, 60, "done", carro="2412", real_min=58)]                # 09:58 no lugar de 10:00
+    (a,) = [x for x in _alertas(viagens, [], agora_min=70) if x["tipo"] == "saiu_adiantado"]
+    assert a["nivel"] == "alerta" and "às 09:58" in a["texto"] and "faixa 10h" in a["texto"]
+    assert "saiu_adiantado" not in _tipos(_alertas(viagens, [], agora_min=95))           # passou a janela de 30 min
+
+
+def test_saida_na_hora_cheia_nao_e_adiantada():
+    viagens = [viagem("032104", 1, 60, "done", carro="2412", real_min=61)]
+    assert "saiu_adiantado" not in _tipos(_alertas(viagens, [], agora_min=70))
