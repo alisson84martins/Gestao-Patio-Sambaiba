@@ -95,11 +95,12 @@ def montar_central(db: Session, linhas_obj: list, data_servico: date, parametros
                    correcoes: list[dict], agora: Optional[datetime] = None) -> dict:
     agora = agora or datetime.now(timezone.utc)
     meta, aceitavel = parametros.get("icv_meta"), parametros.get("icv_aceitavel")
-    resultados, placar, fila, todas_viagens, saude = [], [], [], [], []
+    resultados, placar, fila, todas_viagens, saude, adiantamentos = [], [], [], [], [], []
     for linha in linhas_obj:
         r = tempo_real.montar_linha_tempo_real(db, linha, data_servico, agora)
         resultados.append(r)
         todas_viagens += r["viagens"]
+        adiantamentos += [dict(a, linha_codigo=linha.codigo) for a in r["icv"]["adiantamentos_de_faixa"]]
         placar.append({
             "linha_codigo": linha.codigo,
             "nome": linha.nome,
@@ -108,6 +109,7 @@ def montar_central(db: Session, linhas_obj: list, data_servico: date, parametros
             "ipp": r["ipp"]["ate_agora"],
             "icv_dia_nimer": r["icv"]["nimer_dia"],
             "projecao": r["icv"]["projecao_fechamento"],
+            "faixas": r["icv"]["faixas"],
             "perda_absoluta": r["totais"]["perda_absoluta"],
             "programadas_ate_agora": r["totais"]["programadas_ate_agora"],
             "pontualidade_nimer": r["pontualidade_nimer"],
@@ -141,6 +143,8 @@ def montar_central(db: Session, linhas_obj: list, data_servico: date, parametros
         "placar": placar,
         "fila": fila,
         "pareto": pareto(todas_viagens, agora),
+        # ICV por faixa usa a hora REAL de saída: a adiantada antes da hora cheia cai na faixa anterior
+        "adiantamentos_de_faixa": sorted(adiantamentos, key=lambda a: (a["faixa"], a["linha_codigo"], a["saida"] or "")),
         "cobertura": cobertura(db, [linha.codigo for linha in linhas_obj]),
         "correcoes": correcoes,
         "saude": saude,

@@ -145,6 +145,15 @@ function renderPareto() {
     </div>`).join('');
 }
 
+function renderFaixas() {
+    // ICV por faixa usa a hora REAL de saída: quem sai antes da hora cheia
+    // (06:58 no lugar de 07:00) cai na faixa anterior e a faixa perde a viagem.
+    const lista = dados.adiantamentos_de_faixa || [];
+    document.getElementById('fc-faixas').innerHTML = lista.length
+        ? lista.map((a) => `<div class="av-log"><b>${escapeHtml(a.linha_codigo)}</b> — ${escapeHtml(a.texto)}</div>`).join('')
+        : '<div class="av-vazio">Nenhuma faixa perdeu viagem por saída adiantada hoje.</div>';
+}
+
 function renderCobertura() {
     document.getElementById('fc-cobertura').innerHTML = dados.cobertura.map((c) => `<div class="fc-cob ${c.coberta ? '' : 'fc-cob-falta'}">
         <b>${c.coberta ? '👮' : '⚠'} ${escapeHtml(c.linha_codigo)}</b>
@@ -189,6 +198,7 @@ function render() {
     renderPlacar();
     if (acaoAberta === null) renderFila();
     renderPareto();
+    renderFaixas();
     renderCobertura();
     renderCorrecoes();
     renderSaude();

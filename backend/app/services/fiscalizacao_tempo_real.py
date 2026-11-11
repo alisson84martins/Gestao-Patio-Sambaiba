@@ -300,6 +300,48 @@ def pontualidade_da_viagem(v: dict, agora: datetime, tolerancia_min: float, font
     return classificar_pontualidade(prog, v.get("real_inicio"), tolerancia_min)
 
 
+# ─── ICV por faixa horária ───────────────────────────────────────────────────
+
+def _hora_sp(dt: datetime) -> int:
+    return dt.astimezone(FUSO_OPERACAO).hour
+
+
+def icv_por_faixa(viagens: list[dict], agora: datetime) -> tuple[list[dict], list[dict]]:
+    """ICV por faixa horária (hora cheia de SP). O programado conta na faixa do
+    HORÁRIO PROGRAMADO; o realizado, na faixa da HORA REAL DE SAÍDA — é assim
+    que a saída adiantada antes da hora cheia (06:58 no lugar de 07:00) cai na
+    faixa anterior e a faixa das 07h perde a viagem.
+
+    Devolve (faixas, adiantamentos_de_faixa)."""
+    prog: dict[int, int] = defaultdict(int)
+    real: dict[int, int] = defaultdict(int)
+    adiantamentos = []
+    for v in viagens:
+        if v.get("duplicada"):
+            continue
+        p = v.get("prog_inicio")
+        if p is not None and p <= agora:
+            prog[_hora_sp(p)] += 1
+        if v["status_efetivo"] != "done":
+            continue
+        saida = v.get("real_inicio") or p
+        if saida is None or saida > agora:
+            continue
+        real[_hora_sp(saida)] += 1
+        if p is not None and saida < p and _hora_sp(saida) != _hora_sp(p):
+            h = _hora_sp(p)
+            adiantamentos.append({
+                "faixa": h, "tabela": v.get("tabela"), "carro": v.get("carro"),
+                "programado": hora_local(p), "saida": hora_local(saida),
+                "texto": f"faixa {h:02d}h perdeu viagem por saída adiantada às {hora_local(saida)} "
+                         f"(tabela {v.get('tabela') or '—'}, programada {hora_local(p)})",
+            })
+    faixas = [{"faixa": h, "programadas": prog.get(h, 0), "realizadas": real.get(h, 0),
+               "icv": _pct(real.get(h, 0), prog.get(h, 0))}
+              for h in sorted(set(prog) | set(real))]
+    return faixas, adiantamentos
+
+
 # ─── Linha inteira ───────────────────────────────────────────────────────────
 
 def _sim_cobriu(instantes: list[datetime], momento: datetime) -> bool:
@@ -396,6 +438,7 @@ def calcular_linha(
         pontuais += bool(v["pontualidade"] and v["pontualidade"]["classe"] == "pontual")
         pontuais_sim += bool(v["pontualidade_sim"] and v["pontualidade_sim"]["classe"] == "pontual")
     n_ipp = sum(1 for v in ate_agora if not v["duplicada"])
+    faixas, adiantamentos = icv_por_faixa(viagens, agora)
     classes = defaultdict(int)
     for v in viagens:
         if v.get("pontualidade"):
@@ -424,6 +467,8 @@ def calcular_linha(
             "nimer_dia": _pct(realizadas_dia, n_dia),
             "sim_dia": _pct(len(saidas), n_dia) if sim_ativo else None,
             "projecao_fechamento": projecao,
+            "faixas": faixas,
+            "adiantamentos_de_faixa": adiantamentos,
         },
         "ipp": {
             "ate_agora": _pct(pontuais, n_ipp),

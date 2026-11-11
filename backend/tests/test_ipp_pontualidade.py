@@ -56,3 +56,30 @@ def test_agregado_do_ipp_e_ponderado():
     b = calcular([viagem(f"T{i}", 1, 30 + i * 10, "done", carro=f"31{i}", real_min=31 + i * 10) for i in range(8)], [],
                  agora_min=200)
     assert tr.agregar([a, b])["ipp_ate_agora"] == 90.0   # 9 pontuais de 10, não a média de 50 e 100
+
+
+# ─── Item 2 — ICV por faixa horária pela hora REAL de saída ────────────────
+
+def _min_desde_dia(hhmm: str) -> float:
+    """cenario_tempo_real conta minutos a partir de 09:00 SP."""
+    return (sp(hhmm) - sp("09:00")).total_seconds() / 60
+
+
+def test_saida_adiantada_antes_da_hora_cheia_cai_na_faixa_anterior():
+    viagens = [viagem("032104", 1, _min_desde_dia("10:00"), "done", carro="2412", real_min=_min_desde_dia("09:58")),
+               viagem("032105", 1, _min_desde_dia("10:20"), "done", carro="2413", real_min=_min_desde_dia("10:21"))]
+    res = calcular(viagens, [], agora_min=_min_desde_dia("11:00"))
+    faixas = {f["faixa"]: f for f in res["icv"]["faixas"]}
+    assert faixas[10] == {"faixa": 10, "programadas": 2, "realizadas": 1, "icv": 50.0}
+    assert faixas[9] == {"faixa": 9, "programadas": 0, "realizadas": 1, "icv": None}
+    (a,) = res["icv"]["adiantamentos_de_faixa"]
+    assert a["texto"] == "faixa 10h perdeu viagem por saída adiantada às 09:58 (tabela 032104, programada 10:00)"
+    # o ICV do dia não muda: a viagem foi feita
+    assert res["icv"]["nimer_ate_agora"] == 100.0
+
+
+def test_adiantada_dentro_da_mesma_faixa_nao_perde_faixa():
+    viagens = [viagem("032104", 1, _min_desde_dia("10:10"), "done", real_min=_min_desde_dia("10:05"))]
+    res = calcular(viagens, [], agora_min=_min_desde_dia("11:00"))
+    assert res["icv"]["adiantamentos_de_faixa"] == []
+    assert res["viagens"][0]["pontualidade"]["classe"] == "adiantada"   # mas não é pontual

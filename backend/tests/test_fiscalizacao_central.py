@@ -182,3 +182,21 @@ def test_coordenador_sem_linha_atribuida_ve_todas(cli):
         db.commit()
     j = cli.get("/monitoramento/central").json()
     assert j["escopo"].startswith("todas") and len(j["placar"]) == 2
+
+
+def test_central_lista_faixa_perdida_por_saida_adiantada(cli):
+    from datetime import datetime, timedelta, timezone
+
+    from app.core.config import FUSO_OPERACAO
+    agora = datetime.now(timezone.utc)
+    hora_cheia = (agora - timedelta(hours=1)).astimezone(FUSO_OPERACAO).replace(minute=0, second=0, microsecond=0)
+    with Session(cli.engine) as db:
+        db.add(NimerViagem(id=200, data_servico=data_servico_de(agora), linha_codigo="1726-10",
+                           nimer_departure_id="200", tabela="T50", sentido=1, status="done",
+                           # UTC: o SQLite dos testes grava a hora "de parede", sem o fuso
+                           prog_inicio=hora_cheia.astimezone(timezone.utc),
+                           real_inicio=(hora_cheia - timedelta(minutes=2)).astimezone(timezone.utc), carro="3500"))
+        db.commit()
+    (a,) = cli.get("/monitoramento/central").json()["adiantamentos_de_faixa"]
+    assert a["linha_codigo"] == "1726-10" and a["faixa"] == hora_cheia.hour
+    assert a["texto"].startswith(f"faixa {hora_cheia.hour:02d}h perdeu viagem por saída adiantada às ")
