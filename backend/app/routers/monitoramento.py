@@ -33,6 +33,7 @@ from app.core.linha import codigo_linha
 from app.models.cadastro import Funcionario
 from app.models.fiscalizacao import Turno
 from app.models.monitoramento import (
+    AlertaTratativa,
     Coleta,
     LeituraVeiculo,
     NimerColeta,
@@ -613,3 +614,90 @@ def fechamento_previa(turno_id: UUID, usuario: Leitura, db: Annotated[Session, D
     if turno.funcionario_id != usuario.id and not acesso.tem_acesso(db, usuario.id, "fiscalizacao_painel"):
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Este turno pertence a outro fiscal.")
     return montar_fechamento_tempo_real(db, turno_id)
+
+
+# ─── Central da Fiscalização (bloco I) ───────────────────────────────────────
+
+EscritaPainel = Annotated[Funcionario, Depends(exige("fiscalizacao_painel", escrever=True))]
+
+
+def _linhas_da_central(db: Session, usuario: Funcionario, todas: bool) -> tuple[list[LinhaMonitorada], str]:
+    """ADMIN: todas. Coordenação: as linhas que coordena (ou todas, se pedir
+    ou se ainda não tiver nenhuma atribuída)."""
+    monitoradas = linhas_monitoradas(db)
+    if todas or acesso.eh_admin(db, usuario.id):
+        return list(monitoradas.values()), "todas"
+    minhas = set(acesso.linhas_do_coordenador(db, usuario.id))
+    escolhidas = [linha for codigo, linha in monitoradas.items() if codigo in minhas]
+    if not escolhidas:
+        return list(monitoradas.values()), "todas (sem linha atribuída ao coordenador)"
+    return escolhidas, "coordenador"
+
+
+@router.get("/central", summary="Central da Fiscalização: placar, fila de ação, Pareto, cobertura, correções e robôs")
+def central(
+    usuario: LeituraPainel,
+    db: Annotated[Session, Depends(get_db)],
+    todas: bool = Query(False, description="todas as linhas monitoradas, não só as do coordenador"),
+):
+    from app.services import fiscalizacao_central as servico_central
+    from app.services.icv import _parametros
+
+    linhas, escopo_txt = _linhas_da_central(db, usuario, todas)
+    data_servico = data_servico_de()
+
+    def fabricar():
+        saida = servico_central.montar_central(
+            db, linhas, data_servico, _parametros(db),
+            auditoria_correcoes(db, data_servico, [linha.codigo for linha in linhas]),
+        )
+        saida["escopo"] = escopo_txt
+        return saida
+
+    chave = (data_servico, tuple(sorted(linha.codigo for linha in linhas)))
+    return servico_central.com_cache(chave, fabricar)
+
+
+class AcaoAlerta(BaseModel):
+    chave: str = Field(..., min_length=3, max_length=160)
+    linha_codigo: str
+    inicio_em: Optional[datetime] = None
+    descricao: Optional[str] = Field(None, max_length=1000)
+    resolver: bool = False
+
+
+@router.post("/central/alertas", summary="Registrar ação (D26) e/ou marcar alerta como resolvido")
+def tratar_alerta(payload: AcaoAlerta, usuario: EscritaPainel, db: Annotated[Session, Depends(get_db)]):
+    from app.models.fiscalizacao import AcaoCoordenacao
+    from app.services import fiscalizacao_central as servico_central
+
+    linha = _linha_ou_404(db, payload.linha_codigo)
+    descricao = (payload.descricao or "").strip()
+    if not descricao and not payload.resolver:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Descreva a ação ou marque como resolvido")
+    data_servico = data_servico_de()
+    acao_id = None
+    if descricao:
+        inicio = tempo_real._utc(payload.inicio_em) if payload.inicio_em else datetime.now(timezone.utc)
+        acao = AcaoCoordenacao(
+            linha_codigo=linha.codigo, data_referencia=data_servico,
+            faixa_hora=inicio.astimezone(tempo_real.FUSO_OPERACAO).hour,
+            descricao=f"[Central · {payload.chave.split('|')[0]}] {descricao}", registrado_por=usuario.id,
+        )
+        db.add(acao)
+        db.flush()
+        acao_id = acao.id
+    resolvido = False
+    if payload.resolver:
+        existente = db.execute(select(AlertaTratativa).where(
+            AlertaTratativa.data_servico == data_servico, AlertaTratativa.chave == payload.chave)).scalar_one_or_none()
+        if existente is None:
+            db.add(AlertaTratativa(data_servico=data_servico, linha_codigo=linha.codigo, chave=payload.chave,
+                                   acao_coordenacao_id=acao_id, autor_funcionario_id=usuario.id,
+                                   criado_em=datetime.now(timezone.utc)))
+        elif acao_id and existente.acao_coordenacao_id is None:
+            existente.acao_coordenacao_id = acao_id
+        resolvido = True
+    db.commit()
+    servico_central.limpar_cache()
+    return {"chave": payload.chave, "acao_coordenacao_id": str(acao_id) if acao_id else None, "resolvido": resolvido}

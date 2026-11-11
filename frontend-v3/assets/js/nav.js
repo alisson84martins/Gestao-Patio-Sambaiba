@@ -50,6 +50,9 @@ const PAGINAS = {
     // botão "🛰 Ao vivo" de fiscal.html e fiscal-painel.html, sem link de
     // barra próprio. 🔴 Sem esta entrada a barra cai no "mostra tudo".
     'ao-vivo.html':                { modulo: 'FISCALIZACAO' },
+    // Fase 2 (10/11/2026) — Central da Fiscalização (coordenação). Link de
+    // barra próprio (LINKS abaixo), recurso fiscalizacao_painel.
+    'fiscalizacao-central.html':   { modulo: 'FISCALIZACAO' },
     'portaria.html':               { modulo: 'PORTARIA' },
     'portaria-veiculos.html':      { modulo: 'PORTARIA' },
     'portaria-consulta.html':      { modulo: 'PORTARIA' },
@@ -95,6 +98,9 @@ const LINKS = [
     // fiscal não tem fiscalizacao_painel (D — só registra, não vê
     // agregado), então nunca vê este link.
     { href: 'fiscal-painel.html', texto: 'Fiscalização', recurso: 'fiscalizacao_painel', modulo: 'FISCALIZACAO' },
+    // Fase 2 — Central da Fiscalização: placar ao vivo, fila de ação,
+    // Pareto, cobertura dos pontos e saúde dos robôs (NIMER + SIM).
+    { href: 'fiscalizacao-central.html', texto: 'Central', recurso: 'fiscalizacao_painel', modulo: 'FISCALIZACAO' },
     // Fiscalização, Bloco D — registro do fiscal em campo. O coordenador
     // tem `fiscalizacao_painel`, não `fiscalizacao` (D — ele acompanha,
     // não registra), então cada um vê só o link que é dele.

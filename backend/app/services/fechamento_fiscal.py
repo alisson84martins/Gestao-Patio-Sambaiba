@@ -18,13 +18,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.models.fiscalizacao import (
-    Baita,
-    EventoTurno,
-    ObservacaoTurno,
-    PartidaProgramada,
-    RegistroPartida,
-    Turno,
-    TurnoLinha,
+    Baita, EventoTurno, ObservacaoTurno, PartidaProgramada, RegistroPartida, Turno, TurnoLinha,
 )
 
 _TIPOS_EVENTO = (

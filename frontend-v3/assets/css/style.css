@@ -5591,3 +5591,54 @@ body.modal-open {
 .av-saude[hidden],
 .av-placar[hidden],
 .av-form-erro[hidden] { display: none; }
+
+/* ─── Central da Fiscalização (fase 2, bloco I) ─── */
+.fc-topo { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; }
+.fc-topo .av-status { flex: 1 1 280px; margin-bottom: 0; }
+.fc-grade { display: grid; grid-template-columns: 1fr; gap: 14px; }
+@media (min-width: 1100px) {
+    .fc-grade { grid-template-columns: 1fr 1fr; }
+    .fc-bloco-largo { grid-column: 1 / -1; }
+}
+.fc-bloco { min-width: 0; }
+.fc-sub { font-size: 13px; color: var(--muted); font-weight: 400; }
+.fc-tabela { display: flex; flex-direction: column; gap: 4px; }
+.fc-linha {
+    display: grid;
+    grid-template-columns: minmax(110px, 1.4fr) repeat(5, minmax(64px, 1fr)) auto;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 10px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    border-left: 4px solid var(--border);
+    background: var(--surface2);
+    font-size: 15px;
+}
+.fc-cab { background: none; border: 0; color: var(--muted); font-size: 13px; text-transform: uppercase; }
+.fc-farol-verde { border-left-color: var(--accent3); }
+.fc-farol-amarelo { border-left-color: #facc15; }
+.fc-farol-vermelho { border-left-color: var(--accent2); }
+.fc-abrir { min-height: 36px; padding: 4px 10px; font-size: 15px; }
+@media (max-width: 700px) {
+    .fc-linha { grid-template-columns: 1fr 1fr 1fr; }
+    .fc-cab { display: none; }
+}
+.fc-acoes { display: flex; gap: 6px; margin-top: 6px; }
+.fc-acoes .av-btn-corrigir { margin-left: 0; }
+.fc-pareto { display: grid; grid-template-columns: minmax(120px, 1.2fr) 2fr auto; align-items: center; gap: 8px; margin-bottom: 6px; font-size: 14px; }
+.fc-barra { height: 12px; border-radius: 6px; background: var(--surface2); overflow: hidden; }
+.fc-barra i { display: block; height: 100%; background: var(--accent2); }
+.fc-pareto-num small { color: var(--muted); }
+.fc-cob {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px 10px;
+    padding: 6px 10px;
+    margin-bottom: 4px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    font-size: 14px;
+}
+.fc-cob-falta { border-color: rgba(250, 204, 21, 0.5); background: rgba(250, 204, 21, 0.06); }
