@@ -69,3 +69,10 @@ def criar_engine(seed: bool = True):
             db.add(SimCodigoLinha(sim_codigo=34171, linha_codigo="1726-10", sentido=2))
             db.commit()
     return eng
+
+
+def liberar_tudo(monkeypatch) -> None:
+    """Escopo ADMIN (todas as linhas) — para os testes que não são sobre o
+    acesso (bloco H). O SQLite não tem a view vw_acesso_efetivo."""
+    from app.services import monitoramento_acesso as acesso
+    monkeypatch.setattr(acesso, "escopo", lambda db, fid: {"tipo": "todas", "linhas": None, "turno": None})

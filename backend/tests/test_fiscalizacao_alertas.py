@@ -147,7 +147,7 @@ def test_sem_leitura_da_linha_naquela_hora_nao_afirma_que_o_sim_nao_viu():
     assert _tipos(_alertas(viagens, viagem_sim("2999", 2, 300), agora_min=400)) == []
 
 
-def test_endpoint_detecta_carro_trocado_entre_duas_linhas_monitoradas():
+def test_endpoint_detecta_carro_trocado_entre_duas_linhas_monitoradas(monkeypatch):
     from datetime import datetime, timedelta, timezone
     from uuid import uuid4
 
@@ -165,7 +165,9 @@ def test_endpoint_detecta_carro_trocado_entre_duas_linhas_monitoradas():
     )
     from app.routers import monitoramento as router_mod
     from app.services.monitoramento_cadastro import data_servico_de
-    from tests.ambiente_monitoramento import criar_engine
+    from tests.ambiente_monitoramento import criar_engine, liberar_tudo
+
+    liberar_tudo(monkeypatch)
 
     agora = datetime.now(timezone.utc)
     eng = criar_engine()

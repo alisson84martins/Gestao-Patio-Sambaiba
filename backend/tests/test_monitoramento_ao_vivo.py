@@ -21,7 +21,7 @@ from app.routers import monitoramento as router_mod
 from app.services import monitoramento_ao_vivo as servico
 from app.services import monitoramento_regras as regras
 from app.services.monitoramento_linhas import obter_linha
-from tests.ambiente_monitoramento import criar_engine
+from tests.ambiente_monitoramento import criar_engine, liberar_tudo
 
 TOKEN = "token-de-teste-do-robo"
 TP_REAL = (-23.438087, -46.566383)
@@ -41,6 +41,7 @@ def client(engine, monkeypatch):
 
     monkeypatch.setattr(router_mod, "get_settings",
                         lambda: get_settings().model_copy(update={"monitor_ingest_token": TOKEN}))
+    liberar_tudo(monkeypatch)
     servico.limpar_cache()
     app.dependency_overrides[get_db] = _db
     app.dependency_overrides[_CHECKER] = lambda: Funcionario(id=uuid4(), re="16867", nome="Fiscal Teste")

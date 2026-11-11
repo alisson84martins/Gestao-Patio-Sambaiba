@@ -20,6 +20,7 @@ from app.models.fiscalizacao import LinhaCoordenador, Turno, TurnoLinha
 
 MSG_SEM_TURNO = "Abra o turno para ver a linha ao vivo"
 MSG_FORA_DO_TURNO = "Esta linha não está no seu turno aberto"
+MSG_FORA_DA_COORDENACAO = "Esta linha não está entre as linhas que você coordena"
 
 
 def tem_acesso(db: Session, funcionario_id: UUID, recurso: str, escrever: bool = False) -> bool:

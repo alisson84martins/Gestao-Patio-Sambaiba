@@ -23,7 +23,7 @@ from app.services import monitoramento_ao_vivo as servico
 from app.services import monitoramento_regras as regras
 from app.services.monitoramento_linhas import calibrar_centros, linha_do_json, obter_linha
 from scripts import gerar_tracados_gtfs as gerador
-from tests.ambiente_monitoramento import criar_engine
+from tests.ambiente_monitoramento import criar_engine, liberar_tudo
 
 _CHECKER = router_mod.Leitura.__metadata__[0].dependency
 SEGUNDA = "8012-10"  # linha de teste sem traçado
@@ -40,7 +40,8 @@ def engine():
 
 
 @pytest.fixture
-def client(engine):
+def client(engine, monkeypatch):
+    liberar_tudo(monkeypatch)
     def _db():
         with Session(engine) as db:
             yield db

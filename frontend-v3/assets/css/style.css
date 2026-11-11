@@ -5473,3 +5473,121 @@ body.modal-open {
 /* `hidden` precisa vencer o display das classes acima */
 .av-entradas[hidden],
 #fp-sim-ao-vivo-secao[hidden] { display: none; }
+
+/* ─── Ao vivo, fase 2 (NIMER + SIM): saúde, placar, abas, partidas ─── */
+.av-saude { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+.av-robo {
+    display: inline-block;
+    padding: 6px 10px;
+    border-radius: 8px;
+    font-size: 14px;
+    font-weight: 700;
+    border: 1px solid transparent;
+}
+.av-placar {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+    gap: 6px;
+    margin-bottom: 8px;
+}
+.av-placar-item {
+    display: flex;
+    flex-direction: column;
+    padding: 8px 10px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: var(--surface2);
+}
+.av-placar-titulo { font-size: 13px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
+.av-placar-valor { font-family: var(--mono); font-size: 24px; }
+.av-placar-item small { font-size: 12px; color: var(--muted); }
+
+.av-abas {
+    display: flex;
+    gap: 4px;
+    margin-bottom: 8px;
+    overflow-x: auto;
+    border-bottom: 1px solid var(--border);
+}
+.av-abas button {
+    flex: 1 0 auto;
+    min-height: 44px;
+    padding: 8px 12px;
+    border: 0;
+    border-bottom: 3px solid transparent;
+    background: none;
+    color: var(--muted);
+    font-family: var(--display);
+    font-size: 17px;
+    font-weight: 700;
+    cursor: pointer;
+}
+.av-abas .av-aba-ativa { color: var(--text); border-bottom-color: var(--accent4); }
+.av-filtro { display: flex; align-items: center; gap: 8px; font-size: 15px; margin-bottom: 8px; min-height: 44px; }
+
+.av-partida {
+    padding: 8px 10px;
+    margin-bottom: 6px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    border-left: 4px solid var(--accent3);
+    background: var(--surface2);
+}
+.av-partida-lost, .av-partida-missing { border-left-color: var(--accent2); }
+.av-partida-future { border-left-color: var(--border); opacity: 0.85; }
+.av-partida-naoviu { background: rgba(250, 204, 21, 0.06); }
+.av-partida-topo { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; font-size: 16px; }
+.av-partida-hora { font-family: var(--mono); font-size: 18px; font-weight: 800; }
+.av-partida-status { font-weight: 700; }
+.av-partida-det { font-size: 14px; color: var(--muted); margin-top: 2px; }
+.av-partida-re { font-size: 13px; }
+.av-sim-nao { color: #facc15; font-weight: 700; }
+.av-sim-sim { color: var(--accent3); }
+.av-tag { padding: 1px 6px; border-radius: 6px; font-size: 12px; }
+.av-tag-corr { background: rgba(59, 130, 246, 0.2); color: var(--text); }
+.av-btn-corrigir,
+.av-form-acoes button,
+.av-fech button {
+    min-height: 40px;
+    padding: 6px 12px;
+    border-radius: 8px;
+    border: 1px solid var(--accent4);
+    background: rgba(59, 130, 246, 0.12);
+    color: var(--text);
+    font-size: 15px;
+    font-weight: 700;
+    cursor: pointer;
+}
+.av-btn-corrigir { margin-left: auto; }
+.av-form-corr { display: flex; flex-direction: column; gap: 8px; margin-top: 8px; }
+.av-form-corr label { display: flex; flex-direction: column; gap: 4px; font-size: 14px; }
+.av-form-corr select,
+.av-form-corr input,
+.av-form-corr textarea {
+    min-height: 40px;
+    padding: 6px 8px;
+    border-radius: 6px;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--text);
+    font-size: 16px;
+}
+.av-form-aviso { font-size: 13px; color: #facc15; margin: 0; }
+.av-form-erro { color: var(--accent2); font-size: 14px; }
+.av-fech { margin-bottom: 12px; }
+.av-fech-texto {
+    white-space: pre-wrap;
+    font-family: var(--mono);
+    font-size: 14px;
+    padding: 10px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: var(--surface2);
+    margin: 6px 0;
+}
+/* `hidden` precisa vencer o display das classes acima */
+.av-tela[hidden],
+.av-aba[hidden],
+.av-saude[hidden],
+.av-placar[hidden],
+.av-form-erro[hidden] { display: none; }

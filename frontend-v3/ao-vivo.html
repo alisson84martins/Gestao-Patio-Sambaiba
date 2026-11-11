@@ -43,7 +43,30 @@
 <main class="av-main">
 
     <div class="av-status av-status-aviso" id="av-status" role="status" aria-live="polite">Carregando…</div>
+    <div class="av-saude" id="av-saude" hidden></div>
     <div class="av-erro" id="av-erro" hidden></div>
+    <div class="av-placar" id="av-placar" hidden></div>
+
+    <nav class="av-abas" role="tablist" aria-label="Partes da tela">
+        <button type="button" role="tab" class="av-aba-ativa" aria-selected="true" data-aba="mapa">Mapa</button>
+        <button type="button" role="tab" aria-selected="false" data-aba="partidas">Partidas</button>
+        <button type="button" role="tab" aria-selected="false" data-aba="alertas">Alertas <span class="av-pilula av-pilula-zero" id="av-n-alertas-op">0</span></button>
+        <button type="button" role="tab" aria-selected="false" data-aba="fechamento">Fechamento</button>
+    </nav>
+
+    <section class="av-aba" id="av-aba-partidas" hidden>
+        <label class="av-filtro"><input type="checkbox" id="av-so-anormais"> Só perdidas, corrigidas e as que o SIM não viu</label>
+        <div id="av-partidas"><div class="av-vazio">Carregando partidas…</div></div>
+        <p class="av-rodape">Partidas do NIMER (lidas a cada 3 min pelo robô) cruzadas com as saídas vistas pelo SIM. A correção do fiscal vale só aqui — o NIMER não é alterado. RE = como escalado no NIMER.</p>
+    </section>
+
+    <section class="av-aba" id="av-aba-alertas" hidden>
+        <div id="av-alertas-op"><div class="av-vazio">Carregando alertas…</div></div>
+    </section>
+
+    <section class="av-aba" id="av-aba-fechamento" hidden>
+        <div id="av-fechamento"></div>
+    </section>
 
     <div class="av-tela">
         <div class="av-mapa" id="av-mapa" aria-label="Mapa da linha"></div>
@@ -73,7 +96,7 @@
                 <div id="av-ocorrencias"></div>
             </section>
 
-            <p class="av-rodape">Posições do SIM SPTrans, lidas a cada minuto pelo robô da coordenação. Esta tela atualiza a cada 30 s. Toque num carro para ver o rastro dos últimos 90 min.</p>
+            <p class="av-rodape">Posições do SIM SPTrans, lidas a cada minuto pelo robô da coordenação. Esta tela atualiza a cada 30 s. Toque num carro para ver o rastro dos últimos 90 min. A previsão de chegada usa o trânsito da própria frota e o histórico do trecho.</p>
         </aside>
     </div>
 

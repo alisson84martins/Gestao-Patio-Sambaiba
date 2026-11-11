@@ -5,6 +5,10 @@
  * backend a cada minuto; esta tela mostra a linha para o fiscal em campo e
  * para a coordenação, no celular. Abre com ?linha=1726-10.
  *
+ * Fase 2: as abas Partidas · Alertas · Fechamento, o placar e a saúde dos
+ * robôs (SIM e NIMER) ficam em ao-vivo.abas.js. Quem vê qual linha é regra
+ * do backend (fiscal: só as do turno aberto).
+ *
  * Rotas: GET /monitoramento/linhas/{linha}/tracado (uma vez),
  * /monitoramento/linhas/{linha}/ao-vivo (a cada 30 s, pausado com a aba
  * escondida) e /monitoramento/linhas/{linha}/carros/{prefixo}/rastro
@@ -22,6 +26,7 @@ import { requireAuth, getCurrentUser, logout } from './auth.js';
 import { apiGet, ApiError } from './api.js';
 import { podeLer } from './sessao.js';
 import { escapeHtml } from './escape.js';
+import { atualizarTempoReal, iniciarAbas } from './ao-vivo.abas.js';
 
 if (!requireAuth()) throw new Error('Não autenticado');
 
@@ -306,6 +311,7 @@ function renderLista() {
 // ─── Ciclo ──────────────────────────────────────────────────────────────
 
 async function atualizar() {
+    atualizarTempoReal();   // fase 2: partidas, ICV e alertas (em paralelo com o mapa)
     try {
         dados = await apiGet(`/monitoramento/linhas/${encodeURIComponent(linhaCodigo)}/ao-vivo`);
     } catch (err) {
@@ -374,6 +380,7 @@ async function iniciar() {
     if (s1) document.getElementById('av-leg-s1').textContent = `TP → TS (${s1.destino_nome})`;
     if (s2) document.getElementById('av-leg-s2').textContent = `TS → TP (${s2.destino_nome})`;
     desenharTracado();
+    iniciarAbas({ linha: linhaCodigo, aoMudarAba: (aba) => { if (aba === 'mapa') mapa.invalidateSize(); } });
     if (!tracado.tem_mapa) {
         // Linha monitorada sem traçado (bloco C): só o que não depende do mapa.
         avisoFixo = 'Esta linha ainda não tem traçado: desvio, virada e parado fora do terminal estão desligados. Posição, sem transmissão e partidas funcionam.';

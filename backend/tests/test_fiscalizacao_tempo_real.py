@@ -182,7 +182,7 @@ def test_instante_do_horario_de_madrugada_e_do_dia_seguinte():
 
 # ─── Endpoint (banco → núcleo → tela) ───────────────────────────────────────
 
-def test_endpoint_tempo_real_le_nimer_correcao_e_sim_do_banco():
+def test_endpoint_tempo_real_le_nimer_correcao_e_sim_do_banco(monkeypatch):
     from datetime import date
     from uuid import uuid4
 
@@ -200,7 +200,9 @@ def test_endpoint_tempo_real_le_nimer_correcao_e_sim_do_banco():
         ViagemCorrecao,
     )
     from app.routers import monitoramento as router_mod
-    from tests.ambiente_monitoramento import criar_engine
+    from tests.ambiente_monitoramento import criar_engine, liberar_tudo
+
+    liberar_tudo(monkeypatch)
 
     eng = criar_engine()
     fiscal = uuid4()

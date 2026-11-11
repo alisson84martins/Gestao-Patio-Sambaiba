@@ -418,21 +418,38 @@ def _linha_ou_404(db: Session, linha_codigo: str) -> LinhaMonitorada:
     return linha
 
 
+def _linha_autorizada(db: Session, usuario: Funcionario, linha_codigo: str) -> LinhaMonitorada:
+    """Bloco H — a regra de quem vê qual linha mora AQUI, no backend:
+    fiscal só as do turno aberto (sem turno → 403), coordenação as que
+    coordena, ADMIN todas. Ver app/services/monitoramento_acesso.py."""
+    esc = acesso.escopo(db, usuario.id)
+    if esc["tipo"] == "sem_turno":
+        raise HTTPException(status.HTTP_403_FORBIDDEN, acesso.MSG_SEM_TURNO)
+    linha = _linha_ou_404(db, linha_codigo)
+    if esc["linhas"] is not None and linha.codigo not in esc["linhas"]:
+        mensagem = acesso.MSG_FORA_DO_TURNO if esc["tipo"] == "turno" else acesso.MSG_FORA_DA_COORDENACAO
+        raise HTTPException(status.HTTP_403_FORBIDDEN, mensagem)
+    return linha
+
+
 @router.get("/linhas", summary="Linhas monitoradas ao vivo")
-def listar_linhas(_: Leitura, db: Annotated[Session, Depends(get_db)]):
-    return [ao_vivo.resumo_linha(linha) for linha in linhas_monitoradas(db).values()]
+def listar_linhas(usuario: Leitura, db: Annotated[Session, Depends(get_db)]):
+    """Só as linhas que a pessoa pode ver (fiscal sem turno aberto: lista vazia)."""
+    esc = acesso.escopo(db, usuario.id)
+    return [ao_vivo.resumo_linha(linha) for codigo, linha in linhas_monitoradas(db).items()
+            if esc["linhas"] is None or codigo in esc["linhas"]]
 
 
 @router.get("/linhas/{linha_codigo}/tracado", summary="Traçado, terminais e G3 da linha (estático)")
-def tracado(linha_codigo: str, response: Response, _: Leitura, db: Annotated[Session, Depends(get_db)]):
-    linha = _linha_ou_404(db, linha_codigo)
+def tracado(linha_codigo: str, response: Response, usuario: Leitura, db: Annotated[Session, Depends(get_db)]):
+    linha = _linha_autorizada(db, usuario, linha_codigo)
     response.headers["Cache-Control"] = "private, max-age=3600"
     return ao_vivo.montar_tracado(linha)
 
 
 @router.get("/linhas/{linha_codigo}/ao-vivo", summary="Carros, alertas e ocorrências da linha (últimas 4 h)")
-def ao_vivo_linha(linha_codigo: str, _: Leitura, db: Annotated[Session, Depends(get_db)]):
-    linha = _linha_ou_404(db, linha_codigo)
+def ao_vivo_linha(linha_codigo: str, usuario: Leitura, db: Annotated[Session, Depends(get_db)]):
+    linha = _linha_autorizada(db, usuario, linha_codigo)
     return ao_vivo.ao_vivo_com_cache(db, linha)
 
 
@@ -440,11 +457,11 @@ def ao_vivo_linha(linha_codigo: str, _: Leitura, db: Annotated[Session, Depends(
 def rastro(
     linha_codigo: str,
     prefixo: str,
-    _: Leitura,
+    usuario: Leitura,
     db: Annotated[Session, Depends(get_db)],
     minutos: int = Query(90, ge=1, le=ao_vivo.RASTRO_MAX_MIN),
 ):
-    linha = _linha_ou_404(db, linha_codigo)
+    linha = _linha_autorizada(db, usuario, linha_codigo)
     if not prefixo.isdigit() or len(prefixo) > 10:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Prefixo inválido")
     return ao_vivo.montar_rastro(db, linha, prefixo, minutos)
@@ -454,11 +471,11 @@ def rastro(
             summary="Partidas do dia (NIMER × SIM), ICV das duas fontes, IPP e perda absoluta")
 def tempo_real_linha(
     linha_codigo: str,
-    _: Leitura,
+    usuario: Leitura,
     db: Annotated[Session, Depends(get_db)],
     data: Optional[date] = Query(None, description="data de serviço (padrão: hoje, virada às 4h)"),
 ):
-    linha = _linha_ou_404(db, linha_codigo)
+    linha = _linha_autorizada(db, usuario, linha_codigo)
     data_servico = data or data_servico_de()
     resultado = tempo_real.montar_linha_tempo_real(db, linha, data_servico)
     saida = tempo_real.serializar(resultado, linha, data_servico)
