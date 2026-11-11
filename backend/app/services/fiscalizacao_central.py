@@ -53,6 +53,8 @@ def farol(icv: Optional[float], meta: Optional[float], aceitavel: Optional[float
 def motivo_do_pareto(v: dict) -> str:
     if v.get("contador"):
         return ROTULOS_CONTADOR.get(v["contador"], v["contador"])
+    if v.get("motivo_proprio"):
+        return v["motivo_proprio"].capitalize()
     if v.get("motivo_canonico"):
         return ROTULOS_CONTADOR.get(v["motivo_canonico"], v["motivo_canonico"])
     return (v.get("motivo_nimer") or "Sem motivo no NIMER").strip()

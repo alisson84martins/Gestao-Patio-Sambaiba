@@ -212,6 +212,7 @@ def texto_fechamento_linha(
     obs_automaticas: list[str],
     baitas: dict[tuple[str, str], Baita],
     observacoes: list[ObservacaoTurno],
+    contadores_proprios: Optional[dict[str, int]] = None,
 ) -> str:
     """O texto do WhatsApp de UMA linha. Compartilhado pelo fechamento do
     fiscal (registro à mão) e pela prévia do tempo real (NIMER + correções,
@@ -233,6 +234,11 @@ def texto_fechamento_linha(
         f" ATRASO DE GARAGEM {contagem['ATRASO_GARAGEM']:02d}",
         f" TROCA OPERACIONAL {contagem['TROCA_OPERACIONAL']:02d}",
         f" VIAGEM EXTRA {contagem['VIAGEM_EXTRA']:02d}",
+    ]
+    # Motivo do NIMER fora da tabela (11/11): linha própria, com o nome do NIMER.
+    for nome, n in sorted((contadores_proprios or {}).items()):
+        linhas_texto.append(f" {nome}: {n:02d}")
+    linhas_texto += [
         "OBS:",
     ]
 
@@ -357,14 +363,17 @@ def viagens_do_periodo(db: Session, turno: Turno, linha_codigo: str, viagens: li
     return [v for v in viagens if dentro(v)], "TURNO"
 
 
-def contagem_tempo_real(viagens: list[dict]) -> tuple[int, int, dict[str, int], list[str]]:
-    """(programadas, realizadas_total, contadores, linhas de OBS) do status efetivo.
+def contagem_tempo_real(viagens: list[dict]) -> tuple[int, int, dict[str, int], list[str], dict[str, int]]:
+    """(programadas, realizadas_total, contadores, linhas de OBS, contadores próprios) do status efetivo.
 
     D4 continua: contador é EVENTO (aqui, a viagem perdida com motivo de
-    contador); "3 - Trânsito" e motivo ainda sem decisão vão para o OBS (D27)."""
+    contador). Motivos pelo padrão do NIMER (11/11): "Trânsito" vai para o
+    OBS (D27); motivo fora da tabela MOTIVOS_NIMER vira linha própria com o
+    nome do NIMER (ex.: "FALTA DE MOTORISTA: 01")."""
     from app.services.fiscalizacao_tempo_real import hora_local
     contagem = {tipo: 0 for tipo in _TIPOS_EVENTO}
     obs = []
+    proprios: dict[str, int] = {}
     conta = [v for v in viagens if not v.get("duplicada")]
     programadas = sum(v.get("prog_inicio") is not None for v in conta)
     extras = sum(v["status_efetivo"] == "done" and v.get("prog_inicio") is None for v in conta)
@@ -376,13 +385,16 @@ def contagem_tempo_real(viagens: list[dict]) -> tuple[int, int, dict[str, int], 
         if v.get("contador"):
             contagem[v["contador"]] += 1
             continue
+        if v.get("motivo_proprio"):
+            proprios[v["motivo_proprio"]] = proprios.get(v["motivo_proprio"], 0) + 1
+            continue
         if v.get("motivo_canonico") == "TRANSITO":
             motivo = "trânsito"
         else:
             motivo = v.get("motivo_nimer") or "sem motivo no NIMER"
         obs.append(f" 👉🏼 Tabela {v.get('tabela') or '—'}, {motivo}, "
                    f"viagem das {hora_local(v['prog_inicio'])} não realizada.")
-    return programadas, realizadas, contagem, obs
+    return programadas, realizadas, contagem, obs, proprios
 
 
 def montar_fechamento_tempo_real(db: Session, turno_id: UUID) -> list[dict]:
@@ -412,8 +424,9 @@ def montar_fechamento_tempo_real(db: Session, turno_id: UUID) -> list[dict]:
                           "texto": manual[linha_codigo]})
             continue
         viagens, criterio = viagens_do_periodo(db, turno, linha_codigo, resultado["viagens"])
-        programadas, realizadas, contagem, obs = contagem_tempo_real(viagens)
-        texto = texto_fechamento_linha(turno, linha_codigo, programadas, realizadas, contagem, obs, baitas, observacoes)
+        programadas, realizadas, contagem, obs, proprios = contagem_tempo_real(viagens)
+        texto = texto_fechamento_linha(turno, linha_codigo, programadas, realizadas, contagem, obs, baitas, observacoes,
+                                       contadores_proprios=proprios)
         saida.append({"linha_codigo": linha_codigo, "fonte": "NIMER", "criterio_periodo": criterio,
                       "corrigidas": sum(v["corrigida"] for v in viagens), "texto": texto})
     return saida

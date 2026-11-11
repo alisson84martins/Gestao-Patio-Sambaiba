@@ -168,13 +168,14 @@ def test_previa_do_fechamento_pelo_status_efetivo(ambiente):
     assert "PARTIDAS PROGRAMADAS: 1° período 4" in t and "PARTIDAS REALIZADAS: 1° período 1" in t
     assert " S.O.S: 01" in t          # 2293 perdeu por recolhe e voltou na 032207
     assert " R.A: 00" in t
-    assert " FALTA DE OPERADORES: 00" in t   # motivo do NIMER ainda sem decisão: vai para o OBS
-    assert "Tabela 032104, 1 - Falta de Motorista, viagem das 09:00 não realizada." in t
+    assert " FALTA DE OPERADORES: 00" in t
+    assert " FALTA DE MOTORISTA: 01" in t    # 11/11: motivo fora da tabela vira linha própria, não OBS
+    assert "Falta de Motorista, viagem" not in t
     assert "Tabela 032108, trânsito, viagem das 10:00 não realizada." in t   # D27: fora dos contadores
     # o fiscal corrige e a prévia acompanha
     _corrigir(cli, 1, "motivo", "FALTA_OPERADORES", "motorista faltou, conferido com a escala")
     t2 = cli.get(f"/monitoramento/turnos/{ambiente['turno_id']}/fechamento-previa").json()[0]["texto"]
-    assert " FALTA DE OPERADORES: 01" in t2 and "032104" not in t2
+    assert " FALTA DE OPERADORES: 01" in t2 and "FALTA DE MOTORISTA" not in t2
 
 
 def test_previa_de_turno_de_outro_fiscal_403(ambiente):
@@ -182,3 +183,41 @@ def test_previa_de_turno_de_outro_fiscal_403(ambiente):
     assert ambiente["client"].get(f"/monitoramento/turnos/{ambiente['turno_id']}/fechamento-previa").status_code == 403
     ambiente["como"](COORD)
     assert ambiente["client"].get(f"/monitoramento/turnos/{ambiente['turno_id']}/fechamento-previa").status_code == 200
+
+
+# ─── Motivos do NIMER pelo padrão do NIMER (11/11, item 6) ─────────────────
+
+def test_cada_motivo_da_tabela_vai_para_o_lugar_certo_no_fechamento():
+    from app.services.fechamento_fiscal import contagem_tempo_real, texto_fechamento_linha
+    from tests.cenario_tempo_real import calcular, viagem
+    viagens = [
+        viagem("A", 1, 10, "lost", carro="3001", motivo="1 - Falta de Operador"),
+        viagem("B", 1, 20, "lost", carro="3002", motivo="6- Atraso de Garagem - FALTA DE CARRO"),
+        viagem("C", 1, 30, "lost", carro="3003", motivo="6 - atraso de garagem-falta de carro"),   # mesmo motivo
+        viagem("D", 1, 40, "lost", carro="2293", motivo="4- Recolhe Anormal / SOS"),
+        viagem("D2", 2, 120, "done", carro="2293", real_min=121),                                # voltou → S.O.S
+        viagem("E", 1, 50, "lost", carro="3005", motivo="4 - Recolhe Anormal / SOS"),            # não voltou → R.A
+        viagem("F", 1, 60, "lost", carro="3006", motivo="3 - Trânsito"),
+        viagem("G", 1, 70, "lost", carro="3007", motivo="9- Quebra no Itinerário"),              # desconhecido
+        viagem("H", 1, 80, "lost", carro="3008", motivo="9 - QUEBRA NO ITINERÁRIO"),
+    ]
+    res = calcular(viagens, [], agora_min=300)
+    programadas, realizadas, contagem, obs, proprios = contagem_tempo_real(res["viagens"])
+    assert contagem["FALTA_OPERADORES"] == 1 and contagem["ATRASO_GARAGEM"] == 2
+    assert contagem["SOS"] == 1 and contagem["RA"] == 1
+    assert proprios == {"QUEBRA NO ITINERÁRIO": 2}
+    assert len(obs) == 1 and "trânsito" in obs[0]                     # só o trânsito vai para o OBS (D27)
+    turno = Turno(fiscal_re="70001", periodo="1", data_referencia=DIA)
+    texto = texto_fechamento_linha(turno, "1726-10", programadas, realizadas, contagem, obs, {}, [],
+                                   contadores_proprios=proprios)
+    linhas = texto.splitlines()
+    assert " QUEBRA NO ITINERÁRIO: 02" in linhas
+    assert linhas.index(" QUEBRA NO ITINERÁRIO: 02") < linhas.index("OBS:")   # contado, fora do OBS
+    assert " ATRASO DE GARAGEM 02" in linhas and " S.O.S: 01" in linhas and " R.A: 01" in linhas
+
+
+def test_fiscal_ainda_pode_trocar_o_motivo_do_desconhecido(ambiente):
+    cli = ambiente["client"]
+    _corrigir(cli, 1, "motivo", "ATRASO_GARAGEM", "era falta de carro")
+    t = cli.get(f"/monitoramento/turnos/{ambiente['turno_id']}/fechamento-previa").json()[0]["texto"]
+    assert " ATRASO DE GARAGEM 01" in t and "FALTA DE MOTORISTA" not in t

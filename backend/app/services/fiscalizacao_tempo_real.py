@@ -43,6 +43,7 @@ até o fim do serviço. O fiscal pode corrigir.
 
 ⛔ Nada aqui grava nada (D24): tudo calculado a cada chamada.
 """
+import re
 from collections import defaultdict
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta, timezone
@@ -61,11 +62,24 @@ PROJECAO_JANELA = timedelta(hours=2)
 IPP_TOLERANCIA_MIN = 3          # padrão; o valor vale de fiscalizacao.parametro (ipp_tolerancia_min)
 PROJECAO_MIN_VIAGENS = 4
 
-# Motivo do NIMER → contador do fechamento. ⛔ Só o que o Alisson decidiu
-# (seção 6 do prompt da fase 2). O resto vai para o OBS do fechamento com o
-# texto do NIMER, até ser decidido (o fiscal pode corrigir para um contador).
 CONTADORES = ("FALTA_OPERADORES", "RA", "SOS", "ATRASO_GARAGEM", "TROCA_OPERACIONAL")
 MOTIVOS_CORRIGIVEIS = CONTADORES + ("TRANSITO", "OUTRO")
+
+# Motivo do NIMER → fechamento (decisão do Alisson, 11/11/2026 00:59: segue o
+# padrão do NIMER). 🔑 TABELA ÚNICA — para ajustar, mexa só aqui. A chave é o
+# texto do NIMER sem o número, sem acento e sem caixa ("6- Atraso…" e
+# "6 - Atraso…" são o mesmo; ver normalizar_motivo).
+#   RECOLHE  → R.A ou S.O.S pela regra da fase 2 (voltou para a linha = S.O.S)
+#   TRANSITO → OBS (D27, fora dos contadores)
+#   Qualquer motivo FORA desta tabela → linha própria no fechamento com o
+#   nome do NIMER (ex.: "FALTA DE MOTORISTA: 01"), contada — ⛔ nunca no OBS.
+MOTIVOS_NIMER = {
+    "falta de operador": "FALTA_OPERADORES",
+    "falta de operadores": "FALTA_OPERADORES",
+    "atraso de garagem - falta de carro": "ATRASO_GARAGEM",
+    "recolhe anormal / sos": "RECOLHE",
+    "transito": "TRANSITO",
+}
 
 
 def _sem_acento(texto: str) -> str:
@@ -73,16 +87,29 @@ def _sem_acento(texto: str) -> str:
     return texto.translate(tabela)
 
 
+def _sem_numero(texto: str) -> str:
+    """Tira o número do NIMER da frente ("6- Atraso", "6 - Atraso", "06) Atraso")."""
+    return re.sub(r"^\s*\d+\s*[-–).:]?\s*", "", texto or "").strip()
+
+
+def normalizar_motivo(texto: Optional[str]) -> str:
+    """Chave de MOTIVOS_NIMER: sem número, sem acento, minúsculo, espaços únicos
+    e um espaço em volta de "-" e "/"."""
+    t = _sem_acento(_sem_numero(texto or "")).lower()
+    t = re.sub(r"\s*([-–/])\s*", lambda m: f" {'-' if m.group(1) == '–' else m.group(1)} ", t)
+    return re.sub(r"\s+", " ", t).strip()
+
+
+def nome_motivo_nimer(texto: Optional[str]) -> str:
+    """Nome do motivo como linha própria do fechamento: "FALTA DE MOTORISTA"."""
+    return re.sub(r"\s+", " ", _sem_numero(texto or "")).upper()
+
+
 def motivo_canonico(texto: Optional[str]) -> Optional[str]:
-    """Texto do NIMER → RECOLHE (R.A/S.O.S, decidido por regra), TRANSITO, ou None (vai para OBS)."""
-    if not texto:
+    """Texto do NIMER → código de MOTIVOS_NIMER, ou None (motivo fora da tabela)."""
+    if not texto or not texto.strip():
         return None
-    t = _sem_acento(texto).lower()
-    if "recolhe anormal" in t or "sos" in t.replace(".", "").split() or "/ sos" in t:
-        return "RECOLHE"
-    if "transito" in t:
-        return "TRANSITO"
-    return None
+    return MOTIVOS_NIMER.get(normalizar_motivo(texto))
 
 
 # ─── Geometria mínima (mesma conta do regras.py, sem depender do traçado) ────
@@ -246,7 +273,8 @@ def classificar_recolhe(v: dict, viagens: list[dict], saidas: list[Saida],
 
 
 def contador_da_viagem(v: dict) -> Optional[str]:
-    """Contador do fechamento desta viagem perdida (None = vai para o OBS)."""
+    """Contador fixo do fechamento desta viagem perdida (None = Trânsito/OBS
+    ou motivo fora da tabela, que vira linha própria — ver `motivo_proprio`)."""
     if v["status_efetivo"] == "done":
         return None
     if v.get("motivo_corrigido"):
@@ -254,7 +282,18 @@ def contador_da_viagem(v: dict) -> Optional[str]:
         return m if m in CONTADORES else None
     if v.get("recolhe"):
         return "SOS" if v["recolhe"] == "SOS" else "RA"
-    return None
+    canon = motivo_canonico(v.get("motivo_nimer"))
+    return canon if canon in CONTADORES else None
+
+
+def motivo_proprio(v: dict) -> Optional[str]:
+    """Motivo do NIMER fora de MOTIVOS_NIMER → nome da linha própria no fechamento."""
+    if v["status_efetivo"] == "done" or v.get("motivo_corrigido"):
+        return None
+    texto = v.get("motivo_nimer")
+    if not texto or not _sem_numero(texto) or motivo_canonico(texto) is not None:
+        return None
+    return nome_motivo_nimer(texto)
 
 
 # ─── Pontualidade de partida (IPP) ───────────────────────────────────────────
@@ -403,6 +442,7 @@ def calcular_linha(
         if v["status_efetivo"] in ("lost", "missing") and motivo_canonico(v.get("motivo_nimer")) == "RECOLHE":
             v["recolhe"] = classificar_recolhe(v, viagens, saidas, g3_visto, fim_servico)
         v["contador"] = contador_da_viagem(v)
+        v["motivo_proprio"] = motivo_proprio(v)
         v["motivo_canonico"] = v.get("motivo_corrigido") or motivo_canonico(v.get("motivo_nimer"))
 
     programadas = [v for v in viagens if v.get("prog_inicio") is not None]
@@ -657,6 +697,7 @@ def serializar_partida(v: dict, linha) -> dict:
         "motivo_nimer": v.get("motivo_nimer"),
         "motivo": v.get("motivo_canonico"),
         "contador": v.get("contador"),
+        "motivo_proprio": v.get("motivo_proprio"),
         "recolhe": v.get("recolhe"),
         "carro_programado": v.get("carro"),
         "carro_nimer": v.get("carro_nimer"),

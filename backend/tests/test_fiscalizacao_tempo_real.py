@@ -168,9 +168,11 @@ def test_transito_fica_fora_dos_contadores():
     assert v["contador"] is None and v["motivo_canonico"] == "TRANSITO"
 
 
-def test_motivo_ainda_nao_decidido_vai_para_o_obs():
+def test_motivo_fora_da_tabela_vira_linha_propria_com_o_nome_do_nimer():
     res = calcular([viagem("032116", 1, 268, "lost", motivo="1 - Falta de Motorista")], [], agora_min=600)
-    assert res["viagens"][0]["contador"] is None and res["viagens"][0]["motivo_canonico"] is None
+    v = res["viagens"][0]
+    assert v["contador"] is None and v["motivo_canonico"] is None
+    assert v["motivo_proprio"] == "FALTA DE MOTORISTA"
 
 
 def test_instante_do_horario_de_madrugada_e_do_dia_seguinte():
