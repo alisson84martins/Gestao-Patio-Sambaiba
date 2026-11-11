@@ -16,7 +16,7 @@ e /linhas/{codigo}/carros/{prefixo}/rastro — telas do fiscal (recurso
 import json
 import logging
 import secrets
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import Annotated, Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
@@ -31,6 +31,7 @@ from app.core.deps import exige_qualquer
 from app.core.linha import codigo_linha
 from app.models.cadastro import Funcionario
 from app.models.monitoramento import Coleta, LeituraVeiculo, NimerColeta, SimCodigoLinha
+from app.services import fiscalizacao_tempo_real as tempo_real
 from app.services import monitoramento_ao_vivo as ao_vivo
 from app.services.monitoramento_cadastro import (
     data_servico_de,
@@ -424,3 +425,17 @@ def rastro(
     if not prefixo.isdigit() or len(prefixo) > 10:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Prefixo inválido")
     return ao_vivo.montar_rastro(db, linha, prefixo, minutos)
+
+
+@router.get("/linhas/{linha_codigo}/tempo-real",
+            summary="Partidas do dia (NIMER × SIM), ICV das duas fontes, IPP e perda absoluta")
+def tempo_real_linha(
+    linha_codigo: str,
+    _: Leitura,
+    db: Annotated[Session, Depends(get_db)],
+    data: Optional[date] = Query(None, description="data de serviço (padrão: hoje, virada às 4h)"),
+):
+    linha = _linha_ou_404(db, linha_codigo)
+    data_servico = data or data_servico_de()
+    resultado = tempo_real.montar_linha_tempo_real(db, linha, data_servico)
+    return tempo_real.serializar(resultado, linha, data_servico)
