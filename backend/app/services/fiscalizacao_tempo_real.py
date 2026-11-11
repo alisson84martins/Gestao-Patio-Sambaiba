@@ -23,12 +23,16 @@ ICV ao vivo, DUAS FONTES LADO A LADO (D20 — nunca numa coluna só):
   (o ICV do SIM é a NOSSA leitura das saídas, não o número oficial — decisão 4)
   e os dois do dia inteiro (÷ programadas do dia). Podem passar de 100% (D30).
   Agregado de várias linhas: soma numerador e denominador antes de dividir (D22).
-IPP: a definição do sistema (fiscalizacao.vw_ipp_diario) é
-  (realizadas programadas + extras) ÷ programadas — aqui, ipp = (realizadas
-  + extras) ÷ programadas até agora. Ver a divergência anotada no prompt
-  da fase 2 (seção "IPP"): pela definição atual, IPP ao vivo = ICV do NIMER.
-  A pontualidade que o próprio NIMER calcula (onTimePercent) vai ao lado, com
-  o nome dela — não é o IPP.
+IPP = PONTUALIDADE DE PARTIDA (regra do Alisson, 11/11/2026 00:58):
+  pontual = saída real em [programado − 3 min, programado + 3 min]; no
+  HORÁRIO CHEIO (07:00, 08:00…) a janela é [programado, programado + 3 min]
+  — sair antes perde o ICV da faixa horária seguinte. IPP = pontuais ÷
+  programadas (perdida conta no denominador, extra não entra). Fonte da hora:
+  NIMER (status efetivo, com correção do fiscal); ao lado, o IPP pela saída
+  vista no SIM (nossa leitura, D20). A tolerância vem de
+  fiscalizacao.parametro `ipp_tolerancia_min` (D29), padrão 3. A
+  pontualidade que o próprio NIMER calcula (onTimePercent) fica ao lado só
+  como conferência, com o nome dela.
 Perda absoluta (D23) = programadas até agora − realizadas programadas.
 
 R.A × S.O.S (decisão do Alisson, 10/11/2026 22:05): a viagem perdida com
@@ -54,6 +58,7 @@ CASA_QUALQUER_CARRO = timedelta(minutes=15)
 DUPLICADO_NIMER = timedelta(minutes=10)
 RAIO_GARAGEM_M = 300
 PROJECAO_JANELA = timedelta(hours=2)
+IPP_TOLERANCIA_MIN = 3          # padrão; o valor vale de fiscalizacao.parametro (ipp_tolerancia_min)
 PROJECAO_MIN_VIAGENS = 4
 
 # Motivo do NIMER → contador do fechamento. ⛔ Só o que o Alisson decidiu
@@ -252,6 +257,49 @@ def contador_da_viagem(v: dict) -> Optional[str]:
     return None
 
 
+# ─── Pontualidade de partida (IPP) ───────────────────────────────────────────
+
+def horario_cheio(prog: datetime) -> bool:
+    local = prog.astimezone(FUSO_OPERACAO)
+    return local.minute == 0 and local.second == 0
+
+
+def classificar_pontualidade(prog: Optional[datetime], real: Optional[datetime],
+                             tolerancia_min: float = IPP_TOLERANCIA_MIN) -> dict:
+    """{"classe": pontual | atrasada | adiantada | sem_dado, "desvio_min": int|None}.
+
+    Horário cheio: qualquer saída ANTES do programado é adiantada (perde a
+    faixa horária). Fora dele: ± tolerância."""
+    if prog is None or real is None:
+        return {"classe": "sem_dado", "desvio_min": None}
+    desvio = (real - prog).total_seconds()
+    tol = tolerancia_min * 60
+    minimo = 0 if horario_cheio(prog) else -tol
+    if desvio < minimo:
+        classe = "adiantada"
+    elif desvio > tol:
+        classe = "atrasada"
+    else:
+        classe = "pontual"
+    desvio_min = int(desvio // 60) if desvio < 0 else int(round(desvio / 60))
+    return {"classe": classe, "desvio_min": desvio_min}
+
+
+def pontualidade_da_viagem(v: dict, agora: datetime, tolerancia_min: float, fonte: str = "nimer") -> Optional[dict]:
+    """Classe da partida programada (None = futura ou extra, fora do IPP)."""
+    prog = v.get("prog_inicio")
+    if prog is None or prog > agora:
+        return None
+    if fonte == "sim":
+        s = v.get("saida_sim")
+        if s is None:
+            return {"classe": "sem_dado" if v.get("sim_viu") == "sem_dado" else "perdida", "desvio_min": None}
+        return classificar_pontualidade(prog, s.em, tolerancia_min)
+    if v["status_efetivo"] != "done":
+        return {"classe": "perdida", "desvio_min": None}
+    return classificar_pontualidade(prog, v.get("real_inicio"), tolerancia_min)
+
+
 # ─── Linha inteira ───────────────────────────────────────────────────────────
 
 def _sim_cobriu(instantes: list[datetime], momento: datetime) -> bool:
@@ -275,6 +323,7 @@ def calcular_linha(
     agora: datetime,
     tem_sim: bool,
     pontualidade_nimer: Optional[float] = None,
+    ipp_tolerancia_min: float = IPP_TOLERANCIA_MIN,
 ) -> dict:
     """Núcleo puro. `leituras`: SIM da própria linha, {prefixo (4 díg.), em, s, la, lo}."""
     viagens = [aplicar_correcoes(v, correcoes.get(v["id"], {})) for v in viagens_nimer]
@@ -336,6 +385,22 @@ def calcular_linha(
         restantes = n_dia - n_agora
         projecao = _pct(realizadas_agora + restantes * min(1.0, taxa), n_dia)
 
+    # IPP: pontuais ÷ programadas até agora (duplicado do NIMER e extra fora).
+    pontuais = pontuais_sim = 0
+    for v in viagens:
+        if v["duplicada"]:
+            v["pontualidade"] = v["pontualidade_sim"] = None
+            continue
+        v["pontualidade"] = pontualidade_da_viagem(v, agora, ipp_tolerancia_min)
+        v["pontualidade_sim"] = pontualidade_da_viagem(v, agora, ipp_tolerancia_min, "sim") if sim_ativo else None
+        pontuais += bool(v["pontualidade"] and v["pontualidade"]["classe"] == "pontual")
+        pontuais_sim += bool(v["pontualidade_sim"] and v["pontualidade_sim"]["classe"] == "pontual")
+    n_ipp = sum(1 for v in ate_agora if not v["duplicada"])
+    classes = defaultdict(int)
+    for v in viagens:
+        if v.get("pontualidade"):
+            classes[v["pontualidade"]["classe"]] += 1
+
     return {
         "viagens": viagens,
         "saidas_sim": saidas,
@@ -348,6 +413,10 @@ def calcular_linha(
             "saidas_sim_ate_agora": saidas_ate_agora if sim_ativo else None,
             "perda_absoluta": perda,
             "duplicadas_nimer": sum(v["duplicada"] for v in viagens),
+            "pontuais_nimer": pontuais,
+            "pontuais_sim": pontuais_sim if sim_ativo else None,
+            "programadas_ipp": n_ipp,
+            "pontualidade_classes": dict(classes),
         },
         "icv": {
             "nimer_ate_agora": _pct(realizadas_agora, n_agora),
@@ -357,8 +426,13 @@ def calcular_linha(
             "projecao_fechamento": projecao,
         },
         "ipp": {
-            "ate_agora": _pct(realizadas_agora, n_agora),
-            "definicao": "vw_ipp_diario: (realizadas programadas + extras) ÷ programadas",
+            "ate_agora": _pct(pontuais, n_ipp),
+            "sim_ate_agora": _pct(pontuais_sim, n_ipp) if sim_ativo else None,
+            "dia": _pct(pontuais, n_dia),
+            "tolerancia_min": ipp_tolerancia_min,
+            "definicao": (f"pontuais ÷ programadas; pontual = saída em ±{ipp_tolerancia_min:g} min do programado "
+                          f"(horário cheio: só de 0 a +{ipp_tolerancia_min:g} min)"),
+            "sim_rotulo": "IPP pelo SIM = nossa leitura das saídas, não o número oficial",
         },
         "pontualidade_nimer": pontualidade_nimer,
         "fim_servico": fim_servico,
@@ -372,17 +446,21 @@ def agregar(resultados: list[dict]) -> dict:
     for r in resultados:
         t = r["totais"]
         for chave in ("programadas_ate_agora", "programadas_dia", "realizadas_nimer_ate_agora",
-                      "realizadas_nimer_dia", "perda_absoluta"):
-            soma[chave] += t[chave] or 0
+                      "realizadas_nimer_dia", "perda_absoluta", "pontuais_nimer", "programadas_ipp"):
+            soma[chave] += t.get(chave) or 0
         if t["saidas_sim_ate_agora"] is not None:
             tem_sim = True
             soma["saidas_sim_ate_agora"] += t["saidas_sim_ate_agora"]
             soma["programadas_com_sim"] += t["programadas_ate_agora"]
+            soma["pontuais_sim"] += t.get("pontuais_sim") or 0
+            soma["programadas_ipp_com_sim"] += t.get("programadas_ipp") or 0
     return {
         **dict(soma),
         "icv_nimer_ate_agora": _pct(soma["realizadas_nimer_ate_agora"], soma["programadas_ate_agora"]),
         "icv_sim_ate_agora": _pct(soma["saidas_sim_ate_agora"], soma["programadas_com_sim"]) if tem_sim else None,
         "icv_nimer_dia": _pct(soma["realizadas_nimer_dia"], soma["programadas_dia"]),
+        "ipp_ate_agora": _pct(soma["pontuais_nimer"], soma["programadas_ipp"]),
+        "ipp_sim_ate_agora": _pct(soma["pontuais_sim"], soma["programadas_ipp_com_sim"]) if tem_sim else None,
     }
 
 
@@ -476,7 +554,10 @@ def montar_linha_tempo_real(db, linha, data_servico: date, agora: Optional[datet
         select(NimerColeta.recebido_em).where(NimerColeta.linha_codigo == linha.codigo, NimerColeta.status == "ok")
         .order_by(NimerColeta.recebido_em.desc()).limit(1)
     ).scalar_one_or_none()
+    from app.models.fiscalizacao import Parametro
+    tolerancia = db.get(Parametro, "ipp_tolerancia_min")
     resultado = calcular_linha(
+        ipp_tolerancia_min=float(tolerancia.valor) if tolerancia is not None else IPP_TOLERANCIA_MIN,
         viagens_nimer=viagens, correcoes=correcoes, leituras=leituras,
         terminais=linha.terminais if linha.tem_mapa else {}, destino=linha.destino, garagem=GARAGEM_G3,
         agora=agora, tem_sim=ultima_sim is not None,
@@ -537,6 +618,9 @@ def serializar_partida(v: dict, linha) -> dict:
         "carro_real_sim": v.get("carro_real"),
         "carro_trocado_sim": v.get("carro_trocado_sim"),
         "duplicada_nimer": v.get("duplicada"),
+        "pontualidade": v.get("pontualidade"),
+        "pontualidade_sim": v.get("pontualidade_sim"),
+        "horario_cheio": bool(v.get("prog_inicio") and horario_cheio(v["prog_inicio"])),
         # ⚠️ Como ESCALADO NO NIMER — não é prova de quem dirigiu ou faltou.
         "escalado_nimer": {"motorista_re": v.get("motorista_re"), "cobrador_re": v.get("cobrador_re"),
                            "sem_motorista": bool(v.get("sem_motorista"))},

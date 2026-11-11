@@ -86,7 +86,7 @@ def test_icv_com_viagem_extra_passa_de_100():
     res = calcular(viagens, leituras, agora_min=200)
     assert res["icv"]["nimer_ate_agora"] == 200.0          # D30: sem teto
     assert res["icv"]["sim_ate_agora"] == 200.0
-    assert res["ipp"]["ate_agora"] == 200.0                 # vw_ipp_diario: (realizadas + extras) ÷ programadas
+    assert res["ipp"]["ate_agora"] == 100.0                 # IPP = pontualidade: a extra não infla (11/11)
     assert res["totais"]["perda_absoluta"] == 0
 
 
