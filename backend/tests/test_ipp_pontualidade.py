@@ -83,3 +83,53 @@ def test_adiantada_dentro_da_mesma_faixa_nao_perde_faixa():
     res = calcular(viagens, [], agora_min=_min_desde_dia("11:00"))
     assert res["icv"]["adiantamentos_de_faixa"] == []
     assert res["viagens"][0]["pontualidade"]["classe"] == "adiantada"   # mas não é pontual
+
+
+# ─── Item 5 — o comportamento ERRADO que o IPP novo evita ─────────────────
+
+def _uma(prog: str, real: str | None, status="done"):
+    v = viagem("032104", 1, _min_desde_dia(prog), status, real_min=None if real is None else _min_desde_dia(real))
+    return calcular([v], [], agora_min=_min_desde_dia("12:00"))
+
+
+def test_0700_saindo_0659_e_adiantada_nao_pontual():
+    res = calcular([viagem("032104", 1, -120, "done", real_min=-121)], [], agora_min=0)   # 07:00 → 06:59
+    assert res["viagens"][0]["pontualidade"] == {"classe": "adiantada", "desvio_min": -1}
+    assert res["ipp"]["ate_agora"] == 0.0
+    # 1 segundo antes já é adiantada no horário cheio
+    assert tr.classificar_pontualidade(sp("07:00"), sp("06:59", 59))["classe"] == "adiantada"
+
+
+def test_0710_saindo_0707_e_pontual():
+    res = _uma("10:10", "10:07")
+    assert res["viagens"][0]["pontualidade"]["classe"] == "pontual" and res["ipp"]["ate_agora"] == 100.0
+    assert tr.classificar_pontualidade(sp("07:10"), sp("07:07"))["classe"] == "pontual"
+
+
+def test_0710_saindo_0714_e_atrasada():
+    assert tr.classificar_pontualidade(sp("07:10"), sp("07:14")) == {"classe": "atrasada", "desvio_min": 4}
+    res = _uma("10:10", "10:14")
+    assert res["viagens"][0]["pontualidade"]["classe"] == "atrasada" and res["ipp"]["ate_agora"] == 0.0
+
+
+def test_horario_cheio_ate_mais_3_e_pontual():
+    assert tr.classificar_pontualidade(sp("07:00"), sp("07:00"))["classe"] == "pontual"
+    assert tr.classificar_pontualidade(sp("07:00"), sp("07:03"))["classe"] == "pontual"
+    assert tr.classificar_pontualidade(sp("07:00"), sp("07:03", 1))["classe"] == "atrasada"
+
+
+def test_perdida_conta_no_denominador_e_nao_no_numerador():
+    viagens = [viagem("A", 1, 10, "done", carro="3001", real_min=11), viagem("B", 1, 20, "lost", carro="3002")]
+    res = calcular(viagens, [], agora_min=100)
+    assert res["ipp"]["ate_agora"] == 50.0
+    assert res["viagens"][1]["pontualidade"]["classe"] == "perdida"
+
+
+def test_viagem_extra_nao_infla_o_ipp():
+    viagens = [viagem("A", 1, 10, "done", carro="3001", real_min=11),
+               viagem("B", 1, 20, "lost", carro="3002"),
+               viagem("EXTRA", 1, None, "done", carro="3003", real_min=30)]
+    res = calcular(viagens, [], agora_min=100)
+    assert res["ipp"]["ate_agora"] == 50.0           # a extra não entra nem em cima nem embaixo
+    assert res["icv"]["nimer_ate_agora"] == 100.0    # no ICV a extra soma (D6/D30)
+    assert res["viagens"][2]["pontualidade"] is None
