@@ -7,15 +7,15 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine, event, func, select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
-from sqlalchemy.pool import StaticPool
 
 from app.core.config import get_settings
-from app.core.database import Base, get_db
+from app.core.database import get_db
 from app.main import app
 from app.models.monitoramento import Coleta, LeituraVeiculo
 from app.routers import monitoramento as router_mod
+from tests.ambiente_monitoramento import criar_engine
 
 TOKEN = "token-de-teste-do-robo"
 T0 = 1794318439000  # epoch ms
@@ -34,17 +34,7 @@ def _corpo(veiculos, status="ok"):
 
 @pytest.fixture
 def engine():
-    eng = create_engine(
-        "sqlite:///:memory:", poolclass=StaticPool,
-        connect_args={"check_same_thread": False},
-    )
-
-    @event.listens_for(eng, "connect")
-    def _attach(dbapi_conn, _):
-        dbapi_conn.execute("ATTACH DATABASE ':memory:' AS monitoramento")
-
-    Base.metadata.create_all(eng, tables=[LeituraVeiculo.__table__, Coleta.__table__])
-    return eng
+    return criar_engine()
 
 
 @pytest.fixture
@@ -119,7 +109,7 @@ def test_grava_leitura_da_1726_com_codigo_canonico(client, engine):
 
 
 def test_li_de_outra_linha_descartado_em_silencio(client, engine):
-    r = _enviar(client, _corpo([_carro(p=22412), _carro(p=11111, li=999), _carro(p=22413, li=1403, s=1)]))
+    r = _enviar(client, _corpo([_carro(p=22412), _carro(p=11111, li=999, l="8000-10"),_carro(p=22413, li=1403, s=1)]))
     assert r.status_code == 200
     assert r.json()["recebidos"] == 3 and r.json()["aceitos"] == 2
     assert sorted(lv.prefixo for lv in _leituras(engine)) == ["22412", "22413"]

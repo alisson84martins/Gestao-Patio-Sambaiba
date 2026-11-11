@@ -10,12 +10,10 @@ from uuid import uuid4
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine, event
 from sqlalchemy.orm import Session
-from sqlalchemy.pool import StaticPool
 
 from app.core.config import get_settings
-from app.core.database import Base, get_db
+from app.core.database import get_db
 from app.main import app
 from app.models.cadastro import Funcionario
 from app.models.monitoramento import Coleta, LeituraVeiculo
@@ -23,6 +21,7 @@ from app.routers import monitoramento as router_mod
 from app.services import monitoramento_ao_vivo as servico
 from app.services import monitoramento_regras as regras
 from app.services.monitoramento_linhas import obter_linha
+from tests.ambiente_monitoramento import criar_engine
 
 TOKEN = "token-de-teste-do-robo"
 TP_REAL = (-23.438087, -46.566383)
@@ -31,14 +30,7 @@ _CHECKER = router_mod.Leitura.__metadata__[0].dependency
 
 @pytest.fixture
 def engine():
-    eng = create_engine("sqlite:///:memory:", poolclass=StaticPool, connect_args={"check_same_thread": False})
-
-    @event.listens_for(eng, "connect")
-    def _attach(dbapi_conn, _):
-        dbapi_conn.execute("ATTACH DATABASE ':memory:' AS monitoramento")
-
-    Base.metadata.create_all(eng, tables=[LeituraVeiculo.__table__, Coleta.__table__])
-    return eng
+    return criar_engine()
 
 
 @pytest.fixture
@@ -121,7 +113,7 @@ def test_ao_vivo_3_carros_da_1726_e_1_de_outra_linha_devolve_so_os_3(client, lin
         _veic(22412, 1403, 1, _pto(linha, 1, 100), agora - timedelta(seconds=30)),
         _veic(22413, 34171, 2, _pto(linha, 2, 200), agora - timedelta(seconds=40)),
         _veic(22414, 1403, 1, TP_REAL, agora - timedelta(seconds=20)),
-        _veic(29999, 555, 1, _pto(linha, 1, 50), agora - timedelta(seconds=10)),
+        {**_veic(29999, 555, 1, _pto(linha, 1, 50), agora - timedelta(seconds=10)), "l": "8000-10"},
     ])
     r = client.get("/monitoramento/linhas/1726-10/ao-vivo")
     assert r.status_code == 200

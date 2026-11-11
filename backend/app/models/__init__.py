@@ -19,7 +19,10 @@ from app.models.enums import (
 )
 from app.models.consulta_placa import ConsultaPlaca
 from app.models.frota import AlocacaoPatio, Fila, Onibus
-from app.models.monitoramento import Coleta, LeituraVeiculo
+from app.models.monitoramento import (
+    AlertaTratativa, Coleta, LeituraVeiculo, LinhaMonitoradaCadastro, NimerColeta, NimerViagem,
+    SimCodigoLinha, VelocidadeAgregacao, VelocidadeTrecho, ViagemCorrecao,
+)
 from app.models.ocorrencia import (
     Ocorrencia, OcorrenciaAnalise, OcorrenciaAnexo, OcorrenciaAutoridade,
     OcorrenciaAvaria, OcorrenciaTestemunha, OcorrenciaVeiculoTerceiro,
@@ -60,4 +63,7 @@ __all__ = [
     "PessoaPreCadastro",
     # Monitoramento ao vivo da linha (migration 053)
     "LeituraVeiculo", "Coleta",
+    # Fase 2 (migration 054) — NIMER + todas as linhas
+    "LinhaMonitoradaCadastro", "SimCodigoLinha", "NimerViagem", "NimerColeta", "ViagemCorrecao",
+    "AlertaTratativa", "VelocidadeTrecho", "VelocidadeAgregacao",
 ]
