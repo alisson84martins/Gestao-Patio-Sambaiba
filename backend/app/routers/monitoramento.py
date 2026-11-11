@@ -31,6 +31,7 @@ from app.core.deps import exige_qualquer
 from app.core.linha import codigo_linha
 from app.models.cadastro import Funcionario
 from app.models.monitoramento import Coleta, LeituraVeiculo, NimerColeta, SimCodigoLinha
+from app.services import fiscalizacao_alertas as alertas_op
 from app.services import fiscalizacao_tempo_real as tempo_real
 from app.services import monitoramento_ao_vivo as ao_vivo
 from app.services.monitoramento_cadastro import (
@@ -438,4 +439,7 @@ def tempo_real_linha(
     linha = _linha_ou_404(db, linha_codigo)
     data_servico = data or data_servico_de()
     resultado = tempo_real.montar_linha_tempo_real(db, linha, data_servico)
-    return tempo_real.serializar(resultado, linha, data_servico)
+    saida = tempo_real.serializar(resultado, linha, data_servico)
+    # Alertas só fazem sentido no dia de serviço corrente (são "agora").
+    saida["alertas"] = alertas_op.montar_alertas(db, linha, resultado) if data_servico == data_servico_de() else []
+    return saida

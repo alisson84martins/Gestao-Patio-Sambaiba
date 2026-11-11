@@ -254,6 +254,12 @@ def contador_da_viagem(v: dict) -> Optional[str]:
 
 # ─── Linha inteira ───────────────────────────────────────────────────────────
 
+def _sim_cobriu(instantes: list[datetime], momento: datetime) -> bool:
+    import bisect
+    i = bisect.bisect_left(instantes, momento - CASA_QUALQUER_CARRO)
+    return i < len(instantes) and instantes[i] <= momento + CASA_QUALQUER_CARRO
+
+
 def _pct(num: Optional[float], den: Optional[float]) -> Optional[float]:
     return round(num / den * 100, 2) if den else None
 
@@ -286,6 +292,7 @@ def calcular_linha(
     fim_servico = bool(fins) and agora > max(fins)
 
     sim_ativo = tem_sim and bool(terminais)
+    instantes = sorted(r["em"] for r in leituras)
     for v in viagens:
         s = v["saida_sim"]
         v["sim_saida_em"] = s.em if s else None
@@ -296,7 +303,9 @@ def calcular_linha(
         elif not sim_ativo or v.get("prog_inicio") is None:
             v["sim_viu"] = "sem_dado"
         elif v["prog_inicio"] + CASA_QUALQUER_CARRO < agora:
-            v["sim_viu"] = "nao"
+            # Só afirma "o SIM não viu" se o SIM estava enxergando a linha
+            # naquela hora (alguma leitura dela em ±15 min); senão, sem dado.
+            v["sim_viu"] = "nao" if _sim_cobriu(instantes, v["prog_inicio"]) else "sem_dado"
         else:
             v["sim_viu"] = "aguardando"
         v["recolhe"] = None
