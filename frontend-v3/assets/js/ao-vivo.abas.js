@@ -90,13 +90,14 @@ function renderSaude() {
 function renderPlacar() {
     const el = document.getElementById('av-placar');
     if (!dados) return;
-    const { icv, totais, pontualidade_nimer: pont } = dados;
+    const { icv, ipp, totais, pontualidade_nimer: pont } = dados;
+    const tol = ipp.tolerancia_min ?? 3;
     const blocos = [
         ['ICV NIMER', pct(icv.nimer_ate_agora), `${totais.realizadas_nimer_ate_agora} de ${totais.programadas_ate_agora} até agora`],
         ['ICV SIM', pct(icv.sim_ate_agora), 'nossa leitura das saídas — não é o oficial'],
+        ['IPP', pct(ipp.ate_agora), `${totais.pontuais_nimer} pontuais (±${tol} min; HH:00 sem adiantar) · SIM ${pct(ipp.sim_ate_agora)}`],
         ['Perdas', String(totais.perda_absoluta ?? '—'), 'até agora'],
-        ['Pontualidade', pct(pont), 'do NIMER'],
-        ['Fecha em', pct(icv.projecao_fechamento), 'se continuar assim'],
+        ['Fecha em', pct(icv.projecao_fechamento), `se continuar assim · NIMER pontualidade ${pct(pont)}`],
     ];
     el.innerHTML = blocos.map(([t, v, s]) => `<div class="av-placar-item">
         <span class="av-placar-titulo">${escapeHtml(t)}</span>
@@ -107,8 +108,22 @@ function renderPlacar() {
 
 // ─── Partidas ───────────────────────────────────────────────────────────
 
+function etiquetaPontualidade(pt) {
+    if (!pt) return '';
+    const d = pt.desvio_min;
+    const texto = {
+        pontual: 'pontual',
+        atrasada: `atrasada +${d}`,
+        adiantada: `adiantada ${d}`,
+        perdida: 'perdida',
+        sem_dado: 'sem hora',
+    }[pt.classe] || pt.classe;
+    return ` <small class="av-tag av-pont-${escapeHtml(pt.classe)}">${escapeHtml(texto)}</small>`;
+}
+
 function anormal(p) {
-    return p.status_efetivo !== 'done' || p.sim_viu === 'nao' || p.carro_trocado_sim || p.corrigida || p.duplicada_nimer;
+    return p.status_efetivo !== 'done' || p.sim_viu === 'nao' || p.carro_trocado_sim || p.corrigida || p.duplicada_nimer
+        || (p.pontualidade && !['pontual', 'perdida'].includes(p.pontualidade.classe));
 }
 
 function linhaPartida(p) {
@@ -125,10 +140,10 @@ function linhaPartida(p) {
     const form = corrigindo === p.id ? formCorrecao(p) : '';
     return `<div class="av-partida av-partida-${escapeHtml(p.status_efetivo || 'x')}${p.sim_viu === 'nao' ? ' av-partida-naoviu' : ''}">
         <div class="av-partida-topo">
-            <span class="av-partida-hora">${escapeHtml(p.programado || '—')}</span>
+            <span class="av-partida-hora">${escapeHtml(p.programado || '—')}${p.horario_cheio ? ' <small title="Horário cheio: não sai antes">⏱</small>' : ''}</span>
             <i class="av-bolinha av-s${p.sentido === 2 ? 2 : 1}"></i>
             <span>Tab. ${escapeHtml(p.tabela || '—')}</span>
-            <span class="av-partida-status">${escapeHtml(status)}${corr}</span>
+            <span class="av-partida-status">${escapeHtml(status)}${corr}${p.status_efetivo === 'done' ? etiquetaPontualidade(p.pontualidade) : ''}</span>
             ${botao}
         </div>
         <div class="av-partida-det">

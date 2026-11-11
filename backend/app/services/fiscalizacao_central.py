@@ -107,6 +107,7 @@ def montar_central(db: Session, linhas_obj: list, data_servico: date, parametros
             "icv_nimer": r["icv"]["nimer_ate_agora"],
             "icv_sim": r["icv"]["sim_ate_agora"],
             "ipp": r["ipp"]["ate_agora"],
+            "ipp_sim": r["ipp"]["sim_ate_agora"],
             "icv_dia_nimer": r["icv"]["nimer_dia"],
             "projecao": r["icv"]["projecao_fechamento"],
             "faixas": r["icv"]["faixas"],

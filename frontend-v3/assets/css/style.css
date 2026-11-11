@@ -5642,3 +5642,8 @@ body.modal-open {
     font-size: 14px;
 }
 .fc-cob-falta { border-color: rgba(250, 204, 21, 0.5); background: rgba(250, 204, 21, 0.06); }
+/* IPP = pontualidade de partida (11/11) */
+.av-pont-pontual { background: rgba(16, 185, 129, 0.18); color: var(--accent3); }
+.av-pont-atrasada { background: rgba(250, 204, 21, 0.18); color: #facc15; }
+.av-pont-adiantada { background: rgba(239, 68, 68, 0.18); color: var(--accent2); }
+.av-pont-sem_dado { background: var(--border); color: var(--muted); }

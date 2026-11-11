@@ -31,6 +31,7 @@ const ROTULO_TIPO = {
     sem_motorista: 'Tabela sem motorista', partida_atrasada: 'Partida atrasada', carro_trocado_linha: 'Carro em outra linha',
     buraco_intervalo: 'Buraco de intervalo', nao_contabilizada: 'Não contabilizada', desvio: 'Desvio', virada: 'Virada',
     retorno: 'Retorno', parado: 'Parado', semtx: 'Sem transmissão', recolhida: 'Recolhida', terminal: 'Parado no terminal',
+    nao_liberar_antes: 'Não liberar antes', saiu_adiantado: 'Saiu adiantado',
 };
 
 let dados = null;
@@ -74,6 +75,7 @@ function renderAgregado() {
     const blocos = [
         [`ICV NIMER ${ROTULO_FAROL[a.farol] || ''}`, pct(a.icv_nimer_ate_agora), `${a.realizadas_nimer_ate_agora} de ${a.programadas_ate_agora} até agora`],
         ['ICV SIM', pct(a.icv_sim_ate_agora), 'nossa leitura — não é o oficial'],
+        ['IPP', pct(a.ipp_ate_agora), `pontualidade de partida · SIM ${pct(a.ipp_sim_ate_agora)}`],
         ['Perdas', String(a.perda_absoluta ?? '—'), 'soma das linhas'],
         ['Meta', pct(dados.meta.icv_meta), `aceitável ${pct(dados.meta.icv_aceitavel)}`],
     ];
@@ -93,7 +95,7 @@ function renderPlacar() {
         <div class="fc-linha fc-cab" role="row"><span>Linha</span><span>ICV NIMER</span><span>ICV SIM</span><span>IPP</span><span>Perda</span><span>Fecha em</span><span></span></div>
         ${dados.placar.map((p) => `<div class="fc-linha fc-farol-${escapeHtml(p.farol)}" role="row">
             <span><b>${ROTULO_FAROL[p.farol] || ''} ${escapeHtml(p.linha_codigo)}</b>${p.tem_nimer ? '' : ' <small>(sem NIMER)</small>'}</span>
-            <span>${pct(p.icv_nimer)}</span><span>${pct(p.icv_sim)}</span><span>${pct(p.ipp)}</span>
+            <span>${pct(p.icv_nimer)}</span><span>${pct(p.icv_sim)}</span><span title="IPP pelo SIM (nossa leitura): ${pct(p.ipp_sim)}">${pct(p.ipp)}</span>
             <span><b>${escapeHtml(String(p.perda_absoluta ?? '—'))}</b> <small>de ${escapeHtml(String(p.programadas_ate_agora))}</small></span>
             <span>${pct(p.projecao)}</span>
             <span><a class="av-entrada fc-abrir" href="ao-vivo.html?linha=${encodeURIComponent(p.linha_codigo)}">🛰 Ao vivo</a></span>
