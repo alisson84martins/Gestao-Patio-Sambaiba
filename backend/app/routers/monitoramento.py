@@ -16,24 +16,35 @@ e /linhas/{codigo}/carros/{prefixo}/rastro — telas do fiscal (recurso
 import json
 import logging
 import secrets
-from datetime import date, datetime, timedelta, timezone
-from typing import Annotated, Any, Optional
+from datetime import date, datetime, time, timedelta, timezone
+from typing import Annotated, Any, Literal, Optional
+from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from fastapi.concurrency import run_in_threadpool
-from pydantic import BaseModel, ValidationError, field_validator
-from sqlalchemy import delete
+from pydantic import BaseModel, Field, ValidationError, field_validator
+from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.core.database import get_db
-from app.core.deps import exige_qualquer
+from app.core.deps import exige, exige_qualquer
 from app.core.linha import codigo_linha
 from app.models.cadastro import Funcionario
-from app.models.monitoramento import Coleta, LeituraVeiculo, NimerColeta, SimCodigoLinha
+from app.models.fiscalizacao import Turno
+from app.models.monitoramento import (
+    Coleta,
+    LeituraVeiculo,
+    NimerColeta,
+    NimerViagem,
+    SimCodigoLinha,
+    ViagemCorrecao,
+)
 from app.services import fiscalizacao_alertas as alertas_op
 from app.services import fiscalizacao_tempo_real as tempo_real
+from app.services import monitoramento_acesso as acesso
 from app.services import monitoramento_ao_vivo as ao_vivo
+from app.services.fechamento_fiscal import montar_fechamento_tempo_real
 from app.services.monitoramento_cadastro import (
     data_servico_de,
     linhas_ativas,
@@ -46,7 +57,12 @@ from app.services.monitoramento_linhas import (
     obter_linha,
     prefixo_patio,
 )
-from app.services.monitoramento_nimer import LIMITE_VIAGENS, gravar_coleta_nimer, parse_data_servico
+from app.services.monitoramento_nimer import (
+    LIMITE_VIAGENS,
+    gravar_coleta_nimer,
+    normalizar_carro,
+    parse_data_servico,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -449,3 +465,134 @@ def tempo_real_linha(
     # Alertas só fazem sentido no dia de serviço corrente (são "agora").
     saida["alertas"] = alertas_op.montar_alertas(db, linha, resultado) if data_servico == data_servico_de() else []
     return saida
+
+
+# ─── Correção pelo fiscal (bloco G) ──────────────────────────────────────────
+# ⛔ Nunca escreve no NIMER (só leitura): a correção vive em
+# monitoramento.viagem_correcao e muda o STATUS EFETIVO aqui dentro.
+
+EscritaFiscal = Annotated[Funcionario, Depends(exige("fiscalizacao", escrever=True))]
+LeituraPainel = Annotated[Funcionario, Depends(exige("fiscalizacao_painel"))]
+STATUS_CORRIGIVEIS = {"done": "realizada", "lost": "perdida"}
+
+
+class CorrecaoCreate(BaseModel):
+    campo: Literal["status", "motivo", "carro", "real_inicio"]
+    valor: str = Field(..., max_length=120)
+    justificativa: str = Field(..., max_length=500)
+
+    @field_validator("justificativa")
+    @classmethod
+    def _justificativa(cls, v: str) -> str:
+        v = (v or "").strip()
+        if not v:
+            raise ValueError("A justificativa é obrigatória")
+        return v
+
+
+def _valor_corrigido(campo: str, valor: str, viagem: NimerViagem) -> str:
+    v = (valor or "").strip()
+    if campo == "status":
+        if v not in STATUS_CORRIGIVEIS:
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT,
+                                "Status tem que ser done (realizada) ou lost (perdida)")
+        return v
+    if campo == "motivo":
+        if v not in tempo_real.MOTIVOS_CORRIGIVEIS:
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT,
+                                "Motivo inválido — use: " + ", ".join(tempo_real.MOTIVOS_CORRIGIVEIS))
+        return v
+    if campo == "carro":
+        carro = normalizar_carro(v)
+        if not carro or not (3 <= len(carro) <= 5):
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Carro inválido (prefixo do pátio, ex.: 2412)")
+        return carro
+    try:
+        hhmm = time.fromisoformat(v)
+    except ValueError:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Horário inválido (use HH:MM)")
+    return tempo_real.instante_do_horario(viagem.data_servico, hhmm.replace(second=0, microsecond=0)).isoformat()
+
+
+def _valor_nimer(campo: str, viagem: NimerViagem) -> Optional[str]:
+    if campo == "status":
+        return viagem.status
+    if campo == "motivo":
+        return viagem.motivo_perda_texto
+    if campo == "carro":
+        return viagem.carro
+    return viagem.real_inicio.isoformat() if viagem.real_inicio else None
+
+
+@router.post("/viagens/{viagem_id}/correcoes", status_code=status.HTTP_201_CREATED,
+             summary="Fiscal corrige status/motivo/carro/saída de uma viagem do NIMER (sem mexer no NIMER)")
+def corrigir_viagem(viagem_id: int, payload: CorrecaoCreate, usuario: EscritaFiscal,
+                    db: Annotated[Session, Depends(get_db)]):
+    viagem = db.get(NimerViagem, viagem_id)
+    if viagem is None or viagem.removida_em is not None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Viagem não encontrada")
+    turno = acesso.turno_aberto(db, usuario.id)
+    if turno is None:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, acesso.MSG_SEM_TURNO)
+    if viagem.linha_codigo not in acesso.linhas_do_turno(db, turno.id) or viagem.data_servico != turno.data_referencia:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, acesso.MSG_FORA_DO_TURNO)
+    corrigido = _valor_corrigido(payload.campo, payload.valor, viagem)
+    correcao = ViagemCorrecao(
+        nimer_viagem_id=viagem.id, campo=payload.campo,
+        valor_nimer=_corte(_valor_nimer(payload.campo, viagem), 120),
+        valor_corrigido=corrigido, justificativa=payload.justificativa, autor_funcionario_id=usuario.id,
+        criado_em=datetime.now(timezone.utc),
+    )
+    db.add(correcao)
+    db.commit()
+    ao_vivo.limpar_cache()
+    return {"id": correcao.id, "viagem_id": viagem.id, "campo": correcao.campo, "valor_nimer": correcao.valor_nimer,
+            "valor_corrigido": correcao.valor_corrigido, "justificativa": correcao.justificativa,
+            "criado_em": correcao.criado_em.isoformat(), "aviso": "O NIMER não foi alterado (só leitura)."}
+
+
+def auditoria_correcoes(db: Session, data_servico: date, linhas: Optional[list[str]]) -> list[dict]:
+    query = (
+        select(ViagemCorrecao, NimerViagem, Funcionario)
+        .join(NimerViagem, NimerViagem.id == ViagemCorrecao.nimer_viagem_id)
+        .join(Funcionario, Funcionario.id == ViagemCorrecao.autor_funcionario_id)
+        .where(NimerViagem.data_servico == data_servico)
+        .order_by(ViagemCorrecao.criado_em.desc(), ViagemCorrecao.id.desc())
+    )
+    if linhas is not None:
+        query = query.where(NimerViagem.linha_codigo.in_(linhas))
+    saida = []
+    for c, v, f in db.execute(query).all():
+        criado = tempo_real._utc(c.criado_em)
+        saida.append({
+            "id": c.id, "criado_em": criado.isoformat(), "hora": tempo_real.hora_local(criado),
+            "autor": {"re": f.re, "nome": f.nome}, "linha_codigo": v.linha_codigo, "tabela": v.tabela,
+            "programado": tempo_real.hora_local(tempo_real._utc(v.prog_inicio)), "campo": c.campo,
+            "de": c.valor_nimer, "para": c.valor_corrigido, "justificativa": c.justificativa,
+        })
+    return saida
+
+
+@router.get("/correcoes", summary="Correções dos fiscais do dia (auditoria da coordenação)")
+def listar_correcoes(
+    usuario: LeituraPainel,
+    db: Annotated[Session, Depends(get_db)],
+    data: Optional[date] = Query(None),
+    linha_codigo: Optional[str] = Query(None),
+):
+    linhas = None
+    if linha_codigo:
+        canon = codigo_linha(linha_codigo)
+        linhas = [canon] if canon else []
+    return auditoria_correcoes(db, data or data_servico_de(), linhas)
+
+
+@router.get("/turnos/{turno_id}/fechamento-previa",
+            summary="Prévia do fechamento do WhatsApp pelo status efetivo (NIMER + correções)")
+def fechamento_previa(turno_id: UUID, usuario: Leitura, db: Annotated[Session, Depends(get_db)]):
+    turno = db.get(Turno, turno_id)
+    if turno is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Turno não encontrado")
+    if turno.funcionario_id != usuario.id and not acesso.tem_acesso(db, usuario.id, "fiscalizacao_painel"):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Este turno pertence a outro fiscal.")
+    return montar_fechamento_tempo_real(db, turno_id)

@@ -10,7 +10,7 @@ linhas (ex.: "ATRASO DE GARAGEM 00", sem ":").
 — mesma dívida que mensagem_sinistro.py já pagou uma vez (_linha_contato_vitima).
 Campo obrigatório que faltar sai como "—".
 """
-from datetime import date
+from datetime import date, time, timezone
 from typing import Optional
 from uuid import UUID
 
@@ -18,7 +18,13 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.models.fiscalizacao import (
-    Baita, EventoTurno, ObservacaoTurno, PartidaProgramada, RegistroPartida, Turno, TurnoLinha,
+    Baita,
+    EventoTurno,
+    ObservacaoTurno,
+    PartidaProgramada,
+    RegistroPartida,
+    Turno,
+    TurnoLinha,
 )
 
 _TIPOS_EVENTO = (
@@ -187,6 +193,35 @@ def _montar_linha(
     realizadas_total = agregado["realizadas_total"]
     contagem = agregado["contadores"]
 
+    # Regra 5 — uma linha automática por perda com motivo OUTRO (D5: é
+    # assim que "sem condobus" aparece no fechamento sem virar contador).
+    obs_automaticas = []
+    for registro in perdas_outro:
+        if registro.linha_codigo != linha_codigo:
+            continue
+        # D33 — numero_tabela é opcional agora; "—" quando não informado.
+        tabela_texto = f"{registro.numero_tabela:02d}" if registro.numero_tabela is not None else "—"
+        obs_automaticas.append(
+            f" 👉🏼 Tabela {tabela_texto}, {registro.motivo_outro}, "
+            f"viagem das {registro.horario_programado.strftime('%H:%M')} não realizada."
+        )
+    return texto_fechamento_linha(turno, linha_codigo, programadas, realizadas_total, contagem,
+                                  obs_automaticas, baitas, observacoes)
+
+
+def texto_fechamento_linha(
+    turno: Turno,
+    linha_codigo: str,
+    programadas: Optional[int],
+    realizadas_total: Optional[int],
+    contagem: dict[str, int],
+    obs_automaticas: list[str],
+    baitas: dict[tuple[str, str], Baita],
+    observacoes: list[ObservacaoTurno],
+) -> str:
+    """O texto do WhatsApp de UMA linha. Compartilhado pelo fechamento do
+    fiscal (registro à mão) e pela prévia do tempo real (NIMER + correções,
+    fase 2) — o formato é um só."""
     # D35 — nulo (não informado, linha sem grade) sai como "—", nunca "00":
     # "00" é uma afirmação de que zero aconteceu, "—" é a ausência do dado.
     programadas_texto = str(programadas) if programadas is not None else "—"
@@ -223,17 +258,7 @@ def _montar_linha(
             continue
         linhas_texto.append(f" 👉🏼 {obs.texto}")
 
-    # Regra 5 — uma linha automática por perda com motivo OUTRO (D5: é
-    # assim que "sem condobus" aparece no fechamento sem virar contador).
-    for registro in perdas_outro:
-        if registro.linha_codigo != linha_codigo:
-            continue
-        # D33 — numero_tabela é opcional agora; "—" quando não informado.
-        tabela_texto = f"{registro.numero_tabela:02d}" if registro.numero_tabela is not None else "—"
-        linhas_texto.append(
-            f" 👉🏼 Tabela {tabela_texto}, {registro.motivo_outro}, "
-            f"viagem das {registro.horario_programado.strftime('%H:%M')} não realizada."
-        )
+    linhas_texto.extend(obs_automaticas)
 
     linhas_texto.append("ANTI-BAITA")
     linhas_texto.extend(_bloco_baita(baitas.get((linha_codigo, "ANTI_BAITA"))))
@@ -289,3 +314,112 @@ def montar_fechamento(db: Session, turno_id: UUID) -> list[str]:
         _montar_linha(db, turno, linha_codigo, baitas, observacoes, perdas_outro)
         for linha_codigo in linhas
     ]
+
+
+# ============================================================================
+# Fase 2 (bloco G) — prévia do fechamento a partir do NIMER + correções
+# ============================================================================
+
+def _corte_do_1o_periodo(db: Session, linha_codigo: str, turno: Turno) -> Optional[time]:
+    """Último horário do 1º período na grade (partida_programada.periodo = '1').
+    None sem grade — aí vale a janela do turno (aberto_em → fechado_em/agora)."""
+    vigencia = _vigencia_da_linha(db, linha_codigo, turno)
+    if vigencia is None:
+        return None
+    horarios = db.execute(
+        select(PartidaProgramada.horario).where(
+            PartidaProgramada.linha_codigo == linha_codigo,
+            PartidaProgramada.tipo_dia == turno.tipo_dia,
+            PartidaProgramada.vigencia == vigencia,
+            PartidaProgramada.periodo == "1",
+        )
+    ).scalars().all()
+    dia = [h for h in horarios if h >= time(4, 0)]
+    return max(dia) if dia else None
+
+
+def viagens_do_periodo(db: Session, turno: Turno, linha_codigo: str, viagens: list[dict]) -> tuple[list[dict], str]:
+    """As viagens do NIMER que caem no período do turno, e como foi decidido
+    ("GRADE": corte do 1º período da grade; "TURNO": janela do turno aberto)."""
+    from app.services.fiscalizacao_tempo_real import hora_local
+    corte = _corte_do_1o_periodo(db, linha_codigo, turno)
+    if corte is not None:
+        def periodo(v):
+            hhmm = hora_local(v["prog_inicio"] or v.get("real_inicio"))
+            if hhmm is None:
+                return None
+            h = time.fromisoformat(hhmm)
+            return "1" if time(4, 0) <= h <= corte else "2"
+        return [v for v in viagens if periodo(v) == turno.periodo], "GRADE"
+    inicio = turno.aberto_em
+    fim = turno.fechado_em
+    def dentro(v):
+        momento = v.get("prog_inicio") or v.get("real_inicio")
+        if momento is None or inicio is None:
+            return False
+        ini = inicio if inicio.tzinfo else inicio.replace(tzinfo=timezone.utc)
+        fi = None if fim is None else (fim if fim.tzinfo else fim.replace(tzinfo=timezone.utc))
+        return momento >= ini and (fi is None or momento <= fi)
+    return [v for v in viagens if dentro(v)], "TURNO"
+
+
+def contagem_tempo_real(viagens: list[dict]) -> tuple[int, int, dict[str, int], list[str]]:
+    """(programadas, realizadas_total, contadores, linhas de OBS) do status efetivo.
+
+    D4 continua: contador é EVENTO (aqui, a viagem perdida com motivo de
+    contador); "3 - Trânsito" e motivo ainda sem decisão vão para o OBS (D27)."""
+    from app.services.fiscalizacao_tempo_real import hora_local
+    contagem = {tipo: 0 for tipo in _TIPOS_EVENTO}
+    obs = []
+    conta = [v for v in viagens if not v.get("duplicada")]
+    programadas = sum(v.get("prog_inicio") is not None for v in conta)
+    extras = sum(v["status_efetivo"] == "done" and v.get("prog_inicio") is None for v in conta)
+    realizadas = sum(v["status_efetivo"] == "done" for v in conta)
+    contagem["VIAGEM_EXTRA"] = extras
+    for v in conta:
+        if v["status_efetivo"] == "done" or v.get("prog_inicio") is None or v["status_efetivo"] == "future":
+            continue
+        if v.get("contador"):
+            contagem[v["contador"]] += 1
+            continue
+        if v.get("motivo_canonico") == "TRANSITO":
+            motivo = "trânsito"
+        else:
+            motivo = v.get("motivo_nimer") or "sem motivo no NIMER"
+        obs.append(f" 👉🏼 Tabela {v.get('tabela') or '—'}, {motivo}, "
+                   f"viagem das {hora_local(v['prog_inicio'])} não realizada.")
+    return programadas, realizadas, contagem, obs
+
+
+def montar_fechamento_tempo_real(db: Session, turno_id: UUID) -> list[dict]:
+    """Prévia do fechamento: para cada linha do turno monitorada com NIMER,
+    monta pelo STATUS EFETIVO (NIMER + correções do fiscal) — o fiscal só
+    revisa. Linha sem NIMER no dia sai do jeito antigo (registro à mão)."""
+    from app.services.fiscalizacao_tempo_real import montar_linha_tempo_real
+    from app.services.monitoramento_linhas import obter_linha
+
+    turno = db.get(Turno, turno_id)
+    if turno is None:
+        raise ValueError(f"Turno {turno_id} não encontrado")
+    linhas = list(db.execute(
+        select(TurnoLinha.linha_codigo).where(TurnoLinha.turno_id == turno_id).order_by(TurnoLinha.linha_codigo)
+    ).scalars().all())
+    baitas = {(b.linha_codigo, b.tipo): b for b in db.execute(select(Baita).where(Baita.turno_id == turno_id)).scalars()}
+    observacoes = list(db.execute(
+        select(ObservacaoTurno).where(ObservacaoTurno.turno_id == turno_id).order_by(ObservacaoTurno.criado_em)
+    ).scalars().all())
+    manual = dict(zip(linhas, montar_fechamento(db, turno_id)))
+    saida = []
+    for linha_codigo in linhas:
+        linha = obter_linha(linha_codigo, db)
+        resultado = montar_linha_tempo_real(db, linha, turno.data_referencia) if linha else None
+        if not resultado or not resultado["viagens"]:
+            saida.append({"linha_codigo": linha_codigo, "fonte": "FISCAL", "criterio_periodo": None,
+                          "texto": manual[linha_codigo]})
+            continue
+        viagens, criterio = viagens_do_periodo(db, turno, linha_codigo, resultado["viagens"])
+        programadas, realizadas, contagem, obs = contagem_tempo_real(viagens)
+        texto = texto_fechamento_linha(turno, linha_codigo, programadas, realizadas, contagem, obs, baitas, observacoes)
+        saida.append({"linha_codigo": linha_codigo, "fonte": "NIMER", "criterio_periodo": criterio,
+                      "corrigidas": sum(v["corrigida"] for v in viagens), "texto": texto})
+    return saida
