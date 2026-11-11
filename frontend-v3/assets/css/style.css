@@ -5377,6 +5377,7 @@ body.modal-open {
 .av-cartao b { font-family: var(--mono); font-size: 18px; }
 .av-cartao small { color: var(--muted); font-family: var(--mono); font-size: 12px; }
 .av-cartao-texto { display: block; font-size: 15px; margin-top: 2px; }
+.av-cartao-eta { display: block; font-size: 14px; margin-top: 2px; color: var(--muted); }
 .av-cartao-terminal { border-left-color: #a855f7; }
 .av-cartao-garagem { border-left-color: #9ca3af; }
 .av-cartao-atencao { border-left-color: #facc15; background: rgba(250, 204, 21, 0.06); }

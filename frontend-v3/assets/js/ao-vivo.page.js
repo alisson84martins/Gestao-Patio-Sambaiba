@@ -257,6 +257,7 @@ function cartaoCarro(c) {
     return `<button type="button" class="av-cartao av-cartao-${c.classe}${sel}" data-p="${escapeHtml(c.prefixo)}">
         <span class="av-cartao-topo"><i class="av-bolinha av-s${c.sentido === 2 ? 2 : 1}"></i><b>${escapeHtml(c.prefixo_patio)}</b> <small>${escapeHtml(c.prefixo)}</small></span>
         <span class="av-cartao-texto">${escapeHtml(descreverPosicao(c))}</span>
+        ${c.zona === 'rota' && c.eta_texto ? `<span class="av-cartao-eta">🕒 ${escapeHtml(c.eta_texto)}</span>` : ''}
     </button>`;
 }
 

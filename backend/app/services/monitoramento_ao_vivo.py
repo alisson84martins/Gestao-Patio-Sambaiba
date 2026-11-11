@@ -11,6 +11,7 @@ aproximação é: a última leitura do carro chegou ao sistema há mais de
 3 min antes da última coleta OK (o robô coleta a cada 1 min — perdeu ~3
 consultas seguidas). Carro sumido há mais de 1 h sai da tela (igual à POC).
 """
+import logging
 import threading
 import time
 from collections import defaultdict
@@ -29,6 +30,8 @@ from app.services.monitoramento_linhas import (
     LinhaMonitorada,
     prefixo_patio,
 )
+
+logger = logging.getLogger(__name__)
 
 JANELA_ANALISE = timedelta(hours=4)
 JANELA_ALERTA_MIN = 20         # virada/retorno ficam em "Alertas agora" por 20 min
@@ -188,6 +191,8 @@ def montar_ao_vivo(db: Session, linha: LinhaMonitorada, agora: Optional[datetime
     ocorrencias.sort(key=lambda o: o["inicio_em"], reverse=True)
     carros.sort(key=lambda c: (c["sentido"] or 0, -(c["progresso_m"] if c["progresso_m"] is not None else -1)))
 
+    _prever_chegadas(db, linha, carros, agora)
+
     contadores = {"rodando": 0, "terminal": 0, "garagem": 0, "alerta": 0, "sumiram": 0}
     for c in carros:
         if c["sumiu"]:
@@ -212,6 +217,28 @@ def montar_ao_vivo(db: Session, linha: LinhaMonitorada, agora: Optional[datetime
         "alertas_agora": alertas,
         "ocorrencias_dia": ocorrencias,
     }
+
+
+def _prever_chegadas(db: Session, linha: LinhaMonitorada, carros: list[dict], agora: datetime) -> None:
+    """Previsão de chegada (bloco F) no cartão de cada carro rodando. Usa as
+    leituras dos últimos 20 min de TODAS as linhas (trânsito ao vivo da frota
+    na mesma via). Nunca derruba a tela: erro aqui = "sem previsão"."""
+    from app.services import monitoramento_eta as eta
+    try:
+        rows = db.execute(
+            select(LeituraVeiculo.prefixo, LeituraVeiculo.posicao_em, LeituraVeiculo.sentido,
+                   LeituraVeiculo.lat, LeituraVeiculo.lon)
+            .where(LeituraVeiculo.posicao_em >= agora - eta.JANELA_AO_VIVO)
+        ).all()
+        por_carro: dict[str, list] = defaultdict(list)
+        for p, em, s, la, lo in rows:
+            por_carro[p].append({"em": _utc(em), "s": s, "la": la, "lo": lo})
+        eta.prever_carros(db, linha, carros, por_carro, agora)
+    except Exception:
+        logger.exception("Falha na previsão de chegada da linha %s", linha.codigo)
+        for c in carros:
+            c.setdefault("eta", None)
+            c.setdefault("eta_texto", "sem previsão")
 
 
 def ao_vivo_com_cache(db: Session, linha: LinhaMonitorada) -> dict:

@@ -229,6 +229,12 @@ def _insert_ignorando_duplicado(db: Session, linhas: list[dict]) -> int:
 
 
 def _limpar_retencao(db: Session, agora: datetime) -> None:
+    # Antes de as leituras saírem (3 dias), os dias fechados vão para o
+    # histórico de velocidade da previsão de chegada — numa thread própria,
+    # o robô não espera. Só no Postgres (a thread abre a própria sessão).
+    if db.bind.dialect.name == "postgresql":
+        from app.services.monitoramento_eta import agendar_agregacao
+        agendar_agregacao()
     db.execute(delete(LeituraVeiculo).where(LeituraVeiculo.posicao_em < agora - RETENCAO_LEITURA))
     db.execute(delete(Coleta).where(Coleta.recebido_em < agora - RETENCAO_COLETA))
     db.execute(delete(NimerColeta).where(NimerColeta.recebido_em < agora - RETENCAO_COLETA))
