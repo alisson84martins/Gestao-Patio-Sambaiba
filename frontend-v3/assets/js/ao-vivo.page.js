@@ -65,10 +65,12 @@ function ha(iso) {
     return s < 90 ? `${s} s` : `${Math.round(s / 60)} min`;
 }
 
+let avisoFixo = ''; // ex.: linha sem traçado — continua visível quando o erro some
+
 function mostrarErro(msg) {
     const el = document.getElementById('av-erro');
-    el.textContent = msg;
-    el.hidden = !msg;
+    el.textContent = msg || avisoFixo;
+    el.hidden = !(msg || avisoFixo);
 }
 
 function nomeTerminal(codigo) {
@@ -130,7 +132,8 @@ function desenharTracado() {
     const g = tracado.garagem;
     L.circle(g.centro, { radius: g.raio_m, color: '#9ca3af', weight: 2, fillOpacity: 0.12 })
         .addTo(mapa).bindTooltip(g.nome);
-    mapa.fitBounds(L.featureGroup(rotas).getBounds(), { padding: [16, 16] });
+    if (rotas.length) mapa.fitBounds(L.featureGroup(rotas).getBounds(), { padding: [16, 16] });
+    else mapa.setView(g.centro, 13);
 }
 
 function iconeCarro(c) {
@@ -370,6 +373,11 @@ async function iniciar() {
     if (s1) document.getElementById('av-leg-s1').textContent = `TP → TS (${s1.destino_nome})`;
     if (s2) document.getElementById('av-leg-s2').textContent = `TS → TP (${s2.destino_nome})`;
     desenharTracado();
+    if (!tracado.tem_mapa) {
+        // Linha monitorada sem traçado (bloco C): só o que não depende do mapa.
+        avisoFixo = 'Esta linha ainda não tem traçado: desvio, virada e parado fora do terminal estão desligados. Posição, sem transmissão e partidas funcionam.';
+        mostrarErro('');
+    }
     await atualizar();
     iniciarPolling();
 }

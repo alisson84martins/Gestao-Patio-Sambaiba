@@ -105,6 +105,9 @@ def limpar_cache() -> None:
 def _calcular_classe(r: dict, linha: LinhaMonitorada, garagem) -> tuple:
     p = (r["la"], r["lo"])
     d_gar = distancia(p, garagem)
+    if not linha.tem_mapa:
+        # Linha sem traçado (bloco C): só sabe se está na garagem.
+        return ("garagem" if d_gar <= RAIO_GARAGEM else "sem_mapa"), d_gar, math.inf, None
     term = None
     for nome, centros in linha.terminais.items():
         if min(distancia(p, c) for c in centros) <= RAIO_TERMINAL:
@@ -168,6 +171,9 @@ def analisar_carro(prefixo: str, leituras: list[dict], linha: LinhaMonitorada, a
     seg: Optional[dict] = None  # trecho num mesmo sentido
 
     for r in L:
+        if not linha.tem_mapa:
+            # Sem traçado: desvio, virada e retorno desligados (a tela avisa).
+            break
         z = r["_z"]
         if z == "garagem":
             # saiu da rota e chegou na G3: era recolhida, não desvio

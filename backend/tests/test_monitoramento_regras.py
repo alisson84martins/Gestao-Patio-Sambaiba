@@ -8,11 +8,11 @@ irmão mostrando que a regra continua viva quando deveria alertar.
 import math
 
 import pytest
+from sqlalchemy.orm import Session
 
 from app.services import monitoramento_regras as R
-from app.services.monitoramento_linhas import (
-    GARAGEM_G3, linha_do_sim, obter_linha, prefixo_patio,
-)
+from app.services.monitoramento_linhas import GARAGEM_G3, obter_linha, prefixo_patio
+from tests.ambiente_monitoramento import criar_engine
 
 T0 = 1794300000000  # epoch ms
 MIN = 60000
@@ -80,9 +80,11 @@ def _deslocar(ponto, norte_m=0.0, leste_m=0.0):
 def test_cadastro_1726_bate_com_o_catalogo_e_com_o_sim(linha):
     assert linha.codigo == "1726-10"
     assert obter_linha("1726/10") is linha and obter_linha("1726") is linha
-    assert linha_do_sim(1403) is linha and linha_do_sim("34171") is linha
-    assert linha_do_sim(999) is None
-    assert linha.sentido_do_sim(1403) == 1 and linha.sentido_do_sim(34171) == 2
+    with Session(criar_engine()) as db:  # códigos do SIM vêm do banco (054)
+        do_banco = obter_linha("1726", db)
+    assert do_banco.sentido_do_sim(1403) == 1 and do_banco.sentido_do_sim(34171) == 2
+    assert do_banco.sentido_do_sim(999) is None and do_banco.nimer_line_id == 33534
+    assert do_banco.tracados == linha.tracados
     assert linha.destino == {1: "TS", 2: "TP"}
     assert prefixo_patio("22412") == "2412" and prefixo_patio(22412) == "2412"
 

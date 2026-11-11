@@ -24,7 +24,10 @@ from app.core.config import FUSO_OPERACAO
 from app.models.monitoramento import Coleta, LeituraVeiculo
 from app.services import monitoramento_regras as regras
 from app.services.monitoramento_linhas import (
-    GARAGEM_G3, NOME_GARAGEM, LinhaMonitorada, prefixo_patio,
+    GARAGEM_G3,
+    NOME_GARAGEM,
+    LinhaMonitorada,
+    prefixo_patio,
 )
 
 JANELA_ANALISE = timedelta(hours=4)
@@ -200,7 +203,7 @@ def montar_ao_vivo(db: Session, linha: LinhaMonitorada, agora: Optional[datetime
             contadores["alerta"] += 1
 
     return {
-        "linha": {"codigo": linha.codigo, "nome": linha.nome},
+        "linha": {"codigo": linha.codigo, "nome": linha.nome, "tem_mapa": linha.tem_mapa},
         "atualizado_em": agora.isoformat(),
         "janela_horas": int(JANELA_ANALISE.total_seconds() // 3600),
         "coleta": coleta,
@@ -254,6 +257,7 @@ def montar_tracado(linha: LinhaMonitorada) -> dict:
     return {
         "codigo": linha.codigo,
         "nome": linha.nome,
+        "tem_mapa": linha.tem_mapa,
         "faixa_m": regras.FAIXA,
         "sentidos": [
             {"sentido": s, "destino": linha.destino[s], "destino_nome": linha.nomes_terminais[linha.destino[s]],
@@ -274,6 +278,8 @@ def resumo_linha(linha: LinhaMonitorada) -> dict:
     return {
         "codigo": linha.codigo,
         "nome": linha.nome,
+        "tem_mapa": linha.tem_mapa,
+        "tem_nimer": linha.nimer_line_id is not None,
         "terminais": dict(linha.nomes_terminais),
         "sentidos": {str(s): {"destino": d, "destino_nome": linha.nomes_terminais[d]} for s, d in linha.destino.items()},
     }

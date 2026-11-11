@@ -387,28 +387,28 @@ def config_robo(request: Request, db: Annotated[Session, Depends(get_db)]):
 
 # ─── Leitura para as telas ───────────────────────────────────────────────────
 
-def _linha_ou_404(linha_codigo: str) -> LinhaMonitorada:
-    linha = obter_linha(linha_codigo)
+def _linha_ou_404(db: Session, linha_codigo: str) -> LinhaMonitorada:
+    linha = obter_linha(linha_codigo, db)
     if linha is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, f"A linha {linha_codigo} não é monitorada ao vivo")
     return linha
 
 
 @router.get("/linhas", summary="Linhas monitoradas ao vivo")
-def listar_linhas(_: Leitura):
-    return [ao_vivo.resumo_linha(linha) for linha in linhas_monitoradas().values()]
+def listar_linhas(_: Leitura, db: Annotated[Session, Depends(get_db)]):
+    return [ao_vivo.resumo_linha(linha) for linha in linhas_monitoradas(db).values()]
 
 
 @router.get("/linhas/{linha_codigo}/tracado", summary="Traçado, terminais e G3 da linha (estático)")
-def tracado(linha_codigo: str, response: Response, _: Leitura):
-    linha = _linha_ou_404(linha_codigo)
+def tracado(linha_codigo: str, response: Response, _: Leitura, db: Annotated[Session, Depends(get_db)]):
+    linha = _linha_ou_404(db, linha_codigo)
     response.headers["Cache-Control"] = "private, max-age=3600"
     return ao_vivo.montar_tracado(linha)
 
 
 @router.get("/linhas/{linha_codigo}/ao-vivo", summary="Carros, alertas e ocorrências da linha (últimas 4 h)")
 def ao_vivo_linha(linha_codigo: str, _: Leitura, db: Annotated[Session, Depends(get_db)]):
-    linha = _linha_ou_404(linha_codigo)
+    linha = _linha_ou_404(db, linha_codigo)
     return ao_vivo.ao_vivo_com_cache(db, linha)
 
 
@@ -420,7 +420,7 @@ def rastro(
     db: Annotated[Session, Depends(get_db)],
     minutos: int = Query(90, ge=1, le=ao_vivo.RASTRO_MAX_MIN),
 ):
-    linha = _linha_ou_404(linha_codigo)
+    linha = _linha_ou_404(db, linha_codigo)
     if not prefixo.isdigit() or len(prefixo) > 10:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Prefixo inválido")
     return ao_vivo.montar_rastro(db, linha, prefixo, minutos)
