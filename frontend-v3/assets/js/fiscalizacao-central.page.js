@@ -73,10 +73,11 @@ function renderAgregado() {
         return;
     }
     const blocos = [
-        [`ICV NIMER ${ROTULO_FAROL[a.farol] || ''}`, pct(a.icv_nimer_ate_agora), `${a.realizadas_nimer_ate_agora} de ${a.programadas_ate_agora} até agora`],
-        ['ICV SIM', pct(a.icv_sim_ate_agora), 'nossa leitura — não é o oficial'],
-        ['IPP', pct(a.ipp_ate_agora), `pontualidade de partida · SIM ${pct(a.ipp_sim_ate_agora)}`],
-        ['Perdas', String(a.perda_absoluta ?? '—'), 'soma das linhas'],
+        // v4.0 fase 3 (T3): número real (NIMER × GPS confirmados); o ICV/IPP do
+        // robô sozinho saiu da tela.
+        [`ICV ${ROTULO_FAROL[a.farol] || ''}`, pct(a.icv_real_ate_agora), `${a.realizadas_reais_ate_agora} de ${a.programadas_reais} confirmadas`],
+        ['IPP', pct(a.ipp_real_ate_agora), 'pontualidade de partida'],
+        ['Perdidas', String(a.perdidas_reais ?? '—'), `a conferir: ${a.a_conferir ?? 0}`],
         ['Meta', pct(dados.meta.icv_meta), `aceitável ${pct(dados.meta.icv_aceitavel)}`],
     ];
     el.innerHTML = blocos.map(([t, v, s]) => `<div class="av-placar-item">
@@ -92,11 +93,11 @@ function renderPlacar() {
         return;
     }
     el.innerHTML = `<div class="fc-tabela" role="table">
-        <div class="fc-linha fc-cab" role="row"><span>Linha</span><span>ICV NIMER</span><span>ICV SIM</span><span>IPP</span><span>Perda</span><span>Fecha em</span><span></span></div>
+        <div class="fc-linha fc-cab" role="row"><span>Linha</span><span>ICV</span><span>NIMER</span><span>IPP</span><span>Perdidas</span><span>Fecha em</span><span></span></div>
         ${dados.placar.map((p) => `<div class="fc-linha fc-farol-${escapeHtml(p.farol)}" role="row">
             <span><b>${ROTULO_FAROL[p.farol] || ''} ${escapeHtml(p.linha_codigo)}</b>${p.tem_nimer ? '' : ' <small>(sem NIMER)</small>'}</span>
-            <span>${pct(p.icv_nimer)}</span><span>${pct(p.icv_sim)}</span><span title="IPP pelo SIM (nossa leitura): ${pct(p.ipp_sim)}">${pct(p.ipp)}</span>
-            <span><b>${escapeHtml(String(p.perda_absoluta ?? '—'))}</b> <small>de ${escapeHtml(String(p.programadas_ate_agora))}</small></span>
+            <span>${pct(p.icv_real)}</span><span title="ICV pelo NIMER (conferência)">${pct(p.icv_nimer)}</span><span>${pct(p.ipp_real)}</span>
+            <span><b>${escapeHtml(String(p.perdidas_reais ?? '—'))}</b> <small>de ${escapeHtml(String(p.programadas_ate_agora))}</small></span>
             <span>${pct(p.projecao)}</span>
             <span><a class="av-entrada fc-abrir" href="ao-vivo.html?linha=${encodeURIComponent(p.linha_codigo)}">🛰 Ao vivo</a></span>
         </div>`).join('')}

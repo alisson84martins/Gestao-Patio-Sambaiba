@@ -90,14 +90,17 @@ function renderSaude() {
 function renderPlacar() {
     const el = document.getElementById('av-placar');
     if (!dados) return;
-    const { icv, ipp, totais, pontualidade_nimer: pont } = dados;
+    // v4.0 fase 3 (T3): só o número CRUZADO E CONFIRMADO (NIMER × GPS). O
+    // "ICV SIM"/"IPP SIM" do robô saiu da tela — divergência vai para "A conferir".
+    const { icv, ipp, totais } = dados;
+    const real = dados.real?.total || {};
     const tol = ipp.tolerancia_min ?? 3;
     const blocos = [
-        ['ICV NIMER', pct(icv.nimer_ate_agora), `${totais.realizadas_nimer_ate_agora} de ${totais.programadas_ate_agora} até agora`],
-        ['ICV SIM', pct(icv.sim_ate_agora), 'nossa leitura das saídas — não é o oficial'],
-        ['IPP', pct(ipp.ate_agora), `${totais.pontuais_nimer} pontuais (±${tol} min; HH:00 sem adiantar) · SIM ${pct(ipp.sim_ate_agora)}`],
-        ['Perdas', String(totais.perda_absoluta ?? '—'), 'até agora'],
-        ['Fecha em', pct(icv.projecao_fechamento), `se continuar assim · NIMER pontualidade ${pct(pont)}`],
+        ['ICV', pct(icv.real_ate_agora), `${real.realizadas ?? '—'} de ${real.programadas_ate_agora ?? '—'} confirmadas até agora`],
+        ['IPP', pct(ipp.real_ate_agora), `${real.pontuais ?? '—'} pontuais (±${tol} min; HH:00 sem adiantar)`],
+        ['Perdidas', String(real.perdidas ?? '—'), 'até agora'],
+        ['A conferir', String(real.a_conferir ?? 0), 'NIMER e GPS não batem'],
+        ['NIMER', pct(icv.nimer_ate_agora), `conferência: ${totais.realizadas_nimer_ate_agora} pelo NIMER`],
     ];
     el.innerHTML = blocos.map(([t, v, s]) => `<div class="av-placar-item">
         <span class="av-placar-titulo">${escapeHtml(t)}</span>

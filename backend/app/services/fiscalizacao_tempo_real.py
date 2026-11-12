@@ -41,6 +41,28 @@ fizer depois uma viagem `done` na mesma linha (NIMER) ou sair de novo do
 terminal pelo SIM; fica R.A se o SIM mostrou o carro na G3 e ele não voltou
 até o fim do serviço. O fiscal pode corrigir.
 
+NÚMERO REAL (v4.0 fase 3, bloco C — decisão T3 do Alisson, 12/11/2026): a
+tela só mostra como número o que foi CRUZADO E CONFIRMADO. Cada viagem
+programada já passada ganha uma `situacao`:
+  confirmada      NIMER `done` E saída do SIM casada                 → conta
+  confirmada_gps  NIMER não `done`, mas o SIM viu a saída casada     → conta
+                  (+ "A conferir · rodou e o NIMER não contou")
+  nimer_sem_gps   NIMER `done`, o SIM tinha o carro no período e não
+                  viu saída casada                                   → NÃO conta
+                  (+ "A conferir · NIMER contou e o GPS não viu")
+  sem_cobertura   NIMER `done` e o SIM sem dado do carro no período
+                  → conta como o NIMER, ⚠ "sem GPS para conferir"
+                  (não pune a operação por falha do robô)
+  perdida         nem NIMER nem SIM
+  aguardando      ainda dentro dos 15 min de casamento (nem conta, nem perde)
+  corrigida       correção de status do fiscal — SEMPRE prevalece
+Realizadas = confirmada + confirmada_gps + sem_cobertura + corrigidas para
+realizada; ICV e IPP reais saem daí (IPP: hora de saída do SIM quando
+houver, senão a do NIMER; correção da saída pelo fiscal prevalece), por
+sentido e no total. Carro real = prefixo do SIM da saída casada.
+⚠️ Viagem extra do NIMER (sem horário programado) não tem como ser cruzada:
+fica fora do número real (só em `extras_nimer`).
+
 ⛔ Nada aqui grava nada (D24): tudo calculado a cada chamada.
 """
 import re
@@ -383,6 +405,136 @@ def icv_por_faixa(viagens: list[dict], agora: datetime) -> tuple[list[dict], lis
     return faixas, adiantamentos
 
 
+# ─── Número real (bloco C da fase 3) ─────────────────────────────────────────
+
+COBERTURA_CARRO = timedelta(minutes=30)   # "SIM tinha o carro no período": leitura dele em ±30 min
+CONTA_REALIZADA = {"confirmada", "confirmada_gps", "sem_cobertura"}
+FORA_DO_NUMERO = ("extra", "duplicada", "futura")
+A_CONFERIR = {
+    "confirmada_gps": "rodou e o NIMER não contou",
+    "nimer_sem_gps": "NIMER contou e o GPS não viu",
+}
+
+
+def _instantes_por_carro(leituras: list[dict]) -> dict[str, list[datetime]]:
+    por: dict[str, list[datetime]] = defaultdict(list)
+    for r in leituras:
+        por[r["prefixo"]].append(r["em"])
+    for lista in por.values():
+        lista.sort()
+    return por
+
+
+def _carro_coberto(instantes: list[datetime], ini: datetime, fim: datetime) -> bool:
+    import bisect
+    i = bisect.bisect_left(instantes, ini)
+    return i < len(instantes) and instantes[i] <= fim
+
+
+def situacao_da_viagem(v: dict, agora: datetime, sim_ativo: bool, instantes_carro: dict[str, list[datetime]]) -> str:
+    """Situação de UMA viagem já cruzada (saida_sim, status_efetivo, correcoes). Ver docstring do módulo."""
+    prog = v.get("prog_inicio")
+    if prog is None:
+        return "extra"
+    if v.get("duplicada"):
+        return "duplicada"
+    if prog > agora:
+        return "futura"
+    if "status" in (v.get("correcoes") or {}):
+        return "corrigida"
+    casada = v.get("saida_sim") is not None
+    done = v["status_efetivo"] == "done"
+    if casada:
+        return "confirmada" if done else "confirmada_gps"
+    referencia = max(prog, v.get("real_inicio") or prog)
+    if agora <= referencia + CASA_QUALQUER_CARRO:
+        return "aguardando"
+    if not done:
+        return "perdida"
+    if not sim_ativo:
+        return "sem_cobertura"
+    carro = v.get("carro")  # correção do carro pelo fiscal prevalece
+    coberto = bool(carro) and _carro_coberto(instantes_carro.get(carro, []), referencia - COBERTURA_CARRO,
+                                              referencia + COBERTURA_CARRO)
+    return "nimer_sem_gps" if coberto else "sem_cobertura"
+
+
+def conta_realizada(v: dict) -> bool:
+    if v["situacao"] in FORA_DO_NUMERO:
+        return False
+    if v["situacao"] == "corrigida":
+        return v["status_efetivo"] == "done"
+    return v["situacao"] in CONTA_REALIZADA
+
+
+def hora_de_saida_real(v: dict) -> Optional[datetime]:
+    """Correção do fiscal > saída do SIM casada > saída do NIMER."""
+    if "real_inicio" in (v.get("correcoes") or {}):
+        return v.get("real_inicio")
+    if v.get("saida_sim") is not None:
+        return v["saida_sim"].em
+    return v.get("real_inicio")
+
+
+def _perdida_real(v: dict) -> bool:
+    if v["situacao"] == "corrigida":
+        return v["status_efetivo"] != "done"
+    return v["situacao"] in ("perdida", "nimer_sem_gps")
+
+
+def _bloco_real(viagens: list[dict], n_dia: int) -> dict:
+    prog = [v for v in viagens if v.get("situacao") not in FORA_DO_NUMERO]
+    realizadas = sum(v["conta_realizada"] for v in prog)
+    pontuais = sum(1 for v in prog if (v.get("pontualidade_real") or {}).get("classe") == "pontual")
+    return {
+        "programadas_ate_agora": len(prog),
+        "programadas_dia": n_dia,
+        "realizadas": realizadas,
+        "perdidas": sum(_perdida_real(v) for v in prog),
+        "aguardando": sum(v["situacao"] == "aguardando" for v in prog),
+        "sem_cobertura": sum(v["situacao"] == "sem_cobertura" for v in prog),
+        "a_conferir": sum(1 for v in prog if v.get("a_conferir")),
+        "pontuais": pontuais,
+        "icv": _pct(realizadas, len(prog)),
+        "ipp": _pct(pontuais, len(prog)),
+    }
+
+
+def numero_real(viagens: list[dict], agora: datetime, sim_ativo: bool, leituras: list[dict],
+                tolerancia_min: float) -> dict:
+    """Grava situacao/conta_realizada/a_conferir/hora_saida_real/pontualidade_real em cada
+    viagem e devolve {"total": {...}, "por_sentido": {"1": {...}, "2": {...}}}."""
+    instantes = _instantes_por_carro(leituras)
+    for v in viagens:
+        v["situacao"] = situacao_da_viagem(v, agora, sim_ativo, instantes)
+        v["conta_realizada"] = conta_realizada(v)
+        v["a_conferir"] = A_CONFERIR.get(v["situacao"])
+        v["sem_gps_para_conferir"] = v["situacao"] == "sem_cobertura"
+        v["hora_saida_real"] = hora_de_saida_real(v) if v["conta_realizada"] else None
+        if v["situacao"] in FORA_DO_NUMERO:
+            v["pontualidade_real"] = None
+        elif not v["conta_realizada"]:
+            v["pontualidade_real"] = {"classe": "aguardando" if v["situacao"] == "aguardando" else "perdida",
+                                      "desvio_min": None}
+        else:
+            v["pontualidade_real"] = classificar_pontualidade(v["prog_inicio"], v["hora_saida_real"], tolerancia_min)
+    dia = [v for v in viagens if v.get("prog_inicio") is not None and not v.get("duplicada")]
+    por_sentido = {}
+    for s in (1, 2):
+        do_sentido = [v for v in viagens if v.get("sentido") == s]
+        por_sentido[str(s)] = _bloco_real(do_sentido, sum(1 for v in dia if v.get("sentido") == s))
+    return {"total": _bloco_real(viagens, len(dia)), "por_sentido": por_sentido}
+
+
+def faltam_para_meta(bloco: dict, meta_pct: Optional[float]) -> Optional[int]:
+    """Quantas viagens ainda precisam sair (no resto do dia) para o ICV do dia fechar na meta."""
+    if meta_pct is None or not bloco.get("programadas_dia"):
+        return None
+    import math
+    necessarias = math.ceil(bloco["programadas_dia"] * float(meta_pct) / 100 - 1e-9)
+    return max(0, necessarias - bloco["realizadas"])
+
+
 # ─── Linha inteira ───────────────────────────────────────────────────────────
 
 def _sim_cobriu(instantes: list[datetime], momento: datetime) -> bool:
@@ -481,6 +633,7 @@ def calcular_linha(
         pontuais_sim += bool(v["pontualidade_sim"] and v["pontualidade_sim"]["classe"] == "pontual")
     n_ipp = sum(1 for v in ate_agora if not v["duplicada"])
     faixas, adiantamentos = icv_por_faixa(viagens, agora)
+    real = numero_real(viagens, agora, sim_ativo, leituras, ipp_tolerancia_min)
     classes = defaultdict(int)
     for v in viagens:
         if v.get("pontualidade"):
@@ -502,8 +655,14 @@ def calcular_linha(
             "pontuais_sim": pontuais_sim if sim_ativo else None,
             "programadas_ipp": n_ipp,
             "pontualidade_classes": dict(classes),
+            "realizadas_reais_ate_agora": real["total"]["realizadas"],
+            "perdidas_reais": real["total"]["perdidas"],
+            "a_conferir": real["total"]["a_conferir"],
+            "pontuais_reais": real["total"]["pontuais"],
         },
+        "real": real,
         "icv": {
+            "real_ate_agora": real["total"]["icv"],
             "nimer_ate_agora": _pct(realizadas_agora, n_agora),
             "sim_ate_agora": _pct(saidas_ate_agora, n_agora) if sim_ativo else None,
             "nimer_dia": _pct(realizadas_dia, n_dia),
@@ -513,6 +672,7 @@ def calcular_linha(
             "adiantamentos_de_faixa": adiantamentos,
         },
         "ipp": {
+            "real_ate_agora": real["total"]["ipp"],
             "ate_agora": _pct(pontuais, n_ipp),
             "sim_ate_agora": _pct(pontuais_sim, n_ipp) if sim_ativo else None,
             "dia": _pct(pontuais, n_dia),
@@ -533,7 +693,8 @@ def agregar(resultados: list[dict]) -> dict:
     for r in resultados:
         t = r["totais"]
         for chave in ("programadas_ate_agora", "programadas_dia", "realizadas_nimer_ate_agora",
-                      "realizadas_nimer_dia", "perda_absoluta", "pontuais_nimer", "programadas_ipp"):
+                      "realizadas_nimer_dia", "perda_absoluta", "pontuais_nimer", "programadas_ipp",
+                      "realizadas_reais_ate_agora", "perdidas_reais", "a_conferir", "pontuais_reais"):
             soma[chave] += t.get(chave) or 0
         if t["saidas_sim_ate_agora"] is not None:
             tem_sim = True
@@ -541,8 +702,13 @@ def agregar(resultados: list[dict]) -> dict:
             soma["programadas_com_sim"] += t["programadas_ate_agora"]
             soma["pontuais_sim"] += t.get("pontuais_sim") or 0
             soma["programadas_ipp_com_sim"] += t.get("programadas_ipp") or 0
+    reais = [r["real"]["total"] for r in resultados if r.get("real")]
+    prog_reais = sum(b["programadas_ate_agora"] for b in reais)
     return {
         **dict(soma),
+        "programadas_reais": prog_reais,
+        "icv_real_ate_agora": _pct(sum(b["realizadas"] for b in reais), prog_reais),
+        "ipp_real_ate_agora": _pct(sum(b["pontuais"] for b in reais), prog_reais),
         "icv_nimer_ate_agora": _pct(soma["realizadas_nimer_ate_agora"], soma["programadas_ate_agora"]),
         "icv_sim_ate_agora": _pct(soma["saidas_sim_ate_agora"], soma["programadas_com_sim"]) if tem_sim else None,
         "icv_nimer_dia": _pct(soma["realizadas_nimer_dia"], soma["programadas_dia"]),
@@ -708,6 +874,12 @@ def serializar_partida(v: dict, linha) -> dict:
         "duplicada_nimer": v.get("duplicada"),
         "pontualidade": v.get("pontualidade"),
         "pontualidade_sim": v.get("pontualidade_sim"),
+        "situacao": v.get("situacao"),
+        "conta_realizada": v.get("conta_realizada"),
+        "a_conferir": v.get("a_conferir"),
+        "sem_gps_para_conferir": v.get("sem_gps_para_conferir"),
+        "saida_real_hora": hora_local(v.get("hora_saida_real")),
+        "pontualidade_real": v.get("pontualidade_real"),
         "horario_cheio": bool(v.get("prog_inicio") and horario_cheio(v["prog_inicio"])),
         # ⚠️ Como ESCALADO NO NIMER — não é prova de quem dirigiu ou faltou.
         "escalado_nimer": {"motorista_re": v.get("motorista_re"), "cobrador_re": v.get("cobrador_re"),
@@ -725,6 +897,7 @@ def serializar(resultado: dict, linha, data_servico: date) -> dict:
         "icv": resultado["icv"],
         "icv_sim_rotulo": "ICV do SIM = nossa leitura das saídas no SIM, não o número oficial",
         "ipp": resultado["ipp"],
+        "real": resultado.get("real"),
         "pontualidade_nimer": resultado["pontualidade_nimer"],
         "fim_servico": resultado["fim_servico"],
         "saude": {k: (_iso(v) if isinstance(v, datetime) else v) for k, v in saude.items()},

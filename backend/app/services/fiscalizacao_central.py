@@ -1,7 +1,8 @@
 """Central da Fiscalização — o painel gerencial da coordenação (fase 2, bloco I).
 
 Junta, para as linhas do coordenador (ou todas):
-1. placar ao vivo — ICV NIMER, ICV SIM, IPP, perda absoluta e farol pela
+1. placar ao vivo — ICV/IPP REAIS (NIMER × GPS confirmados, fase 3 bloco
+   C; NIMER e SIM sozinhos ficam só como conferência), perda e farol pela
    meta/aceitável de fiscalizacao.parametro (D29), ORDENADO POR PERDA
    ABSOLUTA (D23); agregado ponderado (D22);
 2. fila de ação — os alertas do bloco E de todas as linhas, mais urgentes
@@ -106,6 +107,10 @@ def montar_central(db: Session, linhas_obj: list, data_servico: date, parametros
         placar.append({
             "linha_codigo": linha.codigo,
             "nome": linha.nome,
+            "icv_real": r["icv"]["real_ate_agora"],
+            "ipp_real": r["ipp"]["real_ate_agora"],
+            "perdidas_reais": r["real"]["total"]["perdidas"],
+            "a_conferir": r["real"]["total"]["a_conferir"],
             "icv_nimer": r["icv"]["nimer_ate_agora"],
             "icv_sim": r["icv"]["sim_ate_agora"],
             "ipp": r["ipp"]["ate_agora"],
@@ -116,7 +121,8 @@ def montar_central(db: Session, linhas_obj: list, data_servico: date, parametros
             "perda_absoluta": r["totais"]["perda_absoluta"],
             "programadas_ate_agora": r["totais"]["programadas_ate_agora"],
             "pontualidade_nimer": r["pontualidade_nimer"],
-            "farol": farol(r["icv"]["nimer_ate_agora"], meta, aceitavel),
+            # v4.0 fase 3 (T3): o farol segue o número real (NIMER × GPS confirmados)
+            "farol": farol(r["icv"]["real_ate_agora"], meta, aceitavel),
             "tem_nimer": linha.nimer_line_id is not None,
         })
         fila += alertas_op.montar_alertas(db, linha, r, agora)
@@ -137,7 +143,7 @@ def montar_central(db: Session, linhas_obj: list, data_servico: date, parametros
     fila.sort(key=lambda a: a["resolvido"])  # resolvidos no fim, ordem de urgência mantida
     agregado = tempo_real.agregar(resultados) if resultados else None
     if agregado:
-        agregado["farol"] = farol(agregado["icv_nimer_ate_agora"], meta, aceitavel)
+        agregado["farol"] = farol(agregado["icv_real_ate_agora"], meta, aceitavel)
     return {
         "data_servico": data_servico.isoformat(),
         "atualizado_em": agora.isoformat(),
