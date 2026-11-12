@@ -9,6 +9,8 @@ header X-Monitor-Token (MONITOR_INGEST_TOKEN do .env). Token vazio na config
     uma linha por envio.
   POST /monitoramento/nimer/fiscais — Escala de Fiscais do NIMER (pegada,
     local, batida de início com foto) — abre o turno do fiscal sozinho.
+  POST /monitoramento/rastro — Rastro do SIM (pontos a cada 10–15 s) de um
+    carro em dúvida; o robô pega a lista em /robo/config (carros_em_duvida).
   GET  /monitoramento/robo/config — quais linhas acompanhar.
 
 GET /monitoramento/linhas, /linhas/{codigo}/tracado, /linhas/{codigo}/ao-vivo
@@ -40,6 +42,7 @@ from app.models.monitoramento import (
     LeituraVeiculo,
     NimerColeta,
     NimerViagem,
+    RastroColeta,
     SimCodigoLinha,
     ViagemCorrecao,
 )
@@ -219,6 +222,7 @@ def _leitura_do_veiculo(bruto: Any, ctx: _ContextoSim) -> Optional[dict]:
         "lon": v.lo,
         "velocidade": vel,
         "local_sim": _corte(v.loc, 120),
+        "fonte": "leitura",
     }
 
 
@@ -257,6 +261,7 @@ def _limpar_retencao(db: Session, agora: datetime) -> None:
     db.execute(delete(LeituraVeiculo).where(LeituraVeiculo.posicao_em < agora - RETENCAO_LEITURA))
     db.execute(delete(Coleta).where(Coleta.recebido_em < agora - RETENCAO_COLETA))
     db.execute(delete(NimerColeta).where(NimerColeta.recebido_em < agora - RETENCAO_COLETA))
+    db.execute(delete(RastroColeta).where(RastroColeta.recebido_em < agora - RETENCAO_COLETA))
 
 
 def _gravar(db: Session, payload: PayloadLeituras) -> dict:
@@ -427,16 +432,21 @@ async def receber_fiscais_nimer(request: Request, db: Annotated[Session, Depends
 # ─── Configuração do robô ────────────────────────────────────────────────────
 
 def _config_robo(db: Session) -> dict:
+    from app.services import monitoramento_rastro as rastro
     agora = datetime.now(timezone.utc)
     ativas = linhas_ativas(db)
     data_servico = data_servico_de(agora)
     return {
         "data_servico": data_servico.isoformat(),
         "linhas": [{"linha_codigo": codigo, "nimer_line_id": nimer} for codigo, nimer in ativas.items()],
-        "intervalos": {"sim_seg": INTERVALO_SIM_SEG, "nimer_seg": INTERVALO_NIMER_SEG},
+        "intervalos": {"sim_seg": INTERVALO_SIM_SEG, "nimer_seg": INTERVALO_NIMER_SEG,
+                       "rastro_seg": rastro.INTERVALO_RASTRO_SEG},
         # Carros (4 dígitos) escalados hoje no NIMER: o robô também manda
         # quando aparecem em OUTRA linha (alerta "carro trocado de linha").
         "prefixos_escalados": sorted(prefixos_escalados(db, data_servico, list(ativas))),
+        # v4.0 fase 3 (bloco B): o robô puxa o Rastro do SIM só destes, um por
+        # vez, a janela desde → até (máx. 15, o mais antigo primeiro).
+        "carros_em_duvida": rastro.carros_em_duvida_com_cache(db),
     }
 
 
@@ -444,6 +454,67 @@ def _config_robo(db: Session) -> dict:
 def config_robo(request: Request, db: Annotated[Session, Depends(get_db)]):
     _exige_token_robo(request)
     return _config_robo(db)
+
+
+# ─── Rastro do SIM (v4.0 fase 3, bloco B) ────────────────────────────────────
+
+class PayloadRastro(BaseModel):
+    prefixo: str = Field(..., max_length=10)
+    desde: Optional[int | float | str] = None
+    ate: Optional[int | float | str] = None
+    status: Optional[str] = "ok"
+    pontos: list[Any] = []
+
+    @field_validator("prefixo")
+    @classmethod
+    def _prefixo(cls, v):
+        v = str(v).strip()
+        if not v.isdigit():
+            raise ValueError("prefixo inválido")
+        return v
+
+
+def _gravar_rastro(db: Session, payload: PayloadRastro) -> dict:
+    from app.services import monitoramento_rastro as rastro
+    agora = datetime.now(timezone.utc)
+    mapa = mapa_sim(db)
+    vistos: set = set()
+    linhas: list[dict] = []
+    for bruto in payload.pontos:
+        ponto = rastro.ponto_do_rastro(payload.prefixo, bruto, mapa, agora)
+        if ponto is None or ponto["posicao_em"] in vistos:
+            continue
+        vistos.add(ponto["posicao_em"])
+        linhas.append(ponto)
+    gravados = _insert_ignorando_duplicado(db, linhas)
+    status_coleta = (payload.status or "").strip().lower()
+    if status_coleta not in STATUS_COLETA:
+        status_coleta = "erro"
+    instantes = [p["posicao_em"] for p in linhas]
+    db.add(RastroColeta(
+        recebido_em=agora, prefixo=payload.prefixo, status=status_coleta,
+        desde=_instante_robo(payload.desde) or (min(instantes) if instantes else None),
+        ate=_instante_robo(payload.ate) or (max(instantes) if instantes else None),
+        pontos=len(payload.pontos), gravados=gravados,
+    ))
+    db.commit()
+    rastro.limpar_cache()
+    return {"prefixo": payload.prefixo, "recebidos": len(payload.pontos), "aceitos": len(linhas),
+            "gravados": gravados, "status": status_coleta}
+
+
+@router.post("/rastro", summary="Recebe o Rastro do SIM de um carro em dúvida (X-Monitor-Token, sem JWT)")
+async def receber_rastro(request: Request, db: Annotated[Session, Depends(get_db)]):
+    from app.services.monitoramento_rastro import LIMITE_PONTOS
+    _exige_token_robo(request)
+    corpo = await _corpo_limitado(request, LIMITE_CORPO_BYTES)
+    try:
+        payload = PayloadRastro.model_validate(json.loads(corpo or b"{}"))
+    except (ValueError, ValidationError):
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Envio do Rastro em formato inválido")
+    if len(payload.pontos) > LIMITE_PONTOS:
+        raise HTTPException(status.HTTP_413_CONTENT_TOO_LARGE, f"Pontos demais num envio (máximo {LIMITE_PONTOS})")
+    return await run_in_threadpool(_gravar_rastro, db, payload)
 
 
 # ─── Leitura para as telas ───────────────────────────────────────────────────

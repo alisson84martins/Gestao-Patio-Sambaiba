@@ -201,7 +201,7 @@ def test_config_devolve_linhas_ativas_e_carros_escalados(client, engine):
     j = r.json()
     assert j["linhas"] == [{"linha_codigo": "1726-10", "nimer_line_id": 33534},
                            {"linha_codigo": "2011-10", "nimer_line_id": None}]
-    assert j["intervalos"] == {"sim_seg": 60, "nimer_seg": 180}
+    assert j["intervalos"] == {"sim_seg": 60, "nimer_seg": 180, "rastro_seg": 300}  # 300: bloco B da fase 3
     assert j["prefixos_escalados"] == ["2293", "2412"]
 
 

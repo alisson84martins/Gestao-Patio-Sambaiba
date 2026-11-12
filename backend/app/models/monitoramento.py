@@ -55,6 +55,9 @@ class LeituraVeiculo(Base):
     lon: Mapped[float] = mapped_column(Float, nullable=False)
     velocidade: Mapped[Optional[int]] = mapped_column(SmallInteger, nullable=True)
     local_sim: Mapped[Optional[str]] = mapped_column(String(120), nullable=True)
+    # 056 — 'leitura' (consulta do SIM a cada minuto) | 'rastro' (Rastro do SIM,
+    # pontos a cada 10–15 s, só dos carros em dúvida). NULL = anterior à 056.
+    fonte: Mapped[Optional[str]] = mapped_column(String(10), nullable=True)
 
 
 class Coleta(Base):
@@ -258,3 +261,21 @@ class PontoNimer(Base):
     terminal: Mapped[str] = mapped_column(String(2), nullable=False)
     ativo: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     criado_em: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class RastroColeta(Base):
+    """Rastro do SIM puxado pelo robô para um carro em dúvida (bloco B)."""
+    __tablename__ = "rastro_coleta"
+    __table_args__ = (
+        Index("idx_rastro_coleta_prefixo", "prefixo", "ate"),
+        {"schema": "monitoramento"},
+    )
+
+    id: Mapped[int] = mapped_column(_BIGID, primary_key=True, autoincrement=True)
+    recebido_em: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    prefixo: Mapped[str] = mapped_column(String(10), nullable=False)
+    desde: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    ate: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    status: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
+    pontos: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    gravados: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)

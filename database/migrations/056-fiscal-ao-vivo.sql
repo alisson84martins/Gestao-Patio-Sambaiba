@@ -18,6 +18,12 @@
 --                           linha + terminal. Uma linha por par local × linha.
 --     turno.origem        — MANUAL | NIMER (nullable: turnos antigos ficam NULL).
 --
+--   Bloco B — o robô puxa o Rastro do SIM (pontos a cada 10–15 s) só dos
+--   carros em dúvida, um por vez, para não perder a saída de quem entra e
+--   sai do terminal entre duas leituras de 60 s.
+--     leitura_veiculo.fonte — leitura | rastro (nullable).
+--     rastro_coleta         — cada envio do Rastro (carro + janela).
+--
 --   Dado pessoal: nimer_fiscal_escala guarda o RE do fiscal como escalado no
 --   NIMER (mesmo nível de turno.fiscal_re). Sem nome. Semente sem dado pessoal.
 --
@@ -104,6 +110,29 @@ END $$;
 COMMENT ON COLUMN fiscalizacao.turno.origem IS
     'MANUAL = aberto pelo fiscal em fiscal.html; NIMER = aberto sozinho pela batida de início com foto no NIMER (056). NULL = turno anterior à 056.';
 
+-- ─── Bloco B · Rastro do SIM (carros em dúvida) ─────────────────────────────
+ALTER TABLE monitoramento.leitura_veiculo ADD COLUMN IF NOT EXISTS fonte VARCHAR(10);
+
+COMMENT ON COLUMN monitoramento.leitura_veiculo.fonte IS
+    'leitura = consulta do SIM a cada minuto; rastro = Rastro do SIM (pontos a cada 10–15 s) puxado só para carro em dúvida. NULL = anterior à 056. A UNIQUE (prefixo, posicao_em) descarta o ponto repetido.';
+
+CREATE TABLE IF NOT EXISTS monitoramento.rastro_coleta (
+    id              BIGSERIAL PRIMARY KEY,
+    recebido_em     TIMESTAMPTZ DEFAULT now(),
+    prefixo         VARCHAR(10) NOT NULL,
+    desde           TIMESTAMPTZ,
+    ate             TIMESTAMPTZ,
+    status          VARCHAR(20),
+    pontos          INTEGER,
+    gravados        INTEGER
+);
+
+COMMENT ON TABLE monitoramento.rastro_coleta IS
+    'Um envio do Rastro do SIM pelo robô (um carro, uma janela). Serve para não pedir de novo a mesma janela e para a saúde da coleta. Retenção de 7 dias.';
+
+CREATE INDEX IF NOT EXISTS idx_rastro_coleta_prefixo
+    ON monitoramento.rastro_coleta (prefixo, ate);
+
 -- 🔴 Tabelas novas nascem sem permissão para o papel da aplicação
 -- (armadilha_migration_sem_grant).
 GRANT USAGE ON SCHEMA monitoramento TO sambaiba;
@@ -111,5 +140,7 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON monitoramento.nimer_fiscal_escala TO sam
 GRANT SELECT, INSERT, UPDATE, DELETE ON monitoramento.ponto_nimer TO sambaiba;
 GRANT USAGE, SELECT ON SEQUENCE monitoramento.nimer_fiscal_escala_id_seq TO sambaiba;
 GRANT USAGE, SELECT ON SEQUENCE monitoramento.ponto_nimer_id_seq TO sambaiba;
+GRANT SELECT, INSERT, UPDATE, DELETE ON monitoramento.rastro_coleta TO sambaiba;
+GRANT USAGE, SELECT ON SEQUENCE monitoramento.rastro_coleta_id_seq TO sambaiba;
 
 COMMIT;

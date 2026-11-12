@@ -139,7 +139,9 @@ def _origem(destino: dict[int, str], sentido: int) -> Optional[str]:
 def saidas_do_sim(leituras: Iterable[dict], terminais: dict[str, list], destino: dict[int, str]) -> list[Saida]:
     """Leituras {prefixo (4 díg.), em (datetime), s, la, lo} → saídas de terminal.
 
-    Vazio quando a linha não tem centros de terminal (sem traçado)."""
+    Leituras de QUALQUER fonte (consulta do minuto ou Rastro do SIM, fase 3
+    bloco B), em ordem de horário do GPS. Vazio quando a linha não tem
+    centros de terminal (sem traçado)."""
     if not terminais:
         return []
     por_carro: dict[str, list[dict]] = defaultdict(list)

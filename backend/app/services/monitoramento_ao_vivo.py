@@ -155,7 +155,10 @@ def montar_ao_vivo(db: Session, linha: LinhaMonitorada, agora: Optional[datetime
         analise = regras.analisar_carro(prefixo, [_como_leitura(lv) for lv in lvs], linha, agora_ms)
         if analise is None:
             continue
-        recebido_ult = _utc(max((lv.recebido_em for lv in lvs if lv.recebido_em), default=None))
+        # O Rastro (bloco B, fase 3) chega depois e não prova que o carro
+        # ainda está na consulta do SIM: só a leitura do minuto conta aqui.
+        recebido_ult = _utc(max((lv.recebido_em for lv in lvs if lv.recebido_em and lv.fonte != "rastro"),
+                                default=None))
         sumiu = bool(ultima_ok and recebido_ult and recebido_ult < ultima_ok - SUMIU_TOLERANCIA)
         ult = analise["ult"]
         if sumiu and agora_ms - ult["t"] > SUMIU_SAI_DA_TELA_MIN * 60000:
