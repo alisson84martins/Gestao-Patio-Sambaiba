@@ -7,9 +7,13 @@ Regra NO BACKEND (bloco H):
   tempo: cada um com as linhas do turno dele.
 - Quem tem `fiscalizacao_painel` (coordenação) vê as linhas que coordena
   (fiscalizacao.linha_coordenador); ADMIN vê todas.
+- Fiscal sem turno aberto: a escala de fiscais do NIMER pode abrir o turno
+  sozinho ou dar o escopo `previsto` (só leitura) — ver
+  app/services/monitoramento_fiscais.py (v4.0 fase 3, bloco A).
 - Corrigir viagem (bloco G): `fiscalizacao` com escrita E a linha da viagem
   no turno aberto dele, do mesmo dia de serviço.
 """
+from datetime import datetime
 from typing import Optional
 from uuid import UUID
 
@@ -62,13 +66,23 @@ def linhas_do_coordenador(db: Session, funcionario_id: UUID) -> list[str]:
     ).scalars().all()))
 
 
-def escopo(db: Session, funcionario_id: UUID) -> dict:
-    """{"tipo": "todas" | "coordenador" | "turno" | "sem_turno", "linhas": [...] | None, "turno": Turno|None}"""
+def escopo(db: Session, funcionario_id: UUID, agora: Optional[datetime] = None) -> dict:
+    """{"tipo": "todas" | "coordenador" | "turno" | "previsto" | "sem_turno",
+        "linhas": [...] | None, "turno": Turno|None}
+
+    Fiscal sem turno aberto (v4.0 fase 3, bloco A): a escala de fiscais do
+    NIMER decide — batida de início com foto abre o turno sozinho (origem
+    NIMER); pegada em ≤ 30 min sem a batida = `previsto` (só leitura, com
+    "previsto": {...}); nada do NIMER = `sem_turno` (fluxo manual)."""
     if eh_admin(db, funcionario_id):
         return {"tipo": "todas", "linhas": None, "turno": None}
     if tem_acesso(db, funcionario_id, "fiscalizacao_painel"):
         return {"tipo": "coordenador", "linhas": linhas_do_coordenador(db, funcionario_id), "turno": None}
     turno = turno_aberto(db, funcionario_id)
     if turno is None:
+        from app.services.monitoramento_fiscais import escopo_pelo_nimer
+        pelo_nimer = escopo_pelo_nimer(db, funcionario_id, agora)
+        if pelo_nimer is not None:
+            return pelo_nimer
         return {"tipo": "sem_turno", "linhas": [], "turno": None}
     return {"tipo": "turno", "linhas": linhas_do_turno(db, turno.id), "turno": turno}

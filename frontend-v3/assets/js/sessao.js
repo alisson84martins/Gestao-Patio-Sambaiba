@@ -24,7 +24,10 @@ const PAGINA_INICIAL = {
     PATIO: 'patio.html',
     COORDENADORIA: 'ocorrencias.html',   // ainda não existe — Etapa 6
     FISCALIZACAO: 'fiscal-painel.html',   // painel do coordenador (Bloco E)
-    FISCALIZACAO_FISCAL: 'fiscal.html',   // registro do fiscal em campo (Bloco D)
+    // v4.0 fase 3 (bloco A): o fiscal cai direto na tela ao vivo da linha do
+    // turno (aberto sozinho pela batida com foto no NIMER). O fechamento do
+    // turno continua em fiscal.html — botão na própria tela ao vivo.
+    FISCALIZACAO_FISCAL: 'ao-vivo.html',
     ADMINISTRACAO: 'cadastros.html',
     // 🔴 Sem isto (e sem 'PORTARIA' em PAGINAS_PRONTAS logo abaixo), o
     // controlador loga e cai em modulos.html?indisponivel=PORTARIA — porque
@@ -47,7 +50,7 @@ const PAGINAS_PRONTAS = new Set(['PATIO', 'ADMINISTRACAO', 'COORDENADORIA', 'POR
 // Módulos cuja página inicial depende do acesso da pessoa. FISCALIZACAO tem
 // duas portas: quem tem `fiscalizacao_painel` (o coordenador) aterrissa no
 // painel (Bloco E); quem só tem escrita em `fiscalizacao` (o fiscal)
-// aterrissa em fiscal.html (Bloco D). Quem tem os dois vai para o painel.
+// aterrissa na tela ao vivo (v4.0 fase 3). Quem tem os dois vai para o painel.
 // Sem nenhum dos dois, cai no aviso de indisponível, como antes.
 const PAGINA_CONDICIONAL = {
     FISCALIZACAO: () => {

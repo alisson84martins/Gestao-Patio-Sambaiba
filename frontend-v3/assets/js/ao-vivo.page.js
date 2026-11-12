@@ -44,7 +44,9 @@ const ERRO_COLETA_MIN = 10;   // vermelho: mais de 10 min sem coleta OK
 const COR_SENTIDO = { 1: '#1F4FD8', 2: '#EF6C00' };
 
 const parametros = new URLSearchParams(location.search);
-const linhaCodigo = (parametros.get('linha') || '').trim();
+// Sem ?linha (o fiscal chega aqui direto do login): a 1ª linha que o
+// backend deixa ver — a do turno, aberto sozinho pela foto do NIMER.
+let linhaCodigo = (parametros.get('linha') || '').trim();
 
 let mapa = null;
 let tracado = null;
@@ -360,7 +362,17 @@ document.querySelector('.av-painel').addEventListener('click', (ev) => {
 async function iniciar() {
     initHeader();
     if (!linhaCodigo) {
-        document.getElementById('av-status').textContent = 'Abra esta tela pelo botão "🛰 Ao vivo" da linha.';
+        try {
+            const linhas = await apiGet('/monitoramento/linhas');
+            linhaCodigo = linhas[0]?.codigo || '';
+        } catch (err) {
+            if (err instanceof ApiError && err.status === 401) return;
+        }
+    }
+    if (!linhaCodigo) {
+        // Sem turno (nem pelo NIMER): o fluxo manual de "Abrir turno" continua valendo.
+        document.getElementById('av-status').innerHTML =
+            'Nenhuma linha ao vivo para você agora. <a href="fiscal.html">Abrir turno</a>';
         return;
     }
     criarMapa();

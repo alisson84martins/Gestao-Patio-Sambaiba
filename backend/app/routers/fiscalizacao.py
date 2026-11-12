@@ -477,6 +477,7 @@ def abrir_turno(payload: TurnoAbrirRequest, usuario: EscritaFiscalizacao, db: Db
         tipo_dia=_tipo_dia(data_referencia),
         status="ABERTO",
         aberto_em=agora,
+        origem="MANUAL",
     )
     db.add(novo)
     db.flush()

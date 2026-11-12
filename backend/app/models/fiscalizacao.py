@@ -75,6 +75,9 @@ class Turno(Base):
     )
     atualizado_em: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
 
+    # 056 — MANUAL (fiscal.html) | NIMER (batida de início com foto). NULL = turno anterior à 056.
+    origem: Mapped[Optional[str]] = mapped_column(String(10), nullable=True)
+
 
 class TurnoPosto(Base):
     """Postos da Escala de Fiscais que o turno cobre (047). ⛔ posto_id SEM

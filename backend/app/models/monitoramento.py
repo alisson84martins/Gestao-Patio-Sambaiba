@@ -218,3 +218,43 @@ class VelocidadeAgregacao(Base):
     linha_codigo: Mapped[str] = mapped_column(String(20), primary_key=True)
     leituras: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     agregado_em: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+# ═══ Fase 3 (migration 056) — fiscal ao vivo ════════════════════════════════
+
+class NimerFiscalEscala(Base):
+    """Cartão da Escala de Fiscais do NIMER (pegada, local, batida com foto)."""
+    __tablename__ = "nimer_fiscal_escala"
+    __table_args__ = (
+        UniqueConstraint("data_servico", "re", "tabela", name="uq_nimer_fiscal_escala"),
+        Index("idx_nimer_fiscal_escala_re_data", "re", "data_servico"),
+        {"schema": "monitoramento"},
+    )
+
+    id: Mapped[int] = mapped_column(_BIGID, primary_key=True, autoincrement=True)
+    data_servico: Mapped[date] = mapped_column(Date, nullable=False)
+    re: Mapped[str] = mapped_column(String(20), nullable=False)
+    tabela: Mapped[str] = mapped_column(String(20), nullable=False, default="")
+    pegada_em: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    largada_em: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    local_texto: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
+    inicio_em: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    fim_em: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    coletado_em: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    atualizado_em: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class PontoNimer(Base):
+    """Local do NIMER (começo do texto, normalizado) → linha + terminal."""
+    __tablename__ = "ponto_nimer"
+    __table_args__ = (
+        UniqueConstraint("local_texto", "linha_codigo", name="uq_ponto_nimer"),
+        {"schema": "monitoramento"},
+    )
+
+    id: Mapped[int] = mapped_column(_BIGID, primary_key=True, autoincrement=True)
+    local_texto: Mapped[str] = mapped_column(String(200), nullable=False)
+    linha_codigo: Mapped[str] = mapped_column(String(20), nullable=False)
+    terminal: Mapped[str] = mapped_column(String(2), nullable=False)
+    ativo: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    criado_em: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), server_default=func.now())

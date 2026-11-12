@@ -7,6 +7,8 @@ header X-Monitor-Token (MONITOR_INGEST_TOKEN do .env). Token vazio na config
     linhas de monitoramento.linha_monitorada (054).
   POST /monitoramento/nimer — Relatório de Linha do NIMER, a cada 3 min,
     uma linha por envio.
+  POST /monitoramento/nimer/fiscais — Escala de Fiscais do NIMER (pegada,
+    local, batida de início com foto) — abre o turno do fiscal sozinho.
   GET  /monitoramento/robo/config — quais linhas acompanhar.
 
 GET /monitoramento/linhas, /linhas/{codigo}/tracado, /linhas/{codigo}/ao-vivo
@@ -388,6 +390,40 @@ async def receber_nimer(request: Request, db: Annotated[Session, Depends(get_db)
     return await run_in_threadpool(_gravar_nimer, db, payload)
 
 
+# ─── Escala de fiscais do NIMER (v4.0 fase 3, bloco A) ──────────────────────
+
+class PayloadFiscais(BaseModel):
+    data_servico: Optional[str] = None
+    coletado_em: Optional[int | float | str] = None
+    fiscais: list[Any] = []
+
+
+def _gravar_fiscais(db: Session, payload: PayloadFiscais) -> dict:
+    from app.services.monitoramento_fiscais import gravar_escala
+    agora = datetime.now(timezone.utc)
+    data_servico = parse_data_servico(payload.data_servico) or data_servico_de(agora)
+    resultado = gravar_escala(db, data_servico, payload.fiscais, _instante_robo(payload.coletado_em), agora)
+    db.commit()
+    return resultado
+
+
+@router.post(
+    "/nimer/fiscais",
+    summary="Recebe a Escala de Fiscais do NIMER (pegada, local, batida com foto) — X-Monitor-Token, sem JWT",
+)
+async def receber_fiscais_nimer(request: Request, db: Annotated[Session, Depends(get_db)]):
+    from app.services.monitoramento_fiscais import LIMITE_FISCAIS
+    _exige_token_robo(request)
+    corpo = await _corpo_limitado(request, LIMITE_CORPO_NIMER_BYTES)
+    try:
+        payload = PayloadFiscais.model_validate(json.loads(corpo or b"{}"))
+    except (ValueError, ValidationError):
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Envio da escala de fiscais em formato inválido")
+    if len(payload.fiscais) > LIMITE_FISCAIS:
+        raise HTTPException(status.HTTP_413_CONTENT_TOO_LARGE, f"Fiscais demais num envio (máximo {LIMITE_FISCAIS})")
+    return await run_in_threadpool(_gravar_fiscais, db, payload)
+
+
 # ─── Configuração do robô ────────────────────────────────────────────────────
 
 def _config_robo(db: Session) -> dict:
@@ -428,7 +464,8 @@ def _linha_autorizada(db: Session, usuario: Funcionario, linha_codigo: str) -> L
         raise HTTPException(status.HTTP_403_FORBIDDEN, acesso.MSG_SEM_TURNO)
     linha = _linha_ou_404(db, linha_codigo)
     if esc["linhas"] is not None and linha.codigo not in esc["linhas"]:
-        mensagem = acesso.MSG_FORA_DO_TURNO if esc["tipo"] == "turno" else acesso.MSG_FORA_DA_COORDENACAO
+        mensagem = (acesso.MSG_FORA_DO_TURNO if esc["tipo"] in ("turno", "previsto")
+                    else acesso.MSG_FORA_DA_COORDENACAO)
         raise HTTPException(status.HTTP_403_FORBIDDEN, mensagem)
     return linha
 
