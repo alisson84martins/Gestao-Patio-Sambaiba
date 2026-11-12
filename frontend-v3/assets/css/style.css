@@ -5761,3 +5761,29 @@ body.modal-open {
 .fv-transito { padding: 1px 6px; border-radius: 6px; font-size: 13px; background: var(--surface); }
 .fv-robo summary { cursor: pointer; min-height: 40px; display: flex; align-items: center; color: var(--muted); }
 .fv-fechar-turno { align-self: flex-start; }
+
+/* ─── Central: Ao vivo · minhas linhas (v4.0 fase 3, bloco F) ─── */
+.fc-ao-vivo { display: flex; flex-direction: column; gap: 8px; margin-bottom: 16px; }
+.fc-cartoes { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 260px), 1fr)); gap: 10px; }
+.fc-cartao {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-width: 0;
+    padding: 10px 12px;
+    border-radius: 10px;
+    border: 2px solid var(--border);
+    background: var(--surface2);
+    color: var(--text);
+    text-decoration: none;
+    font-size: 15px;
+}
+.fc-cartao:hover { border-color: var(--accent4); }
+.fc-cartao-alerta { border-color: var(--accent2); }
+.fc-cartao-topo { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.fc-cartao-topo b { font-family: var(--mono); font-size: 18px; }
+.fc-caixinha { min-height: 32px; min-width: 48px; display: inline-flex; align-items: center; justify-content: center; font-size: 14px; }
+.fc-cartao-icv b { font-family: var(--mono); }
+.fc-cartao-sentidos, .fc-cartao-fiscais { display: flex; flex-wrap: wrap; gap: 2px 12px; font-size: 14px; color: var(--muted); }
+.fc-cartao-sentidos span { display: inline-flex; align-items: center; gap: 6px; }
+.fc-sem-fiscal { color: #facc15; }

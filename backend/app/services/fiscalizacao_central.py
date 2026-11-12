@@ -184,3 +184,71 @@ def com_cache(chave: tuple, fabricar) -> dict:
 def limpar_cache() -> None:
     with _cache_lock:
         _cache.clear()
+
+
+# ─── Ao vivo · minhas linhas (v4.0 fase 3, bloco F) ─────────────────────────
+
+def fiscais_no_ponto(db: Session, linhas: list[str]) -> dict[str, list[dict]]:
+    """Linha → fiscais com turno ABERTO: RE, terminal e o selo "NIMER ✓ 14:13"."""
+    from app.services.monitoramento_fiscais import escala_do_turno
+    if not linhas:
+        return {}
+    rows = db.execute(
+        select(TurnoLinha.linha_codigo, Turno)
+        .join(Turno, Turno.id == TurnoLinha.turno_id)
+        .where(Turno.status == "ABERTO", TurnoLinha.linha_codigo.in_(linhas))
+        .order_by(TurnoLinha.linha_codigo, Turno.terminal, Turno.fiscal_re)
+    ).all()
+    saida: dict[str, list[dict]] = {codigo: [] for codigo in linhas}
+    for codigo, turno in rows:
+        selo = "aberto à mão"
+        if turno.origem == "NIMER":
+            escala = escala_do_turno(db, turno)
+            selo = f"NIMER ✓ {tempo_real.hora_local(tempo_real._utc(escala.inicio_em))}" if escala else "NIMER ✓"
+        saida[codigo].append({"re": turno.fiscal_re, "terminal": turno.terminal, "selo": selo})
+    return saida
+
+
+def montar_minhas_linhas(db: Session, linhas_obj: list, data_servico: date, parametros: dict,
+                         agora: Optional[datetime] = None) -> dict:
+    """Um cartão por linha (ordem: mais alertas abertos primeiro), a fila de ação
+    de todas elas (mais recentes primeiro) e o bloco Robô (saúde + alarmes falsos)."""
+    agora = agora or datetime.now(timezone.utc)
+    meta, aceitavel = parametros.get("icv_meta"), parametros.get("icv_aceitavel")
+    tratadas = tratativas(db, data_servico)
+    fiscais = fiscais_no_ponto(db, [linha.codigo for linha in linhas_obj])
+    cartoes, fila, saude = [], [], []
+    for linha in linhas_obj:
+        r = tempo_real.montar_linha_tempo_real(db, linha, data_servico, agora)
+        alertas = alertas_op.aplicar_baixas(alertas_op.montar_alertas(db, linha, r, agora), tratadas, agora)
+        abertos = [dict(a, linha_codigo=linha.codigo) for a in alertas if a["aberto"]]
+        fila += abertos
+        real = r["real"]
+        cartoes.append({
+            "linha_codigo": linha.codigo,
+            "nome": linha.nome,
+            "icv": real["total"]["icv"],
+            "farol": farol(real["total"]["icv"], meta, aceitavel),
+            "por_sentido": {s: {"realizadas": b["realizadas"], "programadas": b["programadas_ate_agora"],
+                                "perdidas": b["perdidas"]} for s, b in real["por_sentido"].items()},
+            "a_conferir": real["total"]["a_conferir"],
+            "alertas_abertos": len(abertos),
+            "tem_alerta": any(a["nivel"] == "alerta" for a in abertos),
+            "fiscais": fiscais.get(linha.codigo, []),
+        })
+        s = r["saude"]
+        saude.append({"linha_codigo": linha.codigo,
+                      "sim_ultima_ok_em": tempo_real._iso(s["sim_ultima_ok_em"]),
+                      "nimer_status": s["nimer_status"],
+                      "nimer_ultima_ok_em": tempo_real._iso(s["nimer_ultima_ok_em"]),
+                      "tem_nimer": linha.nimer_line_id is not None})
+    cartoes.sort(key=lambda c: (-c["alertas_abertos"], not c["tem_alerta"], c["linha_codigo"]))
+    fila.sort(key=lambda a: a["inicio_em"] or "", reverse=True)
+    return {
+        "data_servico": data_servico.isoformat(),
+        "atualizado_em": agora.isoformat(),
+        "meta": {"icv_meta": meta, "icv_aceitavel": aceitavel},
+        "cartoes": cartoes,
+        "fila": fila,
+        "robo": {"saude": saude, "alarmes_falsos": alarmes_falsos(tratadas.values())},
+    }

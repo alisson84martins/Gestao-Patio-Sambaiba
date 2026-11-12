@@ -7,8 +7,14 @@
  * "resolvido", Pareto do dia, cobertura dos pontos, correções dos fiscais e
  * saúde dos robôs. Pensada para o PC, funciona no celular.
  *
- * Rotas: GET /monitoramento/central (a cada 30 s, pausado com a aba
- * escondida) e POST /monitoramento/central/alertas.
+ * v4.0 fase 3 (bloco F): no topo, "Ao vivo · minhas linhas" — um cartão por
+ * linha de Minhas linhas (fiscalizacao.linha_coordenador; ADMIN: todas), a
+ * fila de ação delas com a baixa (alarme falso · atitude tomada · contatei
+ * CCO) e o bloco Robô recolhido. Toque no cartão abre a tela ao vivo.
+ *
+ * Rotas: GET /monitoramento/central e /monitoramento/central/minhas-linhas
+ * (a cada 30 s, pausado com a aba escondida), POST /monitoramento/central/alertas
+ * e POST /monitoramento/alertas/baixa.
  * Texto da API só entra em innerHTML via escapeHtml().
  */
 
@@ -32,7 +38,12 @@ const ROTULO_TIPO = {
     buraco_intervalo: 'Buraco de intervalo', nao_contabilizada: 'Não contabilizada', desvio: 'Desvio', virada: 'Virada',
     retorno: 'Retorno', parado: 'Parado', semtx: 'Sem transmissão', recolhida: 'Recolhida', terminal: 'Parado no terminal',
     nao_liberar_antes: 'Não liberar antes', saiu_adiantado: 'Saiu adiantado',
+    saida_adiantada: 'Saída adiantada', troca_sem_baixa: 'Troca sem baixa', indo_garagem: 'Indo para a G3',
 };
+const SETA = { 1: 'TP→TS', 2: 'TS→TP' };
+const BAIXAS = [['alarme_falso', 'Alarme falso'], ['atitude_tomada', 'Atitude tomada'], ['contatou_cco', 'Contatei CCO/coordenação']];
+
+let aoVivo = null;   // /monitoramento/central/minhas-linhas
 
 let dados = null;
 let timer = null;
@@ -207,9 +218,100 @@ function render() {
     renderSaude();
 }
 
+// ─── Ao vivo · minhas linhas (fase 3, bloco F) ──────────────────────────
+
+function chip(carro, sentido) {
+    return `<span class="av-chip av-chip-s${sentido === 2 ? 2 : 1}">${escapeHtml(carro || '—')}</span>`;
+}
+
+function renderCartoes() {
+    const el = document.getElementById('fc-cartoes');
+    document.getElementById('fc-av-sub').textContent = aoVivo ? `atualizado às ${hora(aoVivo.atualizado_em)}` : '';
+    if (!aoVivo.cartoes.length) {
+        el.innerHTML = '<div class="av-vazio">Nenhuma linha em <a href="fiscal-painel.html">Minhas linhas</a> — marque as suas para acompanhar aqui.</div>';
+        return;
+    }
+    el.innerHTML = aoVivo.cartoes.map((c) => {
+        const sentidos = Object.entries(c.por_sentido).filter(([, b]) => b.programadas)
+            .map(([s, b]) => `<span><i class="av-bolinha av-s${s}"></i>${escapeHtml(SETA[s] || s)} ${b.realizadas}/${b.programadas} · ${b.perdidas} perd.</span>`).join('');
+        const fiscais = c.fiscais.length
+            ? c.fiscais.map((f) => `<span>👮 ${escapeHtml(f.re)} ${escapeHtml(f.terminal)} · ${escapeHtml(f.selo)}</span>`).join('')
+            : '<span class="fc-sem-fiscal">sem fiscal</span>';
+        return `<a class="fc-cartao${c.alertas_abertos ? ' fc-cartao-alerta' : ''}" href="ao-vivo.html?linha=${encodeURIComponent(c.linha_codigo)}">
+            <span class="fc-cartao-topo"><b>${escapeHtml(c.linha_codigo)}</b>
+                <span class="fv-caixinha fc-caixinha${c.alertas_abertos ? '' : ' fv-caixinha-zero'}${c.tem_alerta ? ' fv-caixinha-pisca' : ''}"
+                      aria-label="${c.alertas_abertos} alertas abertos">🔔 ${c.alertas_abertos}</span></span>
+            <span class="fc-cartao-icv">ICV <b class="fv-farol-${escapeHtml(c.farol)}">${pct(c.icv)}</b>
+                ${c.a_conferir ? ` · A conferir: <b>${c.a_conferir}</b>` : ''}</span>
+            <span class="fc-cartao-sentidos">${sentidos || '<span>sem partidas do NIMER</span>'}</span>
+            <span class="fc-cartao-fiscais">${fiscais}</span>
+        </a>`;
+    }).join('');
+}
+
+function renderFilaAoVivo() {
+    const el = document.getElementById('fc-fila-av');
+    const n = document.getElementById('fc-n-fila-av');
+    const fila = aoVivo.fila;
+    n.textContent = fila.length;
+    n.className = 'av-pilula' + (fila.length ? '' : ' av-pilula-zero');
+    const escreve = podeEscrever('fiscalizacao_painel');
+    el.innerHTML = fila.length ? fila.map((a) => `<div class="av-cartao av-cartao-${a.nivel === 'alerta' ? 'alerta' : 'atencao'}">
+        <span class="av-cartao-topo">${chip(a.carro, a.sentido)} <b>${escapeHtml(a.linha_codigo)}</b>
+            <small>${escapeHtml([a.inicio, ROTULO_TIPO[a.tipo] || a.tipo, a.tabela ? `tab ${a.tabela}` : ''].filter(Boolean).join(' · '))}</small>
+            ${a.reaberto ? '<small class="fv-reaberto">voltou</small>' : ''}</span>
+        <span class="av-cartao-texto">${escapeHtml(a.texto)}</span>
+        <span class="av-cartao-eta">👉 ${escapeHtml(a.acao_sugerida)}</span>
+        ${escreve ? `<span class="fv-baixas">${BAIXAS.map(([m, t]) => `<button type="button" data-baixa="${escapeHtml(m)}"
+            data-chave="${escapeHtml(a.chave)}" data-linha="${escapeHtml(a.linha_codigo)}">${escapeHtml(t)}</button>`).join('')}</span>` : ''}
+    </div>`).join('') : '<div class="av-vazio">Nenhum alerta aberto nas suas linhas. 👏</div>';
+}
+
+function renderRoboAoVivo() {
+    const r = aoVivo.robo;
+    const saude = r.saude.map((s) => `<div class="fc-cob"><b>${escapeHtml(s.linha_codigo)}</b>
+        ${faixa('SIM', s.sim_ultima_ok_em, false, 3, 10)}
+        ${s.tem_nimer ? faixa('NIMER', s.nimer_ultima_ok_em, s.nimer_status === 'sessao', 8, 15) : '<span class="av-robo av-status-aviso">NIMER não cadastrado</span>'}
+    </div>`).join('');
+    const falsos = r.alarmes_falsos.length
+        ? r.alarmes_falsos.map((a) => `<span class="av-robo">${escapeHtml(ROTULO_TIPO[a.tipo] || a.tipo)}: ${a.quantidade}</span>`).join('')
+        : '<span class="av-vazio">nenhum alarme falso hoje</span>';
+    document.getElementById('fc-robo-av').innerHTML = `${saude}<div class="fc-cob"><b>Alarmes falsos hoje</b> ${falsos}</div>`;
+}
+
+async function atualizarAoVivo() {
+    try {
+        aoVivo = await apiGet('/monitoramento/central/minhas-linhas');
+    } catch (err) {
+        if (err instanceof ApiError && err.status === 401) return;
+        document.getElementById('fc-cartoes').innerHTML = `<div class="av-vazio">${escapeHtml(err.message)}</div>`;
+        return;
+    }
+    renderCartoes();
+    renderFilaAoVivo();
+    renderRoboAoVivo();
+}
+
+document.getElementById('fc-fila-av').addEventListener('click', async (ev) => {
+    const b = ev.target.closest('[data-baixa]');
+    if (!b) return;
+    const botoes = b.parentElement.querySelectorAll('button');
+    for (const x of botoes) x.disabled = true;
+    try {
+        await apiPost('/monitoramento/alertas/baixa', { linha_codigo: b.dataset.linha, chave: b.dataset.chave, motivo: b.dataset.baixa });
+    } catch (err) {
+        if (err instanceof ApiError && err.status === 401) return;
+        for (const x of botoes) x.disabled = false;
+        b.parentElement.insertAdjacentHTML('afterend', `<span class="av-form-erro">${escapeHtml(err.message)}</span>`);
+        return;
+    }
+    await atualizar();
+});
+
 // ─── Ciclo ──────────────────────────────────────────────────────────────
 
 async function atualizar() {
+    atualizarAoVivo();   // fase 3: minhas linhas ao vivo (em paralelo)
     const todas = document.getElementById('fc-todas').checked;
     try {
         dados = await apiGet(`/monitoramento/central${todas ? '?todas=true' : ''}`);

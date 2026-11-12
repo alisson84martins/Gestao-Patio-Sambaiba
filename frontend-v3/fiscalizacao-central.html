@@ -45,6 +45,19 @@
         <div class="av-status av-status-aviso" id="fc-status" role="status" aria-live="polite">Carregando…</div>
         <label class="av-filtro"><input type="checkbox" id="fc-todas"> Todas as linhas monitoradas</label>
     </div>
+
+    <!-- v4.0 fase 3 (bloco F): primeira coisa da página — as linhas de "Minhas linhas" ao vivo -->
+    <section class="fc-ao-vivo">
+        <h2 class="av-secao-titulo">Ao vivo · minhas linhas <small class="fc-sub" id="fc-av-sub"></small></h2>
+        <div class="fc-cartoes" id="fc-cartoes"><div class="av-vazio">Carregando…</div></div>
+        <h2 class="av-secao-titulo">Fila de ação · minhas linhas <span class="av-pilula av-pilula-zero" id="fc-n-fila-av">0</span></h2>
+        <div class="fv-alertas" id="fc-fila-av"></div>
+        <details class="fv-robo">
+            <summary>Robô — saúde da coleta e alarmes falsos</summary>
+            <div id="fc-robo-av"></div>
+        </details>
+    </section>
+
     <div class="av-placar" id="fc-agregado" hidden></div>
 
     <div class="fc-grade">
@@ -81,7 +94,7 @@
         </section>
     </div>
 
-    <p class="av-rodape">NIMER lido a cada 3 min e SIM a cada minuto pelo robô da coordenação. Atualiza a cada 30 s. ICV do SIM = nossa leitura das saídas, não o número oficial. RE = como escalado no NIMER (não prova quem faltou).</p>
+    <p class="av-rodape">NIMER lido a cada 3 min e SIM a cada minuto pelo robô da coordenação. Atualiza a cada 30 s. ICV e IPP = só viagens cruzadas e confirmadas (NIMER × GPS); divergência fica em "A conferir". RE = como escalado no NIMER (não prova quem faltou).</p>
 </main>
 
 <script type="module" src="./assets/js/fiscalizacao-central.page.js"></script>

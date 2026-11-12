@@ -830,6 +830,26 @@ def baixa_alerta(payload: BaixaAlerta, usuario: Leitura, db: Annotated[Session, 
             "reabre_em": reabre.isoformat() if reabre else None}
 
 
+@router.get("/central/minhas-linhas",
+            summary="Central ao vivo: um cartão por linha de 'Minhas linhas' (ADMIN: todas), fila e robô")
+def central_minhas_linhas(usuario: LeituraPainel, db: Annotated[Session, Depends(get_db)]):
+    """T11 — só as linhas que o coordenador marcou em /fiscalizacao/minhas-linhas
+    (fiscalizacao.linha_coordenador). ⛔ Sem cadastro novo. ADMIN vê todas."""
+    from app.services import fiscalizacao_central as servico_central
+    from app.services.icv import _parametros
+
+    monitoradas = linhas_monitoradas(db)
+    if acesso.eh_admin(db, usuario.id):
+        linhas = list(monitoradas.values())
+    else:
+        minhas = set(acesso.linhas_do_coordenador(db, usuario.id))
+        linhas = [linha for codigo, linha in monitoradas.items() if codigo in minhas]
+    data_servico = data_servico_de()
+    chave = ("minhas", data_servico, tuple(sorted(linha.codigo for linha in linhas)))
+    return servico_central.com_cache(
+        chave, lambda: servico_central.montar_minhas_linhas(db, linhas, data_servico, _parametros(db)))
+
+
 class AcaoAlerta(BaseModel):
     chave: str = Field(..., min_length=3, max_length=160)
     linha_codigo: str
