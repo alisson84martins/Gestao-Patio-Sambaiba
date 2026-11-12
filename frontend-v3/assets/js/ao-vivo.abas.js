@@ -1,6 +1,7 @@
 /*
- * ao-vivo.abas.js — fase 2 (NIMER + SIM): placar, saúde dos robôs e as abas
- * Partidas · Alertas · Fechamento da tela ao vivo.
+ * ao-vivo.abas.js — fase 2 (NIMER + SIM): as abas Partidas · Alertas ·
+ * Fechamento da tela ao vivo. (Fase 3: o placar e a saúde dos robôs viraram
+ * a linha de números e o bloco "Robô" do topo — ao-vivo.fiscal.js.)
  * -------------------------------------------------------------------------------
  * Rotas:
  *   GET  /monitoramento/linhas/{linha}/tempo-real      (a cada 30 s, junto com o mapa)
@@ -45,10 +46,6 @@ function minutosDesde(iso) {
     return iso ? (Date.now() - new Date(iso).getTime()) / 60000 : Infinity;
 }
 
-function pct(v) {
-    return v == null ? '—' : `${v.toLocaleString('pt-BR', { maximumFractionDigits: 1 })}%`;
-}
-
 function podeCorrigir() {
     const codigo = dados?.linha?.codigo || linha;   // código canônico (o da URL pode vir "1726")
     return podeEscrever('fiscalizacao') && turnoAtivo && (turnoAtivo.linhas || []).includes(codigo);
@@ -56,7 +53,7 @@ function podeCorrigir() {
 
 // ─── Saúde dos robôs (SIM e NIMER separados) ────────────────────────────
 
-function faixaRobo(nome, ultimaOk, statusUltimo, limites, chave) {
+export function faixaRobo(nome, ultimaOk, statusUltimo, limites = { aviso: AVISO_MIN, erro: ERRO_MIN }, chave = 'sim') {
     const m = minutosDesde(ultimaOk);
     let classe = 'av-status-ok';
     let texto = `✅ ${nome} às ${hora(ultimaOk)}`;
@@ -73,41 +70,8 @@ function faixaRobo(nome, ultimaOk, statusUltimo, limites, chave) {
     return `<span class="av-robo ${classe}">${escapeHtml(texto)}</span>`;
 }
 
-function renderSaude() {
-    const el = document.getElementById('av-saude');
-    if (!dados) return;
-    const s = dados.saude || {};
-    const limites = { aviso: AVISO_MIN, erro: ERRO_MIN };
-    const partes = [faixaRobo('SIM', s.sim_ultima_ok_em, null, limites, 'sim')];
-    if (dados.linha.tem_nimer) partes.push(faixaRobo('NIMER', s.nimer_ultima_ok_em, s.nimer_status, limites, 'nimer'));
-    else partes.push('<span class="av-robo av-status-aviso">NIMER — linha sem LineId cadastrado</span>');
-    el.innerHTML = partes.join('');
-    el.hidden = false;
-}
-
-// ─── Placar do topo ─────────────────────────────────────────────────────
-
-function renderPlacar() {
-    const el = document.getElementById('av-placar');
-    if (!dados) return;
-    // v4.0 fase 3 (T3): só o número CRUZADO E CONFIRMADO (NIMER × GPS). O
-    // "ICV SIM"/"IPP SIM" do robô saiu da tela — divergência vai para "A conferir".
-    const { icv, ipp, totais } = dados;
-    const real = dados.real?.total || {};
-    const tol = ipp.tolerancia_min ?? 3;
-    const blocos = [
-        ['ICV', pct(icv.real_ate_agora), `${real.realizadas ?? '—'} de ${real.programadas_ate_agora ?? '—'} confirmadas até agora`],
-        ['IPP', pct(ipp.real_ate_agora), `${real.pontuais ?? '—'} pontuais (±${tol} min; HH:00 sem adiantar)`],
-        ['Perdidas', String(real.perdidas ?? '—'), 'até agora'],
-        ['A conferir', String(real.a_conferir ?? 0), 'NIMER e GPS não batem'],
-        ['NIMER', pct(icv.nimer_ate_agora), `conferência: ${totais.realizadas_nimer_ate_agora} pelo NIMER`],
-    ];
-    el.innerHTML = blocos.map(([t, v, s]) => `<div class="av-placar-item">
-        <span class="av-placar-titulo">${escapeHtml(t)}</span>
-        <b class="av-placar-valor">${escapeHtml(v)}</b>
-        <small>${escapeHtml(s)}</small></div>`).join('');
-    el.hidden = false;
-}
+// renderSaude/renderPlacar saíram na fase 3 (v4.0): a linha de números e o
+// bloco "Robô" do topo da tela moram em ao-vivo.fiscal.js.
 
 // ─── Partidas ───────────────────────────────────────────────────────────
 
@@ -276,6 +240,14 @@ function trocarAba(aba) {
     aoMudarAba(aba);
 }
 
+/** Abre a aba Partidas com o formulário de correção da viagem `id` (A conferir, fase 3). */
+export function abrirCorrecao(id) {
+    corrigindo = Number(id);
+    trocarAba('partidas');
+    renderPartidas();
+    document.querySelector(`[data-viagem="${corrigindo}"]`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+}
+
 export function iniciarAbas(opcoes) {
     linha = opcoes.linha;
     aoMudarAba = opcoes.aoMudarAba || aoMudarAba;
@@ -357,8 +329,6 @@ export async function atualizarTempoReal() {
         document.getElementById('av-partidas').innerHTML = `<div class="av-vazio">${escapeHtml(err.message)}</div>`;
         return;
     }
-    renderSaude();
-    renderPlacar();
     if (corrigindo === null) renderPartidas();   // não apaga o formulário no meio da digitação
     renderAlertasOperacionais();
 }

@@ -530,6 +530,10 @@ def _linha_autorizada(db: Session, usuario: Funcionario, linha_codigo: str) -> L
     """Bloco H — a regra de quem vê qual linha mora AQUI, no backend:
     fiscal só as do turno aberto (sem turno → 403), coordenação as que
     coordena, ADMIN todas. Ver app/services/monitoramento_acesso.py."""
+    return _linha_e_escopo(db, usuario, linha_codigo)[0]
+
+
+def _linha_e_escopo(db: Session, usuario: Funcionario, linha_codigo: str) -> tuple[LinhaMonitorada, dict]:
     esc = acesso.escopo(db, usuario.id)
     if esc["tipo"] == "sem_turno":
         raise HTTPException(status.HTTP_403_FORBIDDEN, acesso.MSG_SEM_TURNO)
@@ -538,7 +542,7 @@ def _linha_autorizada(db: Session, usuario: Funcionario, linha_codigo: str) -> L
         mensagem = (acesso.MSG_FORA_DO_TURNO if esc["tipo"] in ("turno", "previsto")
                     else acesso.MSG_FORA_DA_COORDENACAO)
         raise HTTPException(status.HTTP_403_FORBIDDEN, mensagem)
-    return linha
+    return linha, esc
 
 
 @router.get("/linhas", summary="Linhas monitoradas ao vivo")
@@ -591,6 +595,19 @@ def tempo_real_linha(
     # Alertas só fazem sentido no dia de serviço corrente (são "agora").
     saida["alertas"] = alertas_op.montar_alertas(db, linha, resultado) if data_servico == data_servico_de() else []
     return saida
+
+
+@router.get("/linhas/{linha_codigo}/fiscal-ao-vivo",
+            summary="Tela do fiscal ao vivo: cabeçalho, números reais, alertas abertos, saindo, chegando e robô")
+def fiscal_ao_vivo_linha(
+    linha_codigo: str,
+    usuario: Leitura,
+    db: Annotated[Session, Depends(get_db)],
+    terminal: Optional[Literal["TP", "TS"]] = Query(None, description="terminal do fiscal (padrão: o do turno)"),
+):
+    from app.services import fiscal_ao_vivo
+    linha, esc = _linha_e_escopo(db, usuario, linha_codigo)
+    return fiscal_ao_vivo.montar(db, linha, esc, terminal)
 
 
 # ─── Correção pelo fiscal (bloco G) ──────────────────────────────────────────

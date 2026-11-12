@@ -5,9 +5,11 @@
  * backend a cada minuto; esta tela mostra a linha para o fiscal em campo e
  * para a coordenação, no celular. Abre com ?linha=1726-10.
  *
- * Fase 2: as abas Partidas · Alertas · Fechamento, o placar e a saúde dos
- * robôs (SIM e NIMER) ficam em ao-vivo.abas.js. Quem vê qual linha é regra
- * do backend (fiscal: só as do turno aberto).
+ * Fase 2: as abas Partidas · Alertas · Fechamento ficam em ao-vivo.abas.js.
+ * Fase 3 (v4.0): o topo do fiscal — cabeçalho, caixinha de alertas, números
+ * reais, Saindo daqui / Chegando aqui e o bloco Robô — em ao-vivo.fiscal.js
+ * (?terminal=TP|TS opcional; padrão: o do turno). Quem vê qual linha é regra
+ * do backend (fiscal: só as do turno aberto, ou "previsto" pelo NIMER).
  *
  * Rotas: GET /monitoramento/linhas/{linha}/tracado (uma vez),
  * /monitoramento/linhas/{linha}/ao-vivo (a cada 30 s, pausado com a aba
@@ -27,6 +29,7 @@ import { apiGet, ApiError } from './api.js';
 import { podeLer } from './sessao.js';
 import { escapeHtml } from './escape.js';
 import { atualizarTempoReal, iniciarAbas } from './ao-vivo.abas.js';
+import { atualizarFiscal, iniciarFiscal } from './ao-vivo.fiscal.js';
 
 if (!requireAuth()) throw new Error('Não autenticado');
 
@@ -47,6 +50,7 @@ const parametros = new URLSearchParams(location.search);
 // Sem ?linha (o fiscal chega aqui direto do login): a 1ª linha que o
 // backend deixa ver — a do turno, aberto sozinho pela foto do NIMER.
 let linhaCodigo = (parametros.get('linha') || '').trim();
+const terminalFiscal = (parametros.get('terminal') || '').trim().toUpperCase();
 
 let mapa = null;
 let tracado = null;
@@ -313,6 +317,7 @@ function renderLista() {
 // ─── Ciclo ──────────────────────────────────────────────────────────────
 
 async function atualizar() {
+    atualizarFiscal();      // fase 3: topo do fiscal (números reais, saindo, chegando, alertas)
     atualizarTempoReal();   // fase 2: partidas, ICV e alertas (em paralelo com o mapa)
     try {
         dados = await apiGet(`/monitoramento/linhas/${encodeURIComponent(linhaCodigo)}/ao-vivo`);
@@ -393,6 +398,7 @@ async function iniciar() {
     if (s2) document.getElementById('av-leg-s2').textContent = `TS → TP (${s2.destino_nome})`;
     desenharTracado();
     iniciarAbas({ linha: linhaCodigo, aoMudarAba: (aba) => { if (aba === 'mapa') mapa.invalidateSize(); } });
+    iniciarFiscal({ linha: linhaCodigo, terminal: ['TP', 'TS'].includes(terminalFiscal) ? terminalFiscal : '' });
     if (!tracado.tem_mapa) {
         // Linha monitorada sem traçado (bloco C): só o que não depende do mapa.
         avisoFixo = 'Esta linha ainda não tem traçado: desvio, virada e parado fora do terminal estão desligados. Posição, sem transmissão e partidas funcionam.';

@@ -43,9 +43,37 @@
 <main class="av-main">
 
     <div class="av-status av-status-aviso" id="av-status" role="status" aria-live="polite">Carregando…</div>
-    <div class="av-saude" id="av-saude" hidden></div>
     <div class="av-erro" id="av-erro" hidden></div>
-    <div class="av-placar" id="av-placar" hidden></div>
+
+    <!-- v4.0 fase 3 (bloco E): a tela do fiscal — ao-vivo.fiscal.js -->
+    <section class="fv" id="fv" hidden>
+        <nav class="fv-linhas" id="fv-linhas" role="tablist" aria-label="Linhas do ponto" hidden></nav>
+        <div class="fv-cab">
+            <div class="fv-cab-texto">
+                <div class="fv-titulo" id="fv-titulo">—</div>
+                <div class="fv-sub"><span id="fv-fiscal"></span> <span class="fv-selo" id="fv-selo" hidden></span></div>
+            </div>
+            <button type="button" class="fv-caixinha fv-caixinha-zero" id="fv-caixinha" aria-expanded="false"
+                    aria-controls="fv-alertas">🔔 <span id="fv-n-alertas">0</span></button>
+        </div>
+        <div class="fv-previsto" id="fv-previsto" hidden></div>
+        <div class="fv-alertas" id="fv-alertas" hidden></div>
+        <div class="fv-numeros" id="fv-numeros"></div>
+        <div class="fv-conferir" id="fv-conferir" hidden></div>
+        <section class="fv-secao">
+            <h2 class="av-secao-titulo" id="fv-saindo-titulo">Saindo daqui</h2>
+            <div id="fv-saindo"></div>
+        </section>
+        <section class="fv-secao">
+            <h2 class="av-secao-titulo" id="fv-chegando-titulo">Chegando aqui</h2>
+            <div id="fv-chegando"></div>
+        </section>
+        <details class="fv-robo">
+            <summary>Robô — saúde da coleta</summary>
+            <div class="av-saude" id="fv-robo-corpo"></div>
+        </details>
+        <a class="av-entrada fv-fechar-turno" href="fiscal.html">📋 Fechamento do turno</a>
+    </section>
 
     <nav class="av-abas" role="tablist" aria-label="Partes da tela">
         <button type="button" role="tab" class="av-aba-ativa" aria-selected="true" data-aba="mapa">Mapa</button>
