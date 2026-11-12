@@ -24,6 +24,11 @@
 --     leitura_veiculo.fonte — leitura | rastro (nullable).
 --     rastro_coleta         — cada envio do Rastro (carro + janela).
 --
+--   Bloco D — baixa do alerta pelo fiscal ou pela coordenação (Alarme falso ·
+--   Atitude tomada · Contatei CCO/coordenação); volta a piscar em 15 min se
+--   a condição continuar.
+--     alerta_tratativa.motivo / perfil / reabre_em (nullable).
+--
 --   Dado pessoal: nimer_fiscal_escala guarda o RE do fiscal como escalado no
 --   NIMER (mesmo nível de turno.fiscal_re). Sem nome. Semente sem dado pessoal.
 --
@@ -132,6 +137,30 @@ COMMENT ON TABLE monitoramento.rastro_coleta IS
 
 CREATE INDEX IF NOT EXISTS idx_rastro_coleta_prefixo
     ON monitoramento.rastro_coleta (prefixo, ate);
+
+-- ─── Bloco D · Baixa do alerta (T4) ─────────────────────────────────────────
+ALTER TABLE monitoramento.alerta_tratativa ADD COLUMN IF NOT EXISTS motivo VARCHAR(20);
+ALTER TABLE monitoramento.alerta_tratativa ADD COLUMN IF NOT EXISTS perfil VARCHAR(12);
+ALTER TABLE monitoramento.alerta_tratativa ADD COLUMN IF NOT EXISTS reabre_em TIMESTAMPTZ;
+
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'ck_alerta_tratativa_motivo') THEN
+        ALTER TABLE monitoramento.alerta_tratativa ADD CONSTRAINT ck_alerta_tratativa_motivo
+            CHECK (motivo IS NULL OR motivo IN ('alarme_falso', 'atitude_tomada', 'contatou_cco'));
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'ck_alerta_tratativa_perfil') THEN
+        ALTER TABLE monitoramento.alerta_tratativa ADD CONSTRAINT ck_alerta_tratativa_perfil
+            CHECK (perfil IS NULL OR perfil IN ('fiscal', 'coordenacao'));
+    END IF;
+END $$;
+
+COMMENT ON COLUMN monitoramento.alerta_tratativa.motivo IS
+    'Baixa do alerta (T4): alarme_falso | atitude_tomada | contatou_cco. NULL = "resolvido" da Central (fase 2), não reabre.';
+COMMENT ON COLUMN monitoramento.alerta_tratativa.perfil IS
+    'Quem deu a baixa: fiscal | coordenacao.';
+COMMENT ON COLUMN monitoramento.alerta_tratativa.reabre_em IS
+    'Instante (UTC, carimbado pelo sistema) em que o alerta volta a piscar se a mesma chave continuar ativa: baixa + 15 min. NULL em alarme_falso (não volta).';
 
 -- 🔴 Tabelas novas nascem sem permissão para o papel da aplicação
 -- (armadilha_migration_sem_grant).

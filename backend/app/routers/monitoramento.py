@@ -766,6 +766,53 @@ def central(
     return servico_central.com_cache(chave, fabricar)
 
 
+# ─── Baixa do alerta (v4.0 fase 3, T4) ──────────────────────────────────────
+
+class BaixaAlerta(BaseModel):
+    linha_codigo: str
+    chave: str = Field(..., min_length=3, max_length=160)
+    motivo: Literal["alarme_falso", "atitude_tomada", "contatou_cco"]
+
+
+def _perfil_da_baixa(db: Session, usuario: Funcionario, linha: LinhaMonitorada) -> str:
+    """coordenação (ADMIN ou escrita em fiscalizacao_painel) ou o fiscal com a
+    linha no turno ABERTO (o `previsto`, sem foto no NIMER, só lê)."""
+    if acesso.eh_admin(db, usuario.id) or acesso.tem_acesso(db, usuario.id, "fiscalizacao_painel", escrever=True):
+        return "coordenacao"
+    esc = acesso.escopo(db, usuario.id)
+    if esc["tipo"] != "turno":
+        raise HTTPException(status.HTTP_403_FORBIDDEN, acesso.MSG_SEM_TURNO)
+    if linha.codigo not in (esc["linhas"] or []):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, acesso.MSG_FORA_DO_TURNO)
+    if not acesso.tem_acesso(db, usuario.id, "fiscalizacao", escrever=True):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Sem permissão para dar baixa em alerta")
+    return "fiscal"
+
+
+@router.post("/alertas/baixa", summary="Baixa de alerta: alarme falso · atitude tomada · contatei CCO/coordenação")
+def baixa_alerta(payload: BaixaAlerta, usuario: Leitura, db: Annotated[Session, Depends(get_db)]):
+    from app.services import fiscalizacao_central as servico_central
+    linha = _linha_ou_404(db, payload.linha_codigo)
+    perfil = _perfil_da_baixa(db, usuario, linha)
+    agora = datetime.now(timezone.utc)
+    data_servico = data_servico_de(agora)
+    reabre = None if payload.motivo == "alarme_falso" else agora + alertas_op.REABRE_EM
+    existente = db.execute(select(AlertaTratativa).where(
+        AlertaTratativa.data_servico == data_servico, AlertaTratativa.chave == payload.chave)).scalar_one_or_none()
+    if existente is None:
+        db.add(AlertaTratativa(data_servico=data_servico, linha_codigo=linha.codigo, chave=payload.chave,
+                               autor_funcionario_id=usuario.id, criado_em=agora, motivo=payload.motivo,
+                               perfil=perfil, reabre_em=reabre))
+    else:
+        # Uma linha por (dia, chave): a baixa nova (do alerta que voltou) substitui a anterior.
+        existente.motivo, existente.perfil, existente.reabre_em = payload.motivo, perfil, reabre
+        existente.autor_funcionario_id, existente.criado_em = usuario.id, agora
+    db.commit()
+    servico_central.limpar_cache()
+    return {"chave": payload.chave, "motivo": payload.motivo, "perfil": perfil,
+            "reabre_em": reabre.isoformat() if reabre else None}
+
+
 class AcaoAlerta(BaseModel):
     chave: str = Field(..., min_length=3, max_length=160)
     linha_codigo: str

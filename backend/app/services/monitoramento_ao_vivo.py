@@ -121,6 +121,10 @@ def _evento_saida(prefixo: str, e: dict, linha: LinhaMonitorada) -> dict:
         "ativo": bool(e["ativo"]),
         "inicio_em": _iso_ms(e["inicio"]),
         "texto": regras.texto_evento(e, linha),
+        # fase 3: o desvio rumo à G3 com o carro no meio da tabela vira "indo_garagem"
+        "rumo_g3": bool(e.get("rumoG3")),
+        "local": e.get("locAtual") or e.get("loc"),
+        "sentido": e.get("s"),
     }
 
 

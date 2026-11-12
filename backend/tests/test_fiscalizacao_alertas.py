@@ -83,7 +83,7 @@ def test_carro_da_tabela_rodando_em_outra_linha_monitorada():
     viagens = [viagem("032120", 1, 100, "missing", carro="2742"), viagem("032120", 2, 160, "future", carro="2742")]
     na_outra = [dict(r, linha=outra) for r in viagem_sim("2742", 1, 95)]
     (a,) = [x for x in _alertas(viagens, [], agora_min=120, outras=na_outra) if x["tipo"] == "carro_trocado_linha"]
-    assert outra in a["texto"] and a["tabela"] == "032120" and a["carro"] == "2742"
+    assert "Carro configurado em outra linha (8012)" in a["texto"] and a["tabela"] == "032120" and a["carro"] == "2742"
     # e na outra linha (sem esse carro escalado) não aparece nada
     linha_b = linha_do_json(outra, None)
     assert _alertas([], na_outra, agora_min=120, linha=linha_b) == []
@@ -195,7 +195,7 @@ def test_endpoint_detecta_carro_trocado_entre_duas_linhas_monitoradas(monkeypatc
     finally:
         app.dependency_overrides.pop(get_db, None)
         app.dependency_overrides.pop(checker, None)
-    assert [x["tipo"] for x in a] == ["carro_trocado_linha"] and "8012-10" in a[0]["texto"]
+    assert [x["tipo"] for x in a] == ["carro_trocado_linha"] and "outra linha (8012)" in a[0]["texto"]
     assert b == []
 
 
@@ -216,12 +216,13 @@ def test_fora_do_horario_cheio_nao_avisa_para_segurar():
 
 
 def test_saiu_adiantado_no_horario_cheio():
+    # fase 3 (T6): o antigo saiu_adiantado virou o tipo geral saida_adiantada
     viagens = [viagem("032104", 1, 60, "done", carro="2412", real_min=58)]                # 09:58 no lugar de 10:00
-    (a,) = [x for x in _alertas(viagens, [], agora_min=70) if x["tipo"] == "saiu_adiantado"]
+    (a,) = [x for x in _alertas(viagens, [], agora_min=70) if x["tipo"] == "saida_adiantada"]
     assert a["nivel"] == "alerta" and "às 09:58" in a["texto"] and "faixa 10h" in a["texto"]
-    assert "saiu_adiantado" not in _tipos(_alertas(viagens, [], agora_min=95))           # passou a janela de 30 min
+    assert "saida_adiantada" not in _tipos(_alertas(viagens, [], agora_min=95))          # passou a janela de 30 min
 
 
 def test_saida_na_hora_cheia_nao_e_adiantada():
     viagens = [viagem("032104", 1, 60, "done", carro="2412", real_min=61)]
-    assert "saiu_adiantado" not in _tipos(_alertas(viagens, [], agora_min=70))
+    assert "saida_adiantada" not in _tipos(_alertas(viagens, [], agora_min=70))

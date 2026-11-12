@@ -195,6 +195,10 @@ class AlertaTratativa(Base):
         PG_UUID(as_uuid=True), ForeignKey("funcionario.id"), nullable=False
     )
     criado_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    # 056 — baixa do alerta (T4). NULL = "resolvido" antigo da Central (não reabre).
+    motivo: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
+    perfil: Mapped[Optional[str]] = mapped_column(String(12), nullable=True)
+    reabre_em: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class VelocidadeTrecho(Base):

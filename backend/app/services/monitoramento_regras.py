@@ -35,6 +35,7 @@ PARADO_MIN = 8          # min parado fora de terminal/garagem
 PARADO_RAIO = 50        # m — considera "parado" se não saiu desse raio
 SEM_TX_MIN = 5          # min sem posição nova
 RETORNO_M = 800         # m — andou para trás no itinerário antes do terminal
+RUMO_G3_M = 300         # m — fora da rota e já 300 m mais perto da G3 (T5, fase 3)
 
 ZONAS_TERMINAL = ("TP", "TS")
 
@@ -169,6 +170,10 @@ def analisar_carro(prefixo: str, leituras: list[dict], linha: LinhaMonitorada, a
     fora: list[dict] = []
     desvio_atual: Optional[dict] = None
     seg: Optional[dict] = None  # trecho num mesmo sentido
+    # T5 (v4.0 fase 3): terminais tocados desde a última saída da G3 e a
+    # distância da G3 na última leitura DENTRO (rota/terminal).
+    passou: set[str] = set()
+    dgar_dentro: Optional[float] = None
 
     for r in L:
         if not linha.tem_mapa:
@@ -176,13 +181,29 @@ def analisar_carro(prefixo: str, leituras: list[dict], linha: LinhaMonitorada, a
             break
         z = r["_z"]
         if z == "garagem":
-            # saiu da rota e chegou na G3: era recolhida, não desvio
+            # saiu da rota e chegou na G3: era recolhida, não desvio — e todo
+            # desvio ativo do carro sai da caixinha (fica no histórico).
             if desvio_atual:
                 desvio_atual["tipo"] = "recolhida"
                 desvio_atual["ativo"] = False
             em_deslocamento = True
+            passou = set()
         if z in ZONAS_TERMINAL:
             em_deslocamento = False
+            passou.add(z)
+        if z != "fora":
+            dgar_dentro = r["_dGar"]
+
+        # T5 — INDO PARA A GARAGEM: já tocou o TP E o TS desde a última saída
+        # da G3 e, fora da rota, está chegando perto da G3 → fim de serviço,
+        # não "fora do itinerário" (decisão do Alisson, 12/11/2026).
+        if (z == "fora" and not em_deslocamento and passou >= set(ZONAS_TERMINAL) and dgar_dentro is not None
+                and dgar_dentro - r["_dGar"] > RUMO_G3_M):
+            if desvio_atual in ev:
+                ev.remove(desvio_atual)
+            desvio_atual = None
+            fora = []
+            em_deslocamento = True
 
         # 1) DESVIO de itinerário (fora da faixa N leituras seguidas)
         if z == "fora" and not em_deslocamento:
@@ -190,7 +211,7 @@ def analisar_carro(prefixo: str, leituras: list[dict], linha: LinhaMonitorada, a
             if len(fora) == LEITURAS_DESVIO:
                 desvio_atual = {
                     "tipo": "desvio", "inicio": fora[0]["t"], "fim": r["t"], "maxD": 0.0, "ativo": True,
-                    "loc": fora[0].get("loc"), "dGar0": fora[0]["_dGar"],
+                    "loc": fora[0].get("loc"), "dGar0": fora[0]["_dGar"], "s": r["s"],
                 }
                 ev.append(desvio_atual)
             if desvio_atual:

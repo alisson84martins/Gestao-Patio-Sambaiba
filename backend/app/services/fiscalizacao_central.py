@@ -94,6 +94,11 @@ def tratativas(db: Session, data_servico: date) -> dict[str, AlertaTratativa]:
         select(AlertaTratativa).where(AlertaTratativa.data_servico == data_servico)).scalars()}
 
 
+def alarmes_falsos(tratadas) -> list[dict]:
+    contagem = Counter(t.chave.split("|")[0] for t in tratadas if getattr(t, "motivo", None) == "alarme_falso")
+    return [{"tipo": tipo, "quantidade": n} for tipo, n in sorted(contagem.items(), key=lambda x: (-x[1], x[0]))]
+
+
 def montar_central(db: Session, linhas_obj: list, data_servico: date, parametros: dict,
                    correcoes: list[dict], agora: Optional[datetime] = None) -> dict:
     agora = agora or datetime.now(timezone.utc)
@@ -135,10 +140,11 @@ def montar_central(db: Session, linhas_obj: list, data_servico: date, parametros
     # D23: por perda absoluta, nunca por percentual
     placar.sort(key=lambda p: (p["perda_absoluta"] is None, -(p["perda_absoluta"] or 0), p["linha_codigo"]))
     tratadas = tratativas(db, data_servico)
-    fila = alertas_op.ordenar(fila)
+    fila = alertas_op.aplicar_baixas(alertas_op.ordenar(fila), tratadas, agora)
     for a in fila:
         t = tratadas.get(a["chave"])
-        a["resolvido"] = t is not None
+        # "resolvido" = com baixa e sem ter voltado a piscar (T4, fase 3)
+        a["resolvido"] = t is not None and not a["reaberto"]
         a["resolvido_em"] = tempo_real.hora_local(tempo_real._utc(t.criado_em)) if t else None
     fila.sort(key=lambda a: a["resolvido"])  # resolvidos no fim, ordem de urgência mantida
     agregado = tempo_real.agregar(resultados) if resultados else None
@@ -157,6 +163,8 @@ def montar_central(db: Session, linhas_obj: list, data_servico: date, parametros
         "cobertura": cobertura(db, [linha.codigo for linha in linhas_obj]),
         "correcoes": correcoes,
         "saude": saude,
+        # T4: alarme falso por tipo de alerta — serve para calibrar as regras
+        "alarmes_falsos": alarmes_falsos(tratadas.values()),
         "icv_sim_rotulo": "ICV do SIM = nossa leitura das saídas no SIM, não o número oficial",
     }
 
