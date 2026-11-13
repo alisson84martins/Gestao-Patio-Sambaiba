@@ -87,8 +87,10 @@ def test_local_casa_pelo_comeco_normalizado():
     eng = criar_engine()
     with Session(eng) as db:
         pontos = fiscais.pontos_do_local(db, "  Metrô   SANTANA 178t/10 - 1726/10")
-        assert ("1726-10", "TS") in pontos and ("178T-10", "TS") in pontos and len(pontos) == 5
-        assert fiscais.pontos_do_local(db, "Cem. Parque dos Pinheiros - 1726/10") == [("1726-10", "TP")]
+        assert ("1726-10", "TS") in pontos and ("178T-10", "TP") in pontos and len(pontos) == 7
+        # texto como o NIMER escreve (ajustes de 12/11 noite)
+        assert fiscais.pontos_do_local(db, "Cem. Parque Dos Pinheiros 1726/10 - 1773/10") == [
+            ("1726-10", "TP"), ("1773-10", "TP")]
         assert fiscais.pontos_do_local(db, "Lugar que não existe") == []
     assert fiscais.nome_do_local(LOCAL) == "metro santana"
 
@@ -118,13 +120,13 @@ def test_com_batida_de_inicio_abre_o_turno_nimer_com_as_linhas_do_ponto(eng):
         _escala(db, inicio=(14, 13))
         esc = acesso.escopo(db, FISCAL.id, agora=sp(14, 20))
         assert esc["tipo"] == "turno"
-        assert esc["linhas"] == ["1726-10", "1764-10", "1783-10", "178T-10", "2025-10"]
+        assert esc["linhas"] == ["1726-10", "1764-10", "177H-10", "1783-10", "178A-10", "178T-10", "2025-10"]
         turno = esc["turno"]
         assert turno.origem == "NIMER" and turno.terminal == "TS" and turno.periodo == "2"
         assert turno.data_referencia == DIA and turno.fiscal_re == "96867"
     with Session(eng) as db:  # gravado de verdade; a 2ª consulta reaproveita o mesmo turno
         assert len(db.execute(select(Turno)).scalars().all()) == 1
-        assert len(db.execute(select(TurnoLinha)).scalars().all()) == 5
+        assert len(db.execute(select(TurnoLinha)).scalars().all()) == 7
         assert acesso.escopo(db, FISCAL.id, agora=sp(14, 30))["turno"].id == turno.id
         assert len(db.execute(select(Turno)).scalars().all()) == 1
 

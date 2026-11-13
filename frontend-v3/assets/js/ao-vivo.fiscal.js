@@ -53,11 +53,17 @@ function chip(carro, sentido) {
 
 // ─── 1. Cabeçalho ───────────────────────────────────────────────────────
 
+/** Cada aba com o terminal DA SUA linha (o mesmo ponto é TP de uma linha e TS de outra). */
+function linkTerminal(c, l) {
+    const t = c.terminais_do_ponto?.[l];
+    return t ? `&terminal=${encodeURIComponent(t)}` : '';
+}
+
 function renderCabecalho() {
     const c = dados.cabecalho;
     const abas = c.linhas_do_ponto.length > 1
         ? c.linhas_do_ponto.map((l) => `<a role="tab" aria-selected="${l === c.linha}" class="fv-aba-linha${l === c.linha ? ' fv-aba-linha-ativa' : ''}"
-            href="ao-vivo.html?linha=${encodeURIComponent(l)}&terminal=${encodeURIComponent(c.terminal)}">${escapeHtml(l)}</a>`).join('')
+            href="ao-vivo.html?linha=${encodeURIComponent(l)}${linkTerminal(c, l)}">${escapeHtml(l)}</a>`).join('')
         : '';
     $('fv-linhas').innerHTML = abas;
     $('fv-linhas').hidden = !abas;

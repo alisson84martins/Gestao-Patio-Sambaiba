@@ -90,15 +90,19 @@ CREATE TABLE IF NOT EXISTS monitoramento.ponto_nimer (
 COMMENT ON TABLE monitoramento.ponto_nimer IS
     'Local da escala de fiscais do NIMER → linha e terminal do ponto. local_texto é o COMEÇO do Local, normalizado (minúsculo, sem acento, espaços únicos); vale o mais longo que casar.';
 
--- Semente (12/11/2026). ⚠️ Terminais de 178T-10, 1764-10, 2025-10 e 1783-10
--- no Metrô Santana: TS provisório — a confirmar com o Alisson.
+-- Semente (decisão do Alisson, 12/11/2026 noite). O mesmo ponto pode ser TP
+-- para uma linha e TS para outra (Metrô Santana): o terminal é do par
+-- local × linha, não do ponto.
 INSERT INTO monitoramento.ponto_nimer (local_texto, linha_codigo, terminal) VALUES
     ('metro santana', '1726-10', 'TS'),
-    ('metro santana', '178T-10', 'TS'),
     ('metro santana', '1764-10', 'TS'),
     ('metro santana', '2025-10', 'TS'),
     ('metro santana', '1783-10', 'TS'),
-    ('cem. parque dos pinheiros', '1726-10', 'TP')
+    ('metro santana', '178T-10', 'TP'),
+    ('metro santana', '177H-10', 'TP'),
+    ('metro santana', '178A-10', 'TP'),
+    ('cem. parque dos pinheiros', '1726-10', 'TP'),
+    ('cem. parque dos pinheiros', '1773-10', 'TP')
 ON CONFLICT (local_texto, linha_codigo) DO NOTHING;
 
 -- ─── Bloco A · Origem do turno ──────────────────────────────────────────────

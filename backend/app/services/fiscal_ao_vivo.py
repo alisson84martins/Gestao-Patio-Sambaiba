@@ -159,17 +159,41 @@ def _sentido_que_sai(linha, terminal: str) -> Optional[int]:
     return None
 
 
-def _terminal_padrao(db: Session, linha, esc: dict) -> str:
+def _local_do_turno(db: Session, turno) -> Optional[str]:
+    """Local da escala do NIMER que cobre o turno (None = turno sem batida no NIMER)."""
+    from app.services.monitoramento_fiscais import escala_do_turno
+    escala = escala_do_turno(db, turno)
+    return escala.local_texto if escala is not None else None
+
+
+def terminal_da_linha(db: Session, local_texto: Optional[str], linha_codigo: str) -> Optional[str]:
+    """Terminal do PAR (local do fiscal, linha) em monitoramento.ponto_nimer — o
+    mesmo ponto pode ser TP de uma linha e TS de outra (Metrô Santana)."""
+    from app.services.monitoramento_fiscais import pontos_do_local
+    if not local_texto:
+        return None
+    return next((t for codigo, t in pontos_do_local(db, local_texto) if codigo == linha_codigo), None)
+
+
+def _terminal_padrao(db: Session, linha_codigo: str, esc: dict) -> str:
+    """Ajustes de 12/11 noite: o terminal é por LINHA. Ordem: par (local, linha)
+    do ponto_nimer → turno.terminal → "TP". `turno.terminal` continua gravado
+    como está (o fechamento usa)."""
     from app.models.fiscalizacao import Turno, TurnoLinha
-    if esc.get("turno") is not None:
-        return esc["turno"].terminal
+    turno = esc.get("turno")
+    if turno is not None:
+        return terminal_da_linha(db, _local_do_turno(db, turno), linha_codigo) or turno.terminal
     if esc.get("previsto"):
-        return esc["previsto"]["terminal"]
+        p = esc["previsto"]
+        return terminal_da_linha(db, p.get("local"), linha_codigo) or p["terminal"]
+    # Coordenação: o terminal do fiscal com turno aberto nesta linha.
     aberto = db.execute(
-        select(Turno.terminal).join(TurnoLinha, TurnoLinha.turno_id == Turno.id)
-        .where(Turno.status == "ABERTO", TurnoLinha.linha_codigo == linha.codigo).limit(1)
-    ).scalar_one_or_none()
-    return aberto or "TP"
+        select(Turno).join(TurnoLinha, TurnoLinha.turno_id == Turno.id)
+        .where(Turno.status == "ABERTO", TurnoLinha.linha_codigo == linha_codigo).limit(1)
+    ).scalars().first()
+    if aberto is not None:
+        return terminal_da_linha(db, _local_do_turno(db, aberto), linha_codigo) or aberto.terminal
+    return "TP"
 
 
 def _cabecalho(db: Session, linha, esc: dict, terminal: str, monitoradas: set[str]) -> dict:
@@ -190,10 +214,13 @@ def _cabecalho(db: Session, linha, esc: dict, terminal: str, monitoradas: set[st
         fiscal = {"re": p["re"], "periodo": None}
         selo = {"tipo": "previsto", "texto": "Previsto", "faixa": p["texto"]}
     linhas_ponto = [c for c in (esc.get("linhas") or [linha.codigo]) if c in monitoradas] or [linha.codigo]
+    # cada aba do seletor de linhas com o terminal DA SUA linha (ajustes 12/11 noite)
+    terminais_ponto = {codigo: terminal if codigo == linha.codigo else _terminal_padrao(db, codigo, esc)
+                       for codigo in linhas_ponto}
     return {
         "linha": linha.codigo, "nome": linha.nome, "terminal": terminal,
         "terminal_nome": linha.nomes_terminais.get(terminal, terminal), "fiscal": fiscal, "selo": selo,
-        "modo": esc["tipo"], "linhas_do_ponto": linhas_ponto,
+        "modo": esc["tipo"], "linhas_do_ponto": linhas_ponto, "terminais_do_ponto": terminais_ponto,
         "pode_corrigir": esc["tipo"] == "turno", "pode_baixar": esc["tipo"] in ("turno", "todas", "coordenador"),
         "tem_mapa": linha.tem_mapa, "tem_nimer": linha.nimer_line_id is not None,
     }
@@ -262,7 +289,7 @@ def montar(db: Session, linha, esc: dict, terminal: Optional[str], agora: Option
 
     agora = agora or datetime.now(timezone.utc)
     data_servico = data_servico_de(agora)
-    terminal = terminal if terminal in ("TP", "TS") else _terminal_padrao(db, linha, esc)
+    terminal = terminal if terminal in ("TP", "TS") else _terminal_padrao(db, linha.codigo, esc)
     resultado = tr.montar_linha_tempo_real(db, linha, data_servico, agora)
     vivo = ao_vivo.ao_vivo_com_cache(db, linha)
     carros = {c["prefixo_patio"]: c for c in vivo.get("carros", [])}

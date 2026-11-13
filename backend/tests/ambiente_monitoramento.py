@@ -71,11 +71,12 @@ def criar_engine(seed: bool = True):
             db.add(LinhaMonitoradaCadastro(linha_codigo="1726-10", nimer_line_id=33534, ativo=True))
             db.add(SimCodigoLinha(sim_codigo=1403, linha_codigo="1726-10", sentido=1))
             db.add(SimCodigoLinha(sim_codigo=34171, linha_codigo="1726-10", sentido=2))
-            # Semente da 056 (ponto_nimer)
-            for linha in ("1726-10", "178T-10", "1764-10", "2025-10", "1783-10"):
-                db.add(PontoNimer(local_texto="metro santana", linha_codigo=linha, terminal="TS", ativo=True))
-            db.add(PontoNimer(local_texto="cem. parque dos pinheiros", linha_codigo="1726-10", terminal="TP",
-                              ativo=True))
+            # Semente da 056 (ponto_nimer) — o terminal é do par local × linha
+            semente = [("metro santana", linha, "TS") for linha in ("1726-10", "1764-10", "2025-10", "1783-10")]
+            semente += [("metro santana", linha, "TP") for linha in ("178T-10", "177H-10", "178A-10")]
+            semente += [("cem. parque dos pinheiros", linha, "TP") for linha in ("1726-10", "1773-10")]
+            for local, linha, terminal in semente:
+                db.add(PontoNimer(local_texto=local, linha_codigo=linha, terminal=terminal, ativo=True))
             db.commit()
     return eng
 

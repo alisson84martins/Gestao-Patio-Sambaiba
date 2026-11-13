@@ -20,7 +20,7 @@ from app.core.database import get_db
 from app.main import app
 from app.models.cadastro import Funcionario
 from app.models.fiscalizacao import Turno, TurnoLinha
-from app.models.monitoramento import NimerFiscalEscala
+from app.models.monitoramento import LinhaMonitoradaCadastro, NimerFiscalEscala
 from app.routers import monitoramento as router_mod
 from app.services import fiscal_ao_vivo as fav
 from app.services import monitoramento_acesso as acesso
@@ -134,6 +134,9 @@ def cli(monkeypatch):
                   data_referencia=hoje, status="ABERTO", aberto_em=agora, origem="NIMER")
         db.add(t)
         db.add(TurnoLinha(id=uuid4(), turno_id=t.id, linha_codigo="1726-10"))
+        # Santana: TS para a 1726-10, TP para a 178T-10 (ajustes de 12/11 noite)
+        db.add(LinhaMonitoradaCadastro(linha_codigo="178T-10", ativo=True))
+        db.add(TurnoLinha(id=uuid4(), turno_id=t.id, linha_codigo="178T-10"))
         db.add(NimerFiscalEscala(data_servico=hoje, re=FISCAL.re, tabela="1", pegada_em=agora - timedelta(hours=1),
                                  local_texto=LOCAL, inicio_em=agora - timedelta(minutes=50)))
         db.add(NimerFiscalEscala(data_servico=hoje, re=PREVISTO.re, tabela="2", pegada_em=agora + timedelta(minutes=20),
@@ -188,3 +191,18 @@ def test_fiscal_sem_turno_403(cli):
 def test_terminal_pela_query(cli):
     j = cli.get(URL + "?terminal=TP").json()
     assert j["cabecalho"]["terminal"] == "TP" and j["saindo"]["sentido"] == 1
+
+
+def test_terminal_e_do_par_local_linha_e_nao_do_turno(cli):
+    """Turno NIMER no Metrô Santana (turno.terminal = TS, a maioria das linhas):
+    a 1726-10 sai como TS, mas a 178T-10 é TP nesse ponto — "Saindo daqui"
+    tem que mostrar o sentido certo de cada uma."""
+    assert cli.get(URL).json()["cabecalho"]["terminal"] == "TS"
+    j = cli.get("/monitoramento/linhas/178T-10/fiscal-ao-vivo").json()
+    assert j["cabecalho"]["terminal"] == "TP"
+    assert j["saindo"]["sentido"] == 1   # TP → TS parte do TP
+
+
+def test_abas_do_cabecalho_levam_o_terminal_de_cada_linha(cli):
+    cab = cli.get(URL).json()["cabecalho"]
+    assert cab["terminais_do_ponto"] == {"1726-10": "TS", "178T-10": "TP"}
