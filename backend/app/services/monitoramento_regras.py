@@ -36,6 +36,7 @@ PARADO_RAIO = 50        # m — considera "parado" se não saiu desse raio
 SEM_TX_MIN = 5          # min sem posição nova
 RETORNO_M = 800         # m — andou para trás no itinerário antes do terminal
 RUMO_G3_M = 300         # m — fora da rota e já 300 m mais perto da G3 (T5, fase 3)
+FIM_DE_VOLTA = "fim_de_volta"  # evento interno do T5 revisto: só os alertas da fiscalização usam
 
 ZONAS_TERMINAL = ("TP", "TS")
 
@@ -174,6 +175,7 @@ def analisar_carro(prefixo: str, leituras: list[dict], linha: LinhaMonitorada, a
     # distância da G3 na última leitura DENTRO (rota/terminal).
     passou: set[str] = set()
     dgar_dentro: Optional[float] = None
+    volta_atual: Optional[dict] = None  # evento "fim_de_volta" aberto (T5 revisto)
 
     for r in L:
         if not linha.tem_mapa:
@@ -186,24 +188,42 @@ def analisar_carro(prefixo: str, leituras: list[dict], linha: LinhaMonitorada, a
             if desvio_atual:
                 desvio_atual["tipo"] = "recolhida"
                 desvio_atual["ativo"] = False
+            if volta_atual:
+                volta_atual["ativo"] = False  # entrou na G3: o aviso some sozinho
+                volta_atual = None
             em_deslocamento = True
             passou = set()
         if z in ZONAS_TERMINAL:
             em_deslocamento = False
             passou.add(z)
+            if volta_atual:
+                volta_atual["ativo"] = False  # voltou para um terminal: não era ida para a G3
+                volta_atual = None
         if z != "fora":
             dgar_dentro = r["_dGar"]
 
-        # T5 — INDO PARA A GARAGEM: já tocou o TP E o TS desde a última saída
-        # da G3 e, fora da rota, está chegando perto da G3 → fim de serviço,
-        # não "fora do itinerário" (decisão do Alisson, 12/11/2026).
+        # T5 — FIM DE VOLTA RUMO À G3: já tocou o TP E o TS desde a última
+        # saída da G3 e, fora da rota, está chegando perto da G3. Nunca é
+        # "fora do itinerário" (decisão de 12/11/2026). T5 revisto (12/11
+        # 22:46, caso 2735 em 11/11): a cerca não sabe se ainda há viagem na
+        # tabela — emite o evento marcado `fim_de_volta` e quem conhece a
+        # tabela (fiscalizacao_alertas.alertas_da_cerca) decide: no meio da
+        # tabela → indo_garagem (possível R.A.); última viagem → nada.
+        # O evento NÃO entra nos alertas/ocorrências/classe das telas da
+        # fase 1/2 (monitoramento_ao_vivo separa).
         if (z == "fora" and not em_deslocamento and passou >= set(ZONAS_TERMINAL) and dgar_dentro is not None
                 and dgar_dentro - r["_dGar"] > RUMO_G3_M):
+            inicio = desvio_atual["inicio"] if desvio_atual else r["t"]
             if desvio_atual in ev:
                 ev.remove(desvio_atual)
             desvio_atual = None
             fora = []
             em_deslocamento = True
+            volta_atual = {"tipo": FIM_DE_VOLTA, "inicio": inicio, "ativo": True, "rumoG3": True,
+                           "fim_de_volta": True, "s": r["s"], "loc": r.get("loc")}
+            ev.append(volta_atual)
+        elif volta_atual and z == "fora" and r.get("loc"):
+            volta_atual["locAtual"] = r["loc"]
 
         # 1) DESVIO de itinerário (fora da faixa N leituras seguidas)
         if z == "fora" and not em_deslocamento:
@@ -332,6 +352,8 @@ def texto_evento(e: dict, linha: LinhaMonitorada) -> str:
     if tipo == "terminal":
         return (f"Parado no {nt(e['terminal'])} há {e['min']} min (desde {fmt_hora(e['inicio'])})"
                 " — risco de partida perdida")
+    if tipo == FIM_DE_VOLTA:
+        return f"Fez a volta (TP e TS) e segue rumo à G3 desde {fmt_hora(e['inicio'])}"
     if tipo == "semtx":
         return f"Sem transmitir posição há {e['min']} min (última {fmt_hora(e['inicio'])})"
     return tipo

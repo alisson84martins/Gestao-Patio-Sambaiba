@@ -117,7 +117,8 @@ def test_carro_tp_ts_rumo_g3_nao_gera_desvio(linha):
 def _cerca(linha, c):
     res = _analisar(linha, c)
     agora_ms = c.leituras[-1]["t"]
-    return [ao_vivo._evento_saida("22412", e, linha) for e in res["eventos"] if ao_vivo._vale_agora(e, agora_ms)]
+    alertas, _, fim_de_volta = ao_vivo.separar_eventos("22412", res["eventos"], linha, agora_ms)
+    return alertas + fim_de_volta  # o mesmo que montar_alertas junta (alertas_agora + fim_de_volta_agora)
 
 
 def test_saindo_da_rota_no_meio_da_viagem_vira_indo_garagem_e_some_na_g3(linha):
@@ -262,3 +263,60 @@ def test_alarmes_falsos_por_tipo():
 
 def test_data_de_servico_e_de_sao_paulo():  # sanidade do carimbo usado na baixa
     assert data_servico_de(datetime(2026, 11, 12, 2, 0, tzinfo=timezone.utc)) == date(2026, 11, 11)
+
+
+# ─── T5 revisto (12/11 22:46): fez a volta e vai para a G3 NO MEIO da tabela ─
+
+def _volta_e_rumo_g3(linha, ate=0.7):
+    """G3 → TP → TS → fora da rota se aproximando da G3 (caso 2735 em 11/11)."""
+    c = _Carro().em(GARAGEM_G3, 1)
+    c.em(TP_REAL, 1).percorrer(linha, 1, 0, R.comprimento(linha, 1)).em(TS_REAL, 1)
+    return _rumo_g3(c, TS_REAL, ate=ate)
+
+
+def _agora(c):
+    return datetime.fromtimestamp(c.leituras[-1]["t"] / 1000, tz=timezone.utc)
+
+
+def _proxima(agora, minutos=40):
+    return dict(viagem("032120", 2, 0, "future", carro="2412"), status_efetivo="future",
+                prog_inicio=agora + timedelta(minutes=minutos))
+
+
+def test_fez_a_volta_e_vai_para_a_g3_no_meio_da_tabela_avisa_indo_garagem(linha):
+    c = _volta_e_rumo_g3(linha)
+    agora = _agora(c)
+    (a,) = [x for x in al.alertas_da_cerca(linha, _cerca(linha, c), [_proxima(agora)], agora) if x["ativo"]]
+    assert a["tipo"] == "indo_garagem" and a["nivel"] == "alerta"
+    assert a["texto"].startswith("Indo para a G3 — possível R.A.") and a["tabela"] == "032120"
+
+
+def test_fez_a_volta_e_vai_para_a_g3_na_ultima_viagem_nao_avisa_nada(linha):
+    c = _volta_e_rumo_g3(linha)
+    agora = _agora(c)
+    cerca = _cerca(linha, c)
+    # a cerca AVISA o fim de volta (não apaga mais); quem descarta é a tabela
+    assert [e["tipo"] for e in cerca] == ["fim_de_volta"]
+    sem_viagem = al.alertas_da_cerca(linha, cerca, [], agora)
+    assert sem_viagem == []
+    # viagem só daqui a 3 h também não conta como "no meio da tabela" (INDO_GARAGEM_PROXIMA = 2 h)
+    assert al.alertas_da_cerca(linha, _cerca(linha, c), [_proxima(agora, 180)], agora) == []
+
+
+def test_fez_a_volta_no_meio_da_tabela_e_entrou_na_g3_o_alerta_fica_inativo(linha):
+    c = _volta_e_rumo_g3(linha)
+    prox = _proxima(_agora(c))
+    _rumo_g3(c, (c.leituras[-1]["la"], c.leituras[-1]["lo"]), passos=6)   # entrou na G3
+    agora = _agora(c)
+    alertas = al.alertas_da_cerca(linha, _cerca(linha, c), [prox], agora)
+    assert [x for x in alertas if x["ativo"]] == []
+    assert [x["tipo"] for x in alertas] == ["indo_garagem"]   # ainda na janela de 20 min, mas inativo
+
+
+def test_fim_de_volta_nao_aparece_nas_telas_da_fase_1_e_2(linha):
+    c = _volta_e_rumo_g3(linha)
+    res = _analisar(linha, c)
+    agora_ms = c.leituras[-1]["t"]
+    alertas, ocorrencias, fim = ao_vivo.separar_eventos("22412", res["eventos"], linha, agora_ms)
+    assert alertas == [] and ocorrencias == [] and len(fim) == 1
+    assert ao_vivo.classe_carro(res, False, agora_ms) != "alerta"

@@ -147,6 +147,26 @@ def _como_leitura(lv: LeituraVeiculo) -> dict:
             "loc": lv.local_sim, "vel": lv.velocidade}
 
 
+def separar_eventos(prefixo: str, eventos: list[dict], linha: LinhaMonitorada, agora_ms: int,
+                    inicio_dia_ms: int = 0) -> tuple[list[dict], list[dict], list[dict]]:
+    """Eventos da cerca de UM carro → (alertas agora, ocorrências do dia, fim de volta).
+
+    `fim_de_volta` (T5 revisto, 12/11 22:46) não é anormalidade da cerca: fica
+    fora dos alertas, das ocorrências e da classe do carro (telas da fase 1/2)
+    e vai à parte para fiscalizacao_alertas decidir pela tabela."""
+    alertas, ocorrencias, fim_de_volta = [], [], []
+    for e in eventos:
+        if e["tipo"] == regras.FIM_DE_VOLTA:
+            if e["ativo"] or agora_ms - e["inicio"] < JANELA_ALERTA_MIN * 60000:
+                fim_de_volta.append(_evento_saida(prefixo, e, linha))
+            continue
+        if _vale_agora(e, agora_ms):
+            alertas.append(_evento_saida(prefixo, e, linha))
+        if e["inicio"] >= inicio_dia_ms and e["tipo"] != "semtx":
+            ocorrencias.append(_evento_saida(prefixo, e, linha))
+    return alertas, ocorrencias, fim_de_volta
+
+
 def montar_ao_vivo(db: Session, linha: LinhaMonitorada, agora: Optional[datetime] = None) -> dict:
     agora = agora or datetime.now(timezone.utc)
     agora_ms = _ms(agora)
@@ -154,7 +174,7 @@ def montar_ao_vivo(db: Session, linha: LinhaMonitorada, agora: Optional[datetime
     ultima_ok = coleta.pop("_ultima_ok")
     inicio_dia_ms = _ms(agora.astimezone(FUSO_OPERACAO).replace(hour=0, minute=0, second=0, microsecond=0))
 
-    carros, alertas, ocorrencias = [], [], []
+    carros, alertas, ocorrencias, fim_de_volta = [], [], [], []
     for prefixo, lvs in _leituras_por_carro(db, linha, agora - JANELA_ANALISE).items():
         analise = regras.analisar_carro(prefixo, [_como_leitura(lv) for lv in lvs], linha, agora_ms)
         if analise is None:
@@ -186,11 +206,10 @@ def montar_ao_vivo(db: Session, linha: LinhaMonitorada, agora: Optional[datetime
             "classe": classe,
             "sumiu": sumiu,
         })
-        for e in analise["eventos"]:
-            if _vale_agora(e, agora_ms):
-                alertas.append(_evento_saida(prefixo, e, linha))
-            if e["inicio"] >= inicio_dia_ms and e["tipo"] != "semtx":
-                ocorrencias.append(_evento_saida(prefixo, e, linha))
+        a, o, f = separar_eventos(prefixo, analise["eventos"], linha, agora_ms, inicio_dia_ms)
+        alertas += a
+        ocorrencias += o
+        fim_de_volta += f
 
     # alerta antes de atenção; dentro do nível, o mais recente primeiro
     alertas.sort(key=lambda a: a["inicio_em"], reverse=True)
@@ -222,6 +241,7 @@ def montar_ao_vivo(db: Session, linha: LinhaMonitorada, agora: Optional[datetime
         "contadores": contadores,
         "carros": carros,
         "alertas_agora": alertas,
+        "fim_de_volta_agora": fim_de_volta,  # só para fiscalizacao_alertas (T5 revisto)
         "ocorrencias_dia": ocorrencias,
     }
 

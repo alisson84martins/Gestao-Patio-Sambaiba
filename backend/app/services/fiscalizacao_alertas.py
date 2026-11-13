@@ -381,7 +381,9 @@ def _no_meio_da_tabela(carro: Optional[str], viagens, agora: Optional[datetime])
 def alertas_da_cerca(linha, alertas_ao_vivo: list[dict], viagens, agora: Optional[datetime] = None) -> list[dict]:
     """alertas_agora de monitoramento_ao_vivo → mesmo formato, com a tabela do carro.
 
-    Desvio rumo à G3 com o carro no meio da tabela vira `indo_garagem`."""
+    Desvio rumo à G3 com o carro no meio da tabela vira `indo_garagem`.
+    `fim_de_volta` (carro que já tocou TP e TS e segue para a G3 — T5 revisto,
+    12/11 22:46): no meio da tabela → `indo_garagem`; última viagem → nada."""
     tabela_do_carro = {}
     com_horario = sorted((v for v in viagens if v.get("prog_inicio")), key=lambda v: v["prog_inicio"])
     for v in com_horario + [v for v in viagens if not v.get("prog_inicio")]:
@@ -392,7 +394,16 @@ def alertas_da_cerca(linha, alertas_ao_vivo: list[dict], viagens, agora: Optiona
         carro = a.get("prefixo_patio")
         inicio = datetime.fromisoformat(a["inicio_em"]) if a.get("inicio_em") else None
         tipo, texto = a["tipo"], a["texto"]
-        if tipo == "desvio" and a.get("rumo_g3") and a.get("ativo", True) and _no_meio_da_tabela(carro, viagens, agora):
+        if tipo == "fim_de_volta":
+            # o "no meio da tabela" é olhado no início do evento: depois que ele
+            # some (entrou na G3), a viagem que ele perdeu já não está "pela frente"
+            marco = inicio or agora
+            if not _no_meio_da_tabela(carro, viagens, marco):
+                continue  # última viagem da tabela: recolhida normal, sem alerta
+            tipo = "indo_garagem"
+            texto = "Indo para a G3 — possível R.A." + (f" ({a['local']})" if a.get("local") else "")
+        elif (tipo == "desvio" and a.get("rumo_g3") and a.get("ativo", True)
+              and _no_meio_da_tabela(carro, viagens, agora)):
             tipo = "indo_garagem"
             texto = "Indo para a G3 — possível R.A." + (f" ({a['local']})" if a.get("local") else "")
         nivel = "alerta" if tipo == "indo_garagem" else NIVEL_FASE1.get(tipo, a.get("nivel", "atencao"))
@@ -478,7 +489,8 @@ def montar_alertas(db, linha, resultado: dict, agora: Optional[datetime] = None)
     carros = {v["carro"] for v in resultado["viagens"] if v.get("carro")}
     outras = [r for r in leituras_do_dia(db, None, agora - OUTRA_LINHA_RECENTE, prefixos=carros)
               if r["linha"] != linha.codigo] if carros else []
-    cerca = ao_vivo.ao_vivo_com_cache(db, linha).get("alertas_agora", []) if linha.tem_mapa else []
+    vivo = ao_vivo.ao_vivo_com_cache(db, linha) if linha.tem_mapa else {}
+    cerca = vivo.get("alertas_agora", []) + vivo.get("fim_de_volta_agora", [])
     return calcular_alertas(
         linha, resultado,
         leituras_por_carro=leituras_por_carro(resultado.get("leituras", [])),
